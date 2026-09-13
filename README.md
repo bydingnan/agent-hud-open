@@ -24,7 +24,7 @@
 
 - **Activity in your notch.** A breathing glow follows agent activity. Expand the panel to see quotas, token usage, and active sessions.
 - **Usage in context.** Track reset times, quota trends, model usage, and available API balances in one statistics window.
-- **Make it yours.** Choose visible agents, quota thresholds, glow appearance (a soft blur or a halftone, ASCII, block, Braille or binary grid, each with breathe, flow, scan, ripple, shimmer and boot effects), language, and startup preferences.
+- **Make it yours.** Choose visible agents, glow appearance (a soft blur or a halftone, ASCII, block, Braille or binary grid, each with breathe, flow, scan, ripple, shimmer and boot effects), language, and startup preferences. Usage alert levels are fixed at 70% / 90% used.
 
 Press **⌘⌥H** to toggle the glow. The menu bar gives you quick access to usage and settings.
 
@@ -45,8 +45,6 @@ make run
 ```
 
 This builds and opens `build/Agent HUD Open.app`. The app is signed ad-hoc for local use; no developer account, signing identity, or provisioning profile is required.
-
-This repository distributes source code and local build tools. Prebuilt applications are not distributed here.
 
 ## Supported clients
 
@@ -81,14 +79,19 @@ Continuous integration checks source boundaries, runs unit tests, builds the app
 | `AgentHUDDesktop` | Native menu bar, notch, settings, and statistics UI |
 | `AgentHUDOpen` | Standalone macOS executable |
 
-The libraries can also be consumed through Swift Package Manager. `DesktopApplication` accepts a `SettingsStore` and `UsageStore`; the host owns any additional services.
+The libraries can also be consumed through Swift Package Manager. `DesktopApplication(options:settings:store:additionalMenuActions:additionalSettingsPages:)` takes a `SettingsStore` and `UsageStore` plus optional host menu actions and settings pages, and `showSettings(pageID:)` opens one of those pages; the host owns any additional services. See [architecture](docs/architecture.md#host-integration).
 
 ## Documentation
 
-- [Architecture](docs/architecture.md) — modules, host integration, and resource ownership.
+- [Architecture](docs/architecture.md) — modules, host integration, storage, design invariants, and versioning.
 - [Data access](docs/data-access.md) — provider queries, credentials, and local storage.
-- [Session lifecycle](docs/session-lifecycle.md) — evidence for running and terminal turns.
-- [Roadmap](docs/roadmap.md) — capability milestones and acceptance criteria.
+- [Usage semantics](docs/usage-semantics.md) — token dimensions, percentages, alert levels, request intervals, and reading retention.
+- [Providers](docs/providers.md) — per-client data sources, credentials, endpoints, counting, billing pools, caches, tests, and upstream references.
+- [Session lifecycle](docs/session-lifecycle.md) — running and terminal turn evidence, live status, the Pi observer, and completion hooks.
+- [Command line](docs/command-line.md) — launch options, read-only probes, adapter commands, and environment variables.
+- [Brand assets](docs/brand-assets.md) — bundled client logos, their sources, rendering, and licenses.
+- [Roadmap](docs/roadmap.md) — what is in progress, next, and later.
+- [Changelog](CHANGELOG.md) — released versions and host-visible API changes.
 
 ## License
 
