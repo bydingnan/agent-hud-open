@@ -22,17 +22,23 @@ final class GlowImageCache {
         let outwardOnly: Bool
         let stops: [GradientStop]
         let scale: CGFloat
+        let pattern: GlowPattern
     }
 
     private var cached: (key: Key, image: GlowImage)?
 
     func render(glow: GlowGeometry, islandSize: CGSize, islandRadius: CGFloat,
-                outwardOnly: Bool, stops: [GradientStop], scale: CGFloat) -> GlowImage? {
+                outwardOnly: Bool, stops: [GradientStop], scale: CGFloat,
+                pattern: GlowPattern = GlowPattern()) -> GlowImage? {
+        // The resting bitmap does not depend on which effect plays while agents run.
+        var resting = pattern
+        resting.effect = .breathe
         let key = Key(glow: glow, islandSize: islandSize, islandRadius: islandRadius,
-                      outwardOnly: outwardOnly, stops: stops, scale: scale)
+                      outwardOnly: outwardOnly, stops: stops, scale: scale, pattern: resting)
         if let cached, cached.key == key { return cached.image }
         guard let image = GlowRenderer.render(glow: glow, islandSize: islandSize, islandRadius: islandRadius,
-                                              outwardOnly: outwardOnly, stops: stops, scale: scale) else { return nil }
+                                              outwardOnly: outwardOnly, stops: stops, scale: scale,
+                                              pattern: resting) else { return nil }
         cached = (key, image)
         return image
     }
@@ -42,16 +48,25 @@ enum GlowRenderer {
     private static let ciContext = CIContext(options: [.useSoftwareRenderer: false])
 
     /// Keeps colour dense at the island's contour, then fades it out across the glow's range.
+    /// The dot and ASCII styles draw their resting frame instead; they need no blur padding, so the bitmap is
+    /// exactly the glow rect.
     static func render(
         glow: GlowGeometry,
         islandSize: CGSize,
         islandRadius: CGFloat,
         outwardOnly: Bool,
         stops: [GradientStop],
-        scale: CGFloat
+        scale: CGFloat,
+        pattern: GlowPattern = GlowPattern(),
+        colorSpace: CGColorSpace? = nil
     ) -> GlowImage? {
+        if pattern.usesGrid {
+            return GlowFrameRenderer(.init(glow: glow, islandRadius: islandRadius, stops: stops, scale: scale, pattern: pattern))
+                .render(time: 0, blend: 0, breathSeconds: 0, breathAmplitude: 0)
+        }
         let padding = ceil(max(0, glow.blur) * 3)
-        return renderBitmap(width: glow.width, height: glow.height, blur: outwardOnly ? 0 : glow.blur, padding: padding, scale: scale) { rect, context, space in
+        return renderBitmap(width: glow.width, height: glow.height, blur: outwardOnly ? 0 : glow.blur, padding: padding, scale: scale,
+                            colorSpace: colorSpace) { rect, context, space in
             // A zero-width band has no outward falloff; avoid dividing by its range.
             if outwardOnly && glow.blur > 0 && glow.sideInset > 0 {
                 drawOutwardFalloff(glow: glow, islandSize: islandSize, islandRadius: islandRadius, in: rect, context: context, scale: scale)
@@ -131,12 +146,19 @@ enum GlowRenderer {
         }
     }
 
-    private static func renderBitmap(
+    /// Bitmaps redrawn every frame use the screen's own colour space so Core Animation need not convert them;
+    /// anything a bitmap context cannot draw into falls back to sRGB.
+    static func bitmapSpace(_ colorSpace: CGColorSpace?) -> CGColorSpace? {
+        colorSpace.flatMap { $0.model == .rgb && $0.supportsOutput ? $0 : nil } ?? CGColorSpace(name: CGColorSpace.sRGB)
+    }
+
+    static func renderBitmap(
         width: CGFloat,
         height: CGFloat,
         blur: CGFloat,
         padding: CGFloat,
         scale: CGFloat,
+        colorSpace: CGColorSpace? = nil,
         draw: (CGRect, CGContext, CGColorSpace) -> Void
     ) -> GlowImage? {
         let totalWidth = width + padding * 2
@@ -144,7 +166,7 @@ enum GlowRenderer {
         let pixelWidth = Int((totalWidth * scale).rounded(.up))
         let pixelHeight = Int((totalHeight * scale).rounded(.up))
         guard pixelWidth > 0, pixelHeight > 0,
-              let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let space = bitmapSpace(colorSpace),
               let context = CGContext(
                 data: nil, width: pixelWidth, height: pixelHeight, bitsPerComponent: 8, bytesPerRow: 0,
                 space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue

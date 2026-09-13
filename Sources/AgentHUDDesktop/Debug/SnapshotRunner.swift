@@ -41,6 +41,28 @@ public enum SnapshotRunner {
         }
 
         save("island-collapsed", IslandScene(store: store, settings: settings, open: false, light: false), folder: folder, scheme: .dark)
+        for style in GlowStyle.allCases where style != .blur {
+            settings.update { $0.glowStyle = style; $0.glowEffect = .breathe }
+            save("island-collapsed-\(style.rawValue)", IslandScene(store: store, settings: settings, open: false, light: false, glowTime: 0), folder: folder, scheme: .dark)
+            save("island-expanded-\(style.rawValue)", IslandScene(store: store, settings: settings, open: true, light: false, glowTime: 0), folder: folder, scheme: .dark)
+            // One representative moment of every effect.
+            for (effect, time) in [(GlowEffect.breathe, 1.5), (.flow, 2.0), (.scan, 1.1), (.ripple, 0.9), (.shimmer, 0.3), (.boot, 1.2)] {
+                settings.update { $0.glowEffect = effect }
+                save("island-collapsed-\(style.rawValue)-\(effect.rawValue)", IslandScene(store: store, settings: settings, open: false, light: false, glowTime: time), folder: folder, scheme: .dark)
+            }
+        }
+        for (effect, time) in [(GlowEffect.breathe, 1.5), (.flow, 2.0), (.scan, 1.1), (.ripple, 0.9), (.shimmer, 0.3), (.boot, 1.2)] {
+            settings.update { $0.glowStyle = .blur; $0.glowEffect = effect }
+            save("island-collapsed-blur-\(effect.rawValue)", IslandScene(store: store, settings: settings, open: false, light: false, glowTime: time), folder: folder, scheme: .dark)
+        }
+        for style in GlowStyle.allCases where style != .blur {
+            settings.update { $0.glowStyle = style; $0.glowEffect = .breathe; $0.glowGridDensity = 2 }
+            save("island-collapsed-\(style.rawValue)-dense", IslandScene(store: store, settings: settings, open: false, light: false, glowTime: 0), folder: folder, scheme: .dark)
+        }
+        settings.update { $0.glowGridDensity = 1 }
+        settings.update { $0.glowStyle = .dots; $0.glowEffect = .ripple }
+        save("settings-display-dots-dark", SettingsView(settings: settings, store: store, initialTab: .display).frame(width: SettingsWindowLayout.size.width, height: SettingsWindowLayout.size.height), folder: folder, scheme: .dark)
+        settings.update { $0.glowStyle = .blur; $0.glowEffect = .breathe }
         save("island-expanded-dark", IslandScene(store: store, settings: settings, open: true, light: false), folder: folder, scheme: .dark)
         save("island-expanded-light", IslandScene(store: store, settings: settings, open: true, light: true), folder: folder, scheme: .light)
         save("menubar-dark", MenuBarStrip(store: store, light: false), folder: folder, scheme: .dark)
@@ -364,7 +386,8 @@ public enum SnapshotRunner {
         // Limit visual rechecks to the changed surface, e.g. AGENTHUD_SNAPSHOT_PREFIX=settings-.
         if let prefix = ProcessInfo.processInfo.environment["AGENTHUD_SNAPSHOT_PREFIX"], !name.hasPrefix(prefix) { return }
         // Default sizing options so the hosting view reports SwiftUI's ideal size; then freeze it.
-        let hosting = NSHostingView(rootView: view.ignoresSafeArea())
+        // Animated glow previews draw from layers that bitmap caching cannot see; snapshots use a still frame.
+        let hosting = NSHostingView(rootView: view.environment(\.glowFrozenTime, 0.9).ignoresSafeArea())
         var size = hosting.fittingSize
         if size.width <= 0 || size.height <= 0 { size = hosting.intrinsicContentSize }
         guard size.width > 0, size.height > 0 else {
@@ -458,6 +481,8 @@ struct IslandScene: View {
     let light: Bool
     var alert: IslandAlert? = nil
     var showsAlertDetails = false
+    /// A fixed effect time for the dot and ASCII glow styles.
+    var glowTime: Double? = nil
 
     private var panelHeight: CGFloat {
         if showsAlertDetails, let alert {
@@ -513,6 +538,7 @@ struct IslandScene: View {
                 islandSize: islandSize,
                 islandRadius: radius
             )
+            .environment(\.glowFrozenTime, glowTime ?? 0.9)
             .frame(width: 720, alignment: .top)
             IslandRootView(
                 store: store, isOpen: open,

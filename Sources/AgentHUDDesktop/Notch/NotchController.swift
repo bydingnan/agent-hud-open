@@ -231,13 +231,7 @@ final class NotchController {
         let windowFrame = expanded ? islandFrame.insetBy(dx: -flare, dy: 0) : geometry.islandFrame
         let radius = open ? Self.expandedRadius : max(geometry.cornerRadius, activeAlert == nil ? 0 : 14)
         let current = settings.settings
-        let glowGeometry = GlowGeometry.compute(
-            islandWidth: islandFrame.width,
-            islandHeight: islandFrame.height,
-            islandRadius: radius,
-            range: current.glowRange,
-            blur: current.glowBlur
-        )
+        let glowGeometry = current.glowGeometry(islandWidth: islandFrame.width, islandHeight: islandFrame.height, islandRadius: radius)
         let appearance = store.glowAppearance(light: systemIsLight)
 
         if !animated || targetWindowFrame != windowFrame {
@@ -270,7 +264,9 @@ final class NotchController {
             appearance: appearance,
             animated: animated,
             alert: activeAlert,
-            quotaVendors: store.rows.filter { $0.level != nil }.map { $0.agent.vendor }
+            quotaVendors: store.rows.filter { $0.level != nil }.map { $0.agent.vendor },
+            pattern: current.glowPattern(),
+            motionAllowed: !expanded
         )
         root.presentationSize = windowFrame.size
         root.onContentHeight = { [weak self] height in self?.updatePanelHeight(height) }

@@ -79,6 +79,24 @@ public enum GlowGradient {
         }
     }
 
+    /// Colour at `location` (0…1) along the stops, clamped to the outer colours like the drawn gradient.
+    public static func color(at location: Double, stops: [GradientStop]) -> RGBA {
+        guard let first = stops.first, let last = stops.last else { return StatusPalette.idle }
+        if stops.count == 1 || location <= first.location { return first.color }
+        if location >= last.location { return last.color }
+        for (previous, next) in zip(stops, stops.dropFirst()) where location <= next.location {
+            let span = next.location - previous.location
+            let t = span > 0 ? (location - previous.location) / span : 1
+            return RGBA(
+                red: previous.color.red + (next.color.red - previous.color.red) * t,
+                green: previous.color.green + (next.color.green - previous.color.green) * t,
+                blue: previous.color.blue + (next.color.blue - previous.color.blue) * t,
+                alpha: previous.color.alpha + (next.color.alpha - previous.color.alpha) * t
+            )
+        }
+        return last.color
+    }
+
     /// CSS-equivalent string, handy for debugging and tests.
     public static func css(_ stops: [GradientStop]) -> String {
         "linear-gradient(90deg," + stops.map { "\($0.color.hexString) \(String(format: "%.1f", $0.location * 100))%" }.joined(separator: ",") + ")"

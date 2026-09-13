@@ -28,6 +28,13 @@ public struct RGBA: Hashable, Codable, Sendable {
         RGBA(red: red, green: green, blue: blue, alpha: alpha)
     }
 
+    /// Linear blend toward `other`; 0 keeps this colour, 1 gives `other`.
+    public func mixed(with other: RGBA, amount: Double) -> RGBA {
+        let t = min(1, max(0, amount))
+        return RGBA(red: red + (other.red - red) * t, green: green + (other.green - green) * t,
+                    blue: blue + (other.blue - blue) * t, alpha: alpha + (other.alpha - alpha) * t)
+    }
+
     /// CSS-style hex, e.g. `#3ddc84`. Alpha is dropped.
     public var hexString: String {
         let r = Int((red * 255).rounded()), g = Int((green * 255).rounded()), b = Int((blue * 255).rounded())

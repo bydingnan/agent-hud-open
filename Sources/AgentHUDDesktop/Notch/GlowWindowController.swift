@@ -17,6 +17,11 @@ final class GlowWindowController {
     private var shadowKey = ""
     private var shadowPadding: CGFloat = 0
     private var breathKey = ""
+    private var restingKey: GlowFrameRenderer.Key?
+    /// The soft glow's resting bitmap, restored when a frame-by-frame effect stops.
+    private var softStill: CGImage?
+    private let frames = GlowFrameCache()
+    private lazy var animator = GlowAnimator(host: host, layer: glowLayer)
 
     static let panelWidth: CGFloat = 1000
 
@@ -56,7 +61,9 @@ final class GlowWindowController {
         appearance: GlowAppearance,
         animated: Bool,
         alert: IslandAlert? = nil,
-        quotaVendors: [String] = []
+        quotaVendors: [String] = [],
+        pattern: GlowPattern = GlowPattern(),
+        motionAllowed: Bool = false
     ) {
         let frame = Self.panelFrame(for: geometry)
         if panel.frame != frame { panel.setFrame(frame, display: false) }
@@ -64,6 +71,9 @@ final class GlowWindowController {
         shadowLayer.contentsScale = geometry.backingScale
 
         if appearance.hidden && alert?.isPreview != true {
+            animator.stop()
+            glowKey = ""
+            restingKey = nil
             if panel.isVisible { panel.orderOut(nil) }
             return
         }
@@ -74,7 +84,17 @@ final class GlowWindowController {
         let glowTop = local.maxY - glow.topOffset
         let glowRect = CGRect(x: local.minX - glow.sideInset, y: glowTop - glow.height, width: glow.width, height: glow.height)
 
-        updateGlowImage(glow: glow, islandSize: island.size, islandRadius: islandRadius, outwardOnly: outwardOnly, stops: appearance.stops, scale: geometry.backingScale)
+        let motion = Self.playsMotion(pattern: pattern, appearance: appearance, motionAllowed: motionAllowed,
+                                      reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+        if pattern.usesGrid {
+            updateGridImage(glow: glow, islandRadius: islandRadius, stops: appearance.stops, scale: geometry.backingScale,
+                            pattern: pattern, appearance: appearance, motion: motion, motionAllowed: motionAllowed)
+        } else {
+            restingKey = nil
+            updateSoftImage(glow: glow, islandSize: island.size, islandRadius: islandRadius, outwardOnly: outwardOnly,
+                            stops: appearance.stops, scale: geometry.backingScale, pattern: pattern, appearance: appearance,
+                            motion: motion, motionAllowed: motionAllowed)
+        }
         updateShadowImage(island: local, radius: islandRadius, scale: geometry.backingScale)
 
         CATransaction.begin()
@@ -90,13 +110,40 @@ final class GlowWindowController {
         shadowLayer.opacity = 1
         CATransaction.commit()
 
-        applyBreathing(appearance)
+        // A running grid effect carries the breathing itself; otherwise the whole layer pulses.
+        applyBreathing(appearance, pulsesOpacity: !animator.isRunning)
         applyAlert(alert, vendors: quotaVendors, glow: glow, islandSize: island.size, radius: islandRadius,
-                   outwardOnly: outwardOnly, scale: geometry.backingScale)
+                   outwardOnly: outwardOnly, scale: geometry.backingScale, pattern: pattern)
+    }
+
+    /// Effects play frame by frame while an agent is running and the island is collapsed; expanded panels, alerts
+    /// and Reduce Motion keep the resting frame. The soft glow's breathing stays a Core Animation opacity pulse.
+    nonisolated static func playsMotion(pattern: GlowPattern, appearance: GlowAppearance, motionAllowed: Bool, reduceMotion: Bool) -> Bool {
+        (pattern.usesGrid || pattern.effect != .breathe) && appearance.breathing && !appearance.hidden && motionAllowed && !reduceMotion
+    }
+
+    /// How deep the appearance breathes, as the fraction of brightness it loses at the trough.
+    private static func breathDepth(_ appearance: GlowAppearance) -> Double {
+        appearance.peakOpacity > 0 ? 1 - appearance.troughOpacity / appearance.peakOpacity : 0
+    }
+
+    /// The blurred bitmap stretches through its nine-slice centre while the island animates; a grid of dots
+    /// would distort, so those bitmaps stay at native size, pinned to the screen edge, and the animating frame
+    /// reveals or hides rows instead.
+    private func configure(_ layer: CALayer, for style: GlowStyle, image: GlowImage, side: CGFloat, bottom: CGFloat) {
+        if style == .blur {
+            layer.contentsGravity = .resize
+            layer.masksToBounds = false
+            layer.contentsCenter = contentsCenter(for: image, side: side, bottom: bottom)
+        } else {
+            layer.contentsGravity = .top
+            layer.masksToBounds = true
+            layer.contentsCenter = CGRect(x: 0, y: 0, width: 1, height: 1)
+        }
     }
 
     private func applyAlert(_ alert: IslandAlert?, vendors: [String], glow: GlowGeometry, islandSize: CGSize,
-                            radius: CGFloat, outwardOnly: Bool, scale: CGFloat) {
+                            radius: CGFloat, outwardOnly: Bool, scale: CGFloat, pattern: GlowPattern) {
         guard lastAlertID != alert?.id else { return }
         lastAlertID = alert?.id
         alertLayer.removeAllAnimations()
@@ -117,12 +164,13 @@ final class GlowWindowController {
             stops = [GradientStop(color: color, location: 0), GradientStop(color: color, location: 1)]
         }
         guard let rendered = GlowRenderer.render(glow: glow, islandSize: islandSize, islandRadius: radius,
-                                                outwardOnly: outwardOnly, stops: stops, scale: scale) else { return }
+                                                outwardOnly: outwardOnly, stops: stops, scale: scale,
+                                                pattern: pattern) else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         alertLayer.contents = rendered.image
         alertLayer.contentsScale = scale
-        alertLayer.contentsCenter = contentsCenter(for: rendered, side: glow.sideInset + radius, bottom: glow.sideInset + radius)
+        configure(alertLayer, for: pattern.style, image: rendered, side: glow.sideInset + radius, bottom: glow.sideInset + radius)
         CATransaction.commit()
         let pulse = CAKeyframeAnimation(keyPath: "opacity")
         if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
@@ -140,7 +188,74 @@ final class GlowWindowController {
         alertLayer.add(pulse, forKey: "quota-event")
     }
 
-    private func updateGlowImage(glow: GlowGeometry, islandSize: CGSize, islandRadius: CGFloat, outwardOnly: Bool, stops: [GradientStop], scale: CGFloat) {
+    private func updateGridImage(glow: GlowGeometry, islandRadius: CGFloat, stops: [GradientStop], scale: CGFloat,
+                                 pattern: GlowPattern, appearance: GlowAppearance, motion: Bool, motionAllowed: Bool) {
+        let renderer = frames.renderer(for: .init(glow: glow, islandRadius: islandRadius, stops: stops, scale: scale, pattern: pattern,
+                                                  colorSpace: panel.screen?.colorSpace?.cgColorSpace))
+        glowKey = ""
+        glowPadding = 0
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        glowLayer.contentsGravity = .top
+        glowLayer.masksToBounds = true
+        glowLayer.contentsCenter = CGRect(x: 0, y: 0, width: 1, height: 1)
+        CATransaction.commit()
+        if motion {
+            restingKey = nil
+            animator.play(renderer, breathSeconds: appearance.breathSeconds, breathAmplitude: Self.breathDepth(appearance))
+        } else if animator.isRunning && motionAllowed {
+            // The last agent went idle: ease back into the resting frame.
+            animator.settle(renderer) { [weak self] in self?.showResting(renderer) }
+        } else {
+            animator.stop()
+            showResting(renderer)
+        }
+    }
+
+    /// The soft glow keeps its nine-slice bitmap. Effects other than breathing swap in frames of the same size and
+    /// layout, and hand the resting bitmap back when they stop.
+    private func updateSoftImage(glow: GlowGeometry, islandSize: CGSize, islandRadius: CGFloat, outwardOnly: Bool, stops: [GradientStop],
+                                 scale: CGFloat, pattern: GlowPattern, appearance: GlowAppearance, motion: Bool, motionAllowed: Bool) {
+        updateGlowImage(glow: glow, islandSize: islandSize, islandRadius: islandRadius, outwardOnly: outwardOnly, stops: stops, scale: scale)
+        guard pattern.effect != .breathe else { return stopSoftMotion() }
+        let renderer = frames.renderer(for: .init(glow: glow, islandRadius: islandRadius, stops: stops, scale: scale, pattern: pattern,
+                                                  colorSpace: panel.screen?.colorSpace?.cgColorSpace,
+                                                  islandSize: islandSize, outwardOnly: outwardOnly))
+        if motion {
+            animator.play(renderer, breathSeconds: appearance.breathSeconds, breathAmplitude: Self.breathDepth(appearance))
+        } else if animator.isRunning && motionAllowed {
+            animator.settle(renderer) { [weak self] in self?.restoreSoftStill() }
+        } else {
+            stopSoftMotion()
+        }
+    }
+
+    private func stopSoftMotion() {
+        guard animator.isRunning else { return }
+        animator.stop()
+        restoreSoftStill()
+    }
+
+    private func restoreSoftStill() {
+        guard let softStill else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        glowLayer.contents = softStill
+        CATransaction.commit()
+    }
+
+    private func showResting(_ renderer: GlowFrameRenderer) {
+        guard restingKey != renderer.key,
+              let rendered = renderer.render(time: 0, blend: 0, breathSeconds: 0, breathAmplitude: 0) else { return }
+        restingKey = renderer.key
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        glowLayer.contents = rendered.image
+        CATransaction.commit()
+    }
+
+    private func updateGlowImage(glow: GlowGeometry, islandSize: CGSize, islandRadius: CGFloat, outwardOnly: Bool,
+                                 stops: [GradientStop], scale: CGFloat) {
         let key = "\(glow)|\(islandSize)|r\(islandRadius)s\(scale)|outward:\(outwardOnly)|\(GlowGradient.css(stops))"
         guard key != glowKey else { return }
         guard let rendered = GlowRenderer.render(
@@ -148,12 +263,13 @@ final class GlowWindowController {
         ) else { return }
         glowKey = key
         glowPadding = rendered.padding
+        softStill = rendered.image
         CATransaction.begin()
         // A contents crossfade has its own timing and stretches the old contour into the new one.
         // Only animate the frame; keep the feather and rounded edge at their native point size.
         CATransaction.setDisableActions(true)
         glowLayer.contents = rendered.image
-        glowLayer.contentsCenter = contentsCenter(for: rendered, side: glow.sideInset + islandRadius, bottom: glow.sideInset + islandRadius)
+        configure(glowLayer, for: .blur, image: rendered, side: glow.sideInset + islandRadius, bottom: glow.sideInset + islandRadius)
         CATransaction.commit()
     }
 
@@ -179,8 +295,9 @@ final class GlowWindowController {
                       height: (image.size.height - top - lower) / image.size.height)
     }
 
-    private func applyBreathing(_ appearance: GlowAppearance) {
-        let key = "\(appearance.breathing)|\(appearance.peakOpacity)|\(appearance.troughOpacity)|\(appearance.breathSeconds)"
+    private func applyBreathing(_ appearance: GlowAppearance, pulsesOpacity: Bool) {
+        let pulses = appearance.breathing && pulsesOpacity
+        let key = "\(pulses)|\(appearance.peakOpacity)|\(appearance.troughOpacity)|\(appearance.breathSeconds)"
         guard key != breathKey else { return }
         breathKey = key
         glowLayer.removeAnimation(forKey: "breathe")
@@ -188,7 +305,7 @@ final class GlowWindowController {
         CATransaction.setAnimationDuration(0.3)
         glowLayer.opacity = Float(appearance.peakOpacity)
         CATransaction.commit()
-        guard appearance.breathing else { return }
+        guard pulses else { return }
         let animation = CABasicAnimation(keyPath: "opacity")
         animation.fromValue = appearance.peakOpacity
         animation.toValue = appearance.troughOpacity

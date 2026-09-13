@@ -24,7 +24,7 @@
 
 - **Activity in your notch.** A breathing glow follows agent activity. Expand the panel to see quotas, token usage, and active sessions.
 - **Usage in context.** Track reset times, quota trends, model usage, and available API balances in one statistics window.
-- **Make it yours.** Choose visible agents, quota thresholds, glow appearance, language, and startup preferences.
+- **Make it yours.** Choose visible agents, quota thresholds, glow appearance (a soft blur or a halftone, ASCII, block, Braille or binary grid, each with breathe, flow, scan, ripple, shimmer and boot effects), language, and startup preferences.
 
 Press **⌘⌥H** to toggle the glow. The menu bar gives you quick access to usage and settings.
 
