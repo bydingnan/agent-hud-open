@@ -2,9 +2,7 @@
 
 Releases of Agent HUD Open. A version is a git tag `vX.Y.Z` on `main`; `CFBundleShortVersionString` in `scripts/build-app.sh` carries the same number. Each entry lists what changed for people using the application and, under **Host API**, what changed for applications that embed `AgentHUDCore` and `AgentHUDDesktop`. Dates are tag dates.
 
-## Unreleased
-
-Changes in the working tree after v0.4.4.
+## 0.4.5 — 2026-09-13
 
 - Notch glow styles: besides the blurred band, a halftone dot grid, ASCII characters, shade blocks, Braille and binary digits (`GlowStyle`), with grid pitch, density and spread controls in Settings → Display.
 - Motion effects for the grid styles while an agent is running — breathe, flow, scan, ripple, shimmer and boot (`GlowEffect`) — drawn at 24 fps from a display link and eased in and out.
