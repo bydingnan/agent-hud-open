@@ -37,13 +37,17 @@ public struct QuotaAlert: Identifiable, Hashable, Sendable {
 public struct QuotaAlertTracker: Sendable {
     public struct Update: Sendable {
         public var alerts: [QuotaAlert] = []
+        /// Windows that crossed the critical threshold in this update.
         public var criticalAgentIDs: Set<String> = []
+        /// Windows that reached zero in this update; a window already at zero on first sight is a silent baseline.
+        public var exhaustedAgentIDs: Set<String> = []
     }
 
     private struct Observation: Sendable {
         let snapshot: UsageSnapshot
         let atRisk: Bool
         let critical: Bool
+        let exhausted: Bool
     }
     private var previous: [String: Observation] = [:]
 
@@ -70,22 +74,27 @@ public struct QuotaAlertTracker: Sendable {
                 interval.isFinite && interval > 0 && snapshot.resetAt.map { interval < $0.timeIntervalSince(now) } == true
             } ?? false
             let critical = snapshot.remainingPct <= criticalThreshold
-            let atRisk = snapshot.remainingPct <= 0 || critical || predictsCap
-            previous[agent.id] = Observation(snapshot: snapshot, atRisk: atRisk, critical: critical)
+            let exhausted = snapshot.remainingPct <= 0
+            let atRisk = exhausted || critical || predictsCap
+            previous[agent.id] = Observation(snapshot: snapshot, atRisk: atRisk, critical: critical, exhausted: exhausted)
             guard let old else { continue } // First observation establishes a baseline without notifying.
 
             if critical && !old.critical { result.criticalAgentIDs.insert(agent.id) }
+            if exhausted && !old.exhausted { result.exhaustedAgentIDs.insert(agent.id) }
             let cycleAdvanced = old.snapshot.resetAt.map { oldReset in
                 snapshot.resetAt.map { $0 > oldReset && snapshot.updatedAt >= oldReset } == true
             } ?? false
             // An early/manual reset may retain the deadline but restores the full window.
             let restoredEarly = snapshot.remainingPct == 100 && old.snapshot.remainingPct < 100
             if cycleAdvanced || restoredEarly {
-                let exhausted = quotaAgents.filter {
+                let otherExhausted = quotaAgents.filter {
                     $0.vendor == agent.vendor && $0.id != agent.id &&
                     report.snapshot(for: $0.id).map { $0.remainingPct <= 0 && ($0.resetAt ?? .distantPast) > now } == true
                 }.map(\.model)
-                result.alerts.append(QuotaAlert(kind: .reset, agent: agent, snapshot: snapshot, otherExhaustedWindows: exhausted))
+                result.alerts.append(QuotaAlert(kind: .reset, agent: agent, snapshot: snapshot, otherExhaustedWindows: otherExhausted))
+            } else if exhausted && !old.exhausted {
+                // Running out is its own event even after the earlier at-risk warning.
+                result.alerts.append(QuotaAlert(kind: .exhaustion, agent: agent, snapshot: snapshot))
             } else if atRisk && !old.atRisk {
                 result.alerts.append(QuotaAlert(kind: .exhaustion, agent: agent, snapshot: snapshot,
                                                timeToExhaust: predictsCap ? forecast : nil))

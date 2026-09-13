@@ -31,6 +31,32 @@ final class QuotaAlertTests: XCTestCase {
         XCTAssertTrue(initial.criticalAgentIDs.isEmpty)
     }
 
+    func testReachingZeroAlertsOnceEvenAfterTheCriticalWarning() {
+        var tracker = QuotaAlertTracker()
+        _ = feed(&tracker, remaining: 50, elapsed: 0)
+        let critical = feed(&tracker, remaining: 5, elapsed: 120)
+        XCTAssertEqual(critical.alerts.map(\.kind), [.exhaustion])
+        XCTAssertTrue(critical.exhaustedAgentIDs.isEmpty)
+        let empty = feed(&tracker, remaining: 0, elapsed: 240)
+        XCTAssertEqual(empty.alerts.map(\.kind), [.exhaustion])
+        XCTAssertEqual(empty.alerts.first?.snapshot.remainingPct, 0)
+        XCTAssertNil(empty.alerts.first?.timeToExhaust)
+        XCTAssertEqual(empty.exhaustedAgentIDs, [agent.id])
+        XCTAssertTrue(empty.criticalAgentIDs.isEmpty)
+        let repeated = feed(&tracker, remaining: 0, elapsed: 360)
+        XCTAssertTrue(repeated.alerts.isEmpty)
+        XCTAssertTrue(repeated.exhaustedAgentIDs.isEmpty)
+        // A single jump from healthy to empty reports both thresholds but only one island event.
+        var sudden = QuotaAlertTracker()
+        _ = feed(&sudden, remaining: 50, elapsed: 0)
+        let jump = feed(&sudden, remaining: 0, elapsed: 120)
+        XCTAssertEqual(jump.alerts.map(\.kind), [.exhaustion])
+        XCTAssertEqual(jump.criticalAgentIDs, [agent.id])
+        XCTAssertEqual(jump.exhaustedAgentIDs, [agent.id])
+        var initiallyEmpty = QuotaAlertTracker()
+        XCTAssertTrue(feed(&initiallyEmpty, remaining: 0, elapsed: 0).exhaustedAgentIDs.isEmpty)
+    }
+
     func testForecastWarningDoesNotDuplicateAtCriticalButSystemThresholdStillWorks() {
         var tracker = QuotaAlertTracker()
         _ = feed(&tracker, remaining: 50, elapsed: 0)
