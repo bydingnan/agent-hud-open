@@ -29,6 +29,9 @@ final class GlowFrameRenderer {
     /// their gain on cells of `softFieldCell` points.
     static let softPitch = 8.0
     fileprivate static let softFieldCell = 4.0
+    /// ASCII and binary glyphs are set this many times the pitch, so at full density a character nearly spans its
+    /// cell instead of floating in a square with wide gaps.
+    static let characterScale: CGFloat = 1.45
     /// Density ramps from faint to strong. Blocks end in a solid cell, drawn as a rectangle.
     static let asciiRamp: [Character] = Array(".:-=+*#%@")
     static let blockRamp: [Character] = Array("░▒▓")
@@ -53,7 +56,8 @@ final class GlowFrameRenderer {
         // Whole device pixels keep every mark the same size.
         let pitch = max(1 / scale, (key.pattern.pitch * scale).rounded() / scale)
         let matrix = key.pattern.usesGrid
-            ? GlowMatrix.compute(glow: key.glow, islandRadius: key.islandRadius, pitch: pitch, spread: key.pattern.spread)
+            ? GlowMatrix.compute(glow: key.glow, islandRadius: key.islandRadius, pitch: pitch, spread: key.pattern.spread,
+                                 rowPitch: key.pattern.style == .braille ? pitch * 2 : pitch)
             : GlowMatrix(cells: [], pitch: Self.softPitch, spread: key.pattern.spread)
         self.matrix = matrix
         let levels = key.pattern.effect == .flow ? Self.sheenLevels : 1
@@ -116,26 +120,20 @@ final class GlowFrameRenderer {
         return GlowRenderer.renderBitmap(width: size.width - 2 * padding, height: size.height - 2 * padding, blur: 0,
                                          padding: padding, scale: key.scale, colorSpace: key.colorSpace) { _, context, _ in
             let full = CGRect(origin: .zero, size: size)
-            // Same-size bitmaps are copied pixel for pixel; only the coarse fields are scaled smoothly.
+            // Same-size bitmaps are copied pixel for pixel; only the coarse gain field is scaled smoothly.
             context.interpolationQuality = .none
             switch key.pattern.effect {
+            case .breathe:
+                context.setAlpha(motion.value(soft.cells[0]))
+                context.draw(soft.base.image, in: full)
             case .flow:
                 guard let shape = soft.shape, let strip = flowStrip(soft, motion: motion) else {
                     return context.draw(soft.base.image, in: full)
                 }
-                context.clip(to: full, mask: shape)
-                context.draw(strip, in: full)
-            case .breathe:
-                context.setAlpha(motion.value(soft.cells[0]))
-                context.draw(soft.base.image, in: full)
+                soft.draw(in: context, mask: shape, image: strip, smoothMask: false)
             case .scan, .ripple, .shimmer, .boot:
-                // The gain field is a grey mask: scaled over the bitmap, its values multiply the glow's alpha.
-                if let gain = gainField(soft, motion: motion) {
-                    context.interpolationQuality = .medium
-                    context.clip(to: full, mask: gain)
-                    context.interpolationQuality = .none
-                }
-                context.draw(soft.base.image, in: full)
+                guard let gain = gainField(soft, motion: motion) else { return context.draw(soft.base.image, in: full) }
+                soft.draw(in: context, mask: gain, image: soft.base.image, smoothMask: true)
             }
         }
     }
@@ -179,8 +177,8 @@ final class GlowFrameRenderer {
                                       space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue),
               let data = context.data else { return nil }
         let pixels = data.assumingMemoryBound(to: UInt8.self)
-        for (index, cell) in soft.cells.enumerated() {
-            pixels[index] = UInt8((motion.value(cell) * 255).rounded())
+        for index in soft.visibleCells {
+            pixels[index] = UInt8((motion.value(soft.cells[index]) * 255).rounded())
         }
         return context.makeImage()
     }
@@ -239,24 +237,41 @@ final class GlowFrameRenderer {
         }
     }
 
-    /// Braille: each of a cell's eight dots is dithered from its own sample; the cell's glyph shows the result.
+    /// Braille: cells are a pitch wide and two tall, so a cell's eight dots sit on a square lattice of half the pitch.
+    /// Each dot is dithered from its own sample and drawn as a round dot large enough to leave only narrow gaps,
+    /// filled in one path per colour and brightness step.
     private func drawBraille(in context: CGContext, motion: Motion) {
-        guard let glyphs else { return }
-        prepareText(context)
+        let radius = matrix.pitch * key.pattern.density * Self.brailleDotDiameter / 2
+        let scale = max(1, key.scale)
+        let steps = Self.brailleAlphaSteps
+        var paths = [CGMutablePath?](repeating: nil, count: palette.count * steps)
         for (index, cell) in matrix.cells.enumerated() {
-            var code = 0
+            let alpha = 0.45 + 0.55 * motion.value(cell).squareRoot()
+            let bucket = paletteIndex(for: cell, motion) * steps + min(steps - 1, Int(((alpha - 0.45) / 0.55 * Double(steps - 1)).rounded()))
+            var path = paths[bucket]
             for (bit, dot) in brailleDots[index] {
                 let value = motion.value(dot)
-                if value >= GlowMatrix.cutoff, 0.1 + 0.9 * value > GlowMotion.ditherThreshold(column: dot.column, row: dot.row) {
-                    code |= 1 << bit
-                }
+                guard value >= GlowMatrix.cutoff, 0.1 + 0.9 * value > GlowMotion.ditherThreshold(column: dot.column, row: dot.row) else { continue }
+                let x = (dot.x * scale).rounded() / scale
+                let y = ((key.glow.height - dot.y) * scale).rounded() / scale
+                if path == nil { path = CGMutablePath() }
+                path?.addEllipse(in: CGRect(x: x - radius, y: y - radius, width: radius * 2, height: radius * 2))
             }
-            guard code != 0 else { continue }
-            context.setAlpha(0.45 + 0.55 * motion.value(cell).squareRoot())
-            context.setFillColor(color(for: cell, motion))
-            glyphs.draw(code, centeredAt: centers[index], in: context)
+            paths[bucket] = path
+        }
+        for (bucket, path) in paths.enumerated() {
+            guard let path else { continue }
+            context.setAlpha(0.45 + 0.55 * Double(bucket % steps) / Double(steps - 1))
+            context.setFillColor(palette[bucket / steps])
+            context.addPath(path)
+            context.fillPath()
         }
     }
+
+    /// Braille dot diameter in pitches; the lattice spacing is half a pitch.
+    private static let brailleDotDiameter = 0.34
+    /// Brightness levels Braille dots are grouped into for batched fills.
+    private static let brailleAlphaSteps = 8
 
     private func prepareText(_ context: CGContext) {
         context.textMatrix = .identity
@@ -326,26 +341,23 @@ private struct GlyphSet {
 
     init?(style: GlowStyle, size: CGFloat, density: Double) {
         let density = CGFloat(max(0.1, density))
-        let mono = { (size: CGFloat) in NSFont.monospacedSystemFont(ofSize: size, weight: .medium) as CTFont }
+        let mono = { (size: CGFloat, weight: NSFont.Weight) in NSFont.monospacedSystemFont(ofSize: size, weight: weight) as CTFont }
         switch style {
-        case .blur, .dots:
+        case .blur, .dots, .braille:
             return nil
         case .ascii:
-            self.init(font: mono(size * density), characters: GlowFrameRenderer.asciiRamp, centreOn: nil)
+            // Bold strokes keep small characters legible over the menu bar and wallpaper.
+            self.init(font: mono(size * density * GlowFrameRenderer.characterScale, .bold),
+                      characters: GlowFrameRenderer.asciiRamp, centreOn: nil)
         case .binary:
-            self.init(font: mono(size * density), characters: GlowFrameRenderer.binaryDigits, centreOn: nil)
+            self.init(font: mono(size * density * GlowFrameRenderer.characterScale, .bold),
+                      characters: GlowFrameRenderer.binaryDigits, centreOn: nil)
         case .blocks:
-            self.init(font: mono(size * density), characters: GlowFrameRenderer.blockRamp, centreOn: "█")
-        case .braille:
-            // The monospaced system font has no Braille; Core Text supplies a font that does.
-            let base = CTFontCreateForString(mono(size), "⣿" as CFString, CFRange(location: 0, length: 1))
-            let font = CTFontCreateCopyWithAttributes(base, size * density, nil, nil)
-            let patterns = (0..<256).compactMap { UnicodeScalar(0x2800 + $0).map(Character.init) }
-            self.init(font: font, characters: patterns, centreOn: "⣿")
+            self.init(font: mono(size * density, .medium), characters: GlowFrameRenderer.blockRamp, centreOn: "█")
         }
     }
 
-    /// - centreOn: a glyph whose bounds set the vertical centre (a full block or Braille cell); nil uses half
+    /// - centreOn: a glyph whose bounds set the vertical centre, such as a full block; nil uses half
     ///   the cap height, which keeps punctuation on the baseline like text.
     private init(font: CTFont, characters: [Character], centreOn reference: Character?) {
         var units = characters.map { String($0).utf16.first ?? 0x20 }
@@ -381,6 +393,11 @@ private struct SoftGlow {
     let rows: Int
     /// Field cells, top row first, in glow-rect coordinates; noise indices step every `softPitch` points.
     let cells: [GlowMatrix.Cell]
+    /// The parts of the bitmap beside and below the island, in context coordinates. The island covers the rest,
+    /// which around an expanded panel is most of the bitmap, so frames only draw these.
+    let strips: [CGRect]
+    /// Field cells that can show through a strip, including one cell of margin for smooth scaling.
+    let visibleCells: [Int]
 
     init?(key: GlowFrameRenderer.Key) {
         guard let base = GlowRenderer.render(glow: key.glow, islandSize: key.islandSize, islandRadius: key.islandRadius,
@@ -397,6 +414,20 @@ private struct SoftGlow {
         self.columns = columns
         self.rows = rows
         let pitch = GlowFrameRenderer.softPitch
+        let size = base.size, padding = base.padding
+        let left = padding + key.glow.sideInset, right = padding + key.glow.width - key.glow.sideInset
+        let hidden = min(size.height, padding + key.glow.sideInset + key.islandRadius)
+        strips = right > left
+            ? [CGRect(x: 0, y: 0, width: left, height: size.height),
+               CGRect(x: right, y: 0, width: size.width - right, height: size.height),
+               CGRect(x: left, y: 0, width: right - left, height: hidden)]
+            : [CGRect(origin: .zero, size: size)]
+        let cellWidth = size.width / Double(columns), cellHeight = size.height / Double(rows)
+        visibleCells = (0..<(columns * rows)).filter { index in
+            let x = (Double(index % columns) + 0.5) * cellWidth
+            let y = size.height - (Double(index / columns) + 0.5) * cellHeight
+            return !(x > left + cellWidth && x < right - cellWidth && y > hidden + cellHeight)
+        }
         cells = (0..<rows).flatMap { row in
             (0..<columns).map { column in
                 let x = (Double(column) + 0.5) * base.size.width / Double(columns) - base.padding
@@ -411,6 +442,39 @@ private struct SoftGlow {
 }
 
 private extension SoftGlow {
+    /// Draws `image` through the grey `mask`, both covering the whole bitmap, one strip at a time so masks are
+    /// only scaled where the glow can show.
+    func draw(in context: CGContext, mask: CGImage, image: CGImage, smoothMask: Bool) {
+        for strip in strips {
+            context.saveGState()
+            context.clip(to: strip)
+            if let part = crop(mask, to: strip, margin: smoothMask ? 1 : 0) {
+                if smoothMask { context.interpolationQuality = .medium }
+                context.clip(to: part.rect, mask: part.image)
+                context.interpolationQuality = .none
+            }
+            if let part = crop(image, to: strip, margin: 0) {
+                context.draw(part.image, in: part.rect)
+            }
+            context.restoreGState()
+        }
+    }
+
+    /// The part of an image covering the whole bitmap that lies behind `rect`, widened by whole pixels of `margin`
+    /// so a scaled mask blends with its neighbours at strip edges, and the context rect that part covers.
+    func crop(_ image: CGImage, to rect: CGRect, margin: Int) -> (image: CGImage, rect: CGRect)? {
+        let size = base.size
+        let sx = Double(image.width) / size.width, sy = Double(image.height) / size.height
+        let x0 = max(0, Int((rect.minX * sx).rounded(.down)) - margin)
+        let x1 = min(image.width, Int((rect.maxX * sx).rounded(.up)) + margin)
+        let top0 = max(0, Int(((size.height - rect.maxY) * sy).rounded(.down)) - margin)
+        let top1 = min(image.height, Int(((size.height - rect.minY) * sy).rounded(.up)) + margin)
+        guard x1 > x0, top1 > top0,
+              let part = image.cropping(to: CGRect(x: x0, y: top0, width: x1 - x0, height: top1 - top0)) else { return nil }
+        return (part, CGRect(x: Double(x0) / sx, y: size.height - Double(top1) / sy,
+                             width: Double(x1 - x0) / sx, height: Double(top1 - top0) / sy))
+    }
+
     /// A grey image whose values are the source's alpha, usable with `CGContext.clip(to:mask:)`.
     static func coverageMask(_ image: CGImage) -> CGImage? {
         let width = image.width, height = image.height

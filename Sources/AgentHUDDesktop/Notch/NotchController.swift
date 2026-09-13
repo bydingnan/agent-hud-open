@@ -265,8 +265,7 @@ final class NotchController {
             animated: animated,
             alert: activeAlert,
             quotaVendors: store.rows.filter { $0.level != nil }.map { $0.agent.vendor },
-            pattern: current.glowPattern(),
-            motionAllowed: !expanded
+            pattern: current.glowPattern()
         )
         root.presentationSize = windowFrame.size
         root.onContentHeight = { [weak self] height in self?.updatePanelHeight(height) }

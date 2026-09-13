@@ -62,8 +62,7 @@ final class GlowWindowController {
         animated: Bool,
         alert: IslandAlert? = nil,
         quotaVendors: [String] = [],
-        pattern: GlowPattern = GlowPattern(),
-        motionAllowed: Bool = false
+        pattern: GlowPattern = GlowPattern()
     ) {
         let frame = Self.panelFrame(for: geometry)
         if panel.frame != frame { panel.setFrame(frame, display: false) }
@@ -84,16 +83,16 @@ final class GlowWindowController {
         let glowTop = local.maxY - glow.topOffset
         let glowRect = CGRect(x: local.minX - glow.sideInset, y: glowTop - glow.height, width: glow.width, height: glow.height)
 
-        let motion = Self.playsMotion(pattern: pattern, appearance: appearance, motionAllowed: motionAllowed,
+        let motion = Self.playsMotion(pattern: pattern, appearance: appearance,
                                       reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
         if pattern.usesGrid {
             updateGridImage(glow: glow, islandRadius: islandRadius, stops: appearance.stops, scale: geometry.backingScale,
-                            pattern: pattern, appearance: appearance, motion: motion, motionAllowed: motionAllowed)
+                            pattern: pattern, appearance: appearance, motion: motion)
         } else {
             restingKey = nil
             updateSoftImage(glow: glow, islandSize: island.size, islandRadius: islandRadius, outwardOnly: outwardOnly,
                             stops: appearance.stops, scale: geometry.backingScale, pattern: pattern, appearance: appearance,
-                            motion: motion, motionAllowed: motionAllowed)
+                            motion: motion)
         }
         updateShadowImage(island: local, radius: islandRadius, scale: geometry.backingScale)
 
@@ -116,10 +115,10 @@ final class GlowWindowController {
                    outwardOnly: outwardOnly, scale: geometry.backingScale, pattern: pattern)
     }
 
-    /// Effects play frame by frame while an agent is running and the island is collapsed; expanded panels, alerts
-    /// and Reduce Motion keep the resting frame. The soft glow's breathing stays a Core Animation opacity pulse.
-    nonisolated static func playsMotion(pattern: GlowPattern, appearance: GlowAppearance, motionAllowed: Bool, reduceMotion: Bool) -> Bool {
-        (pattern.usesGrid || pattern.effect != .breathe) && appearance.breathing && !appearance.hidden && motionAllowed && !reduceMotion
+    /// Effects play frame by frame while an agent is running, collapsed or expanded alike; Reduce Motion keeps the
+    /// resting frame. The soft glow's breathing stays a Core Animation opacity pulse.
+    nonisolated static func playsMotion(pattern: GlowPattern, appearance: GlowAppearance, reduceMotion: Bool) -> Bool {
+        (pattern.usesGrid || pattern.effect != .breathe) && appearance.breathing && !appearance.hidden && !reduceMotion
     }
 
     /// How deep the appearance breathes, as the fraction of brightness it loses at the trough.
@@ -189,7 +188,7 @@ final class GlowWindowController {
     }
 
     private func updateGridImage(glow: GlowGeometry, islandRadius: CGFloat, stops: [GradientStop], scale: CGFloat,
-                                 pattern: GlowPattern, appearance: GlowAppearance, motion: Bool, motionAllowed: Bool) {
+                                 pattern: GlowPattern, appearance: GlowAppearance, motion: Bool) {
         let renderer = frames.renderer(for: .init(glow: glow, islandRadius: islandRadius, stops: stops, scale: scale, pattern: pattern,
                                                   colorSpace: panel.screen?.colorSpace?.cgColorSpace))
         glowKey = ""
@@ -203,7 +202,7 @@ final class GlowWindowController {
         if motion {
             restingKey = nil
             animator.play(renderer, breathSeconds: appearance.breathSeconds, breathAmplitude: Self.breathDepth(appearance))
-        } else if animator.isRunning && motionAllowed {
+        } else if animator.isRunning && !appearance.hidden {
             // The last agent went idle: ease back into the resting frame.
             animator.settle(renderer) { [weak self] in self?.showResting(renderer) }
         } else {
@@ -215,7 +214,7 @@ final class GlowWindowController {
     /// The soft glow keeps its nine-slice bitmap. Effects other than breathing swap in frames of the same size and
     /// layout, and hand the resting bitmap back when they stop.
     private func updateSoftImage(glow: GlowGeometry, islandSize: CGSize, islandRadius: CGFloat, outwardOnly: Bool, stops: [GradientStop],
-                                 scale: CGFloat, pattern: GlowPattern, appearance: GlowAppearance, motion: Bool, motionAllowed: Bool) {
+                                 scale: CGFloat, pattern: GlowPattern, appearance: GlowAppearance, motion: Bool) {
         updateGlowImage(glow: glow, islandSize: islandSize, islandRadius: islandRadius, outwardOnly: outwardOnly, stops: stops, scale: scale)
         guard pattern.effect != .breathe else { return stopSoftMotion() }
         let renderer = frames.renderer(for: .init(glow: glow, islandRadius: islandRadius, stops: stops, scale: scale, pattern: pattern,
@@ -223,7 +222,7 @@ final class GlowWindowController {
                                                   islandSize: islandSize, outwardOnly: outwardOnly))
         if motion {
             animator.play(renderer, breathSeconds: appearance.breathSeconds, breathAmplitude: Self.breathDepth(appearance))
-        } else if animator.isRunning && motionAllowed {
+        } else if animator.isRunning && !appearance.hidden {
             animator.settle(renderer) { [weak self] in self?.restoreSoftStill() }
         } else {
             stopSoftMotion()

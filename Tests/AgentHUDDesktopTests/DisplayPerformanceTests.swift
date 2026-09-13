@@ -164,19 +164,17 @@ final class DisplayPerformanceTests: XCTestCase {
         XCTAssertGreaterThan(renderer.cellCount, 100)
     }
 
-    func testMotionPlaysOnlyForARunningAgentOnTheCollapsedIsland() {
+    func testMotionPlaysWhileAnAgentRuns() {
         let running = GlowAppearance.resolve(levels: [.ok], paused: false, anyAgentActive: true, settings: Settings())
         let idle = GlowAppearance.resolve(levels: [.ok], paused: false, anyAgentActive: false, settings: Settings())
         let dots = GlowPattern(style: .dots)
-        XCTAssertTrue(GlowWindowController.playsMotion(pattern: dots, appearance: running, motionAllowed: true, reduceMotion: false))
-        XCTAssertFalse(GlowWindowController.playsMotion(pattern: GlowPattern(style: .blur), appearance: running, motionAllowed: true, reduceMotion: false),
+        XCTAssertTrue(GlowWindowController.playsMotion(pattern: dots, appearance: running, reduceMotion: false))
+        XCTAssertFalse(GlowWindowController.playsMotion(pattern: dots, appearance: idle, reduceMotion: false))
+        XCTAssertFalse(GlowWindowController.playsMotion(pattern: dots, appearance: running, reduceMotion: true))
+        XCTAssertFalse(GlowWindowController.playsMotion(pattern: dots, appearance: .idle(hidden: true), reduceMotion: false))
+        XCTAssertFalse(GlowWindowController.playsMotion(pattern: GlowPattern(style: .blur), appearance: running, reduceMotion: false),
                        "soft breathing stays a Core Animation opacity pulse")
-        XCTAssertTrue(GlowWindowController.playsMotion(pattern: GlowPattern(style: .blur, effect: .ripple), appearance: running, motionAllowed: true, reduceMotion: false))
-        XCTAssertFalse(GlowWindowController.playsMotion(pattern: GlowPattern(style: .blur, effect: .ripple), appearance: running, motionAllowed: false, reduceMotion: false))
-        XCTAssertFalse(GlowWindowController.playsMotion(pattern: dots, appearance: idle, motionAllowed: true, reduceMotion: false))
-        XCTAssertFalse(GlowWindowController.playsMotion(pattern: dots, appearance: running, motionAllowed: false, reduceMotion: false), "expanded panels and alerts rest")
-        XCTAssertFalse(GlowWindowController.playsMotion(pattern: dots, appearance: running, motionAllowed: true, reduceMotion: true))
-        XCTAssertFalse(GlowWindowController.playsMotion(pattern: dots, appearance: .idle(hidden: true), motionAllowed: true, reduceMotion: false))
+        XCTAssertTrue(GlowWindowController.playsMotion(pattern: GlowPattern(style: .blur, effect: .ripple), appearance: running, reduceMotion: false))
     }
 
     @MainActor

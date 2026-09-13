@@ -31,7 +31,10 @@ public enum GlowMotion {
         case .ripple:
             return 0.55 + 0.45 * (0.5 + 0.5 * sin(2 * .pi * (cell.distance / (3 * pitch) - t / ripplePeriod)))
         case .shimmer:
-            return 0.72 + 0.28 * noise(cell, step: (t * 8).rounded(.down))
+            // Cells flicker between half and four fifths of their brightness, and about one in eight flashes to
+            // the brightest level, changing eight times a second.
+            let step = (t * 8).rounded(.down)
+            return noise(cell, step: step + 53) < 0.12 ? maximumGain : 0.5 + 0.3 * noise(cell, step: step)
         case .boot:
             let phase = bootPhase(t)
             if phase < 2.2 { return cell.distance < bootFront(phase, pitch: pitch) ? 1 : 0 }
@@ -61,7 +64,7 @@ public enum GlowMotion {
     public static func jitter(_ effect: GlowEffect, cell: GlowMatrix.Cell, time t: Double, pitch: Double) -> Int {
         switch effect {
         case .shimmer:
-            return noise(cell, step: (t * 8).rounded(.down) + 101) < 0.06 ? 2 : 0
+            return noise(cell, step: (t * 8).rounded(.down) + 101) < 0.1 ? 2 : 0
         case .boot:
             let phase = bootPhase(t)
             return phase < 2.2 && abs(cell.distance - bootFront(phase, pitch: pitch)) < 0.8 * pitch ? 9 : 0

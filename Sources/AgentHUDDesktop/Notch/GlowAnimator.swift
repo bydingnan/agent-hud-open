@@ -11,6 +11,9 @@ final class GlowAnimator {
     static let fadeDuration: CFTimeInterval = 0.6
     /// The link may still fire at the display's full refresh rate; frames closer than this are skipped.
     private static let frameInterval: CFTimeInterval = 1 / CFTimeInterval(framesPerSecond) - 0.002
+    /// Frames are spaced at least this many times their own drawing time, so a large glow such as the one around
+    /// an expanded panel lowers its frame rate instead of spending more than about a tenth of a core.
+    private static let frameCostSpacing: CFTimeInterval = 10
 
     private let host: NSView
     private let layer: CALayer
@@ -23,6 +26,8 @@ final class GlowAnimator {
     private var fadeFrom = 0.0
     private var fadeTo = 0.0
     private var lastFrame: CFTimeInterval = 0
+    /// Recent drawing time per frame, smoothed.
+    private var frameCost: CFTimeInterval = 0
     private var onRest: (() -> Void)?
 
     init(host: NSView, layer: CALayer) {
@@ -87,10 +92,13 @@ final class GlowAnimator {
         guard let renderer else { return }
         let now = CACurrentMediaTime()
         let rested = fadeTo == 0 && now - fadeStart >= Self.fadeDuration
-        guard rested || now - lastFrame >= Self.frameInterval else { return }
+        guard rested || now - lastFrame >= max(Self.frameInterval, frameCost * Self.frameCostSpacing) else { return }
         lastFrame = now
-        if let frame = renderer.render(time: now - startTime, blend: blend(at: now),
-                                       breathSeconds: breathSeconds, breathAmplitude: breathAmplitude) {
+        let frame = renderer.render(time: now - startTime, blend: blend(at: now),
+                                    breathSeconds: breathSeconds, breathAmplitude: breathAmplitude)
+        let cost = CACurrentMediaTime() - now
+        frameCost = frameCost == 0 ? cost : frameCost * 0.8 + cost * 0.2
+        if let frame {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             layer.contents = frame.image

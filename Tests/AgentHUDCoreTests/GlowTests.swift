@@ -178,6 +178,21 @@ final class GlowMatrixTests: XCTestCase {
         XCTAssertTrue(dotted.joined().allSatisfy { $0.dot.distance >= 0 })
     }
 
+    func testBrailleCellsTwiceAsTallPutDotsOnASquareLattice() throws {
+        let tall = GlowMatrix.compute(glow: glow, islandRadius: radius, pitch: 10, spread: 2.4, rowPitch: 20)
+        let bottom = glow.height - glow.sideInset
+        let rows = Set(tall.cells.filter { $0.y > bottom }.map(\.y)).sorted()
+        XCTAssertEqual(rows.first ?? 0, bottom + 10, accuracy: 1e-9)
+        XCTAssertTrue(zip(rows, rows.dropFirst()).allSatisfy { abs($1 - $0 - 20) < 1e-9 }, "rows are two pitches apart")
+        let cell = try XCTUnwrap(tall.cells.first { $0.distance > 20 && abs($0.width - 10) < 1e-9 })
+        let dots = tall.brailleDots(of: cell, glow: glow, islandRadius: radius).map(\.dot)
+        XCTAssertEqual(Set(dots.map { ($0.x * 1000).rounded() }).count, 2)
+        let ys = Set(dots.map(\.y)).sorted()
+        XCTAssertEqual(ys.count, 4)
+        XCTAssertTrue(zip(ys, ys.dropFirst()).allSatisfy { abs($1 - $0 - 5) < 1e-9 }, "dots are half a pitch apart down the cell")
+        XCTAssertEqual(abs(dots[3].x - dots[0].x), 5, accuracy: 1e-9, "and across it")
+    }
+
     func testDitherThresholdsCoverTheBayerMatrix() {
         let thresholds = (0..<4).flatMap { row in (0..<4).map { GlowMotion.ditherThreshold(column: $0, row: row) } }
         XCTAssertEqual(Set(thresholds).count, 16)
@@ -232,12 +247,16 @@ final class GlowMotionTests: XCTestCase {
         }
     }
 
-    func testShimmerHoldsForAnEighthOfASecond() {
+    func testShimmerFlickersAndFlashes() {
         let c = cell()
-        XCTAssertEqual(gain(.shimmer, c, at: 0.01), gain(.shimmer, c, at: 0.12), accuracy: 1e-12)
-        let values = (0..<32).map { gain(.shimmer, c, at: Double($0) / 8 + 0.01) }
-        XCTAssertTrue(values.allSatisfy { (0.72...1).contains($0) })
-        XCTAssertGreaterThan(Set(values.map { ($0 * 1000).rounded() }).count, 16, "cells twinkle rather than hold one value")
+        XCTAssertEqual(gain(.shimmer, c, at: 0.01), gain(.shimmer, c, at: 0.12), accuracy: 1e-12, "values hold for an eighth of a second")
+        let grid = (0..<40).flatMap { column in (0..<40).map { row in cell(column: column, row: row) } }
+        let values = grid.map { gain(.shimmer, $0, at: 1.01) }
+        XCTAssertTrue(values.allSatisfy { (0.5...0.8).contains($0) || $0 == GlowMotion.maximumGain })
+        let flashing = Double(values.filter { $0 == GlowMotion.maximumGain }.count) / Double(values.count)
+        XCTAssertEqual(flashing, 0.12, accuracy: 0.04, "about one cell in eight flashes")
+        let steps = (0..<32).map { gain(.shimmer, c, at: Double($0) / 8 + 0.01) }
+        XCTAssertGreaterThan(Set(steps.map { ($0 * 1000).rounded() }).count, 16, "cells twinkle rather than hold one value")
     }
 
     func testBootGrowsHoldsAndFades() {

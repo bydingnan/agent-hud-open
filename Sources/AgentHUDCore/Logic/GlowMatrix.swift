@@ -73,11 +73,14 @@ public struct GlowMatrix: Hashable, Sendable {
 
     public let cells: [Cell]
     public let pitch: Double
+    /// Spacing between rows; equal to the pitch except for Braille, whose cells are twice as tall as wide.
+    public let rowPitch: Double
     public let spread: Double
 
-    public init(cells: [Cell], pitch: Double, spread: Double) {
+    public init(cells: [Cell], pitch: Double, spread: Double, rowPitch: Double? = nil) {
         self.cells = cells
         self.pitch = pitch
+        self.rowPitch = rowPitch ?? pitch
         self.spread = spread
     }
 
@@ -92,8 +95,10 @@ public struct GlowMatrix: Hashable, Sendable {
     /// Columns beside the island start half a pitch from its sides and the row below it half a pitch from its
     /// bottom edge, so the first ring sits tangent to the rim. Cells over the island, above the screen edge or
     /// too faint for any effect to reveal are skipped.
-    public static func compute(glow: GlowGeometry, islandRadius: Double, pitch: Double, spread: Double) -> GlowMatrix {
+    public static func compute(glow: GlowGeometry, islandRadius: Double, pitch: Double, spread: Double,
+                               rowPitch: Double? = nil) -> GlowMatrix {
         let pitch = max(0.5, pitch)
+        let rowPitch = max(0.5, rowPitch ?? pitch)
         let decay = max(0.1, spread) * pitch
         let faintest = cutoff / GlowMotion.maximumGain
         let left = glow.sideInset
@@ -112,10 +117,10 @@ public struct GlowMatrix: Hashable, Sendable {
         columns.sort { $0.x < $1.x }
 
         var ys: [Double] = []
-        var y = bottom + pitch / 2
-        while y < glow.height { ys.append(y); y += pitch }
-        y = bottom - pitch / 2
-        while y >= top { ys.append(y); y -= pitch }
+        var y = bottom + rowPitch / 2
+        while y < glow.height { ys.append(y); y += rowPitch }
+        y = bottom - rowPitch / 2
+        while y >= top { ys.append(y); y -= rowPitch }
 
         var cells: [Cell] = []
         for (row, y) in ys.sorted().enumerated() {
@@ -128,7 +133,7 @@ public struct GlowMatrix: Hashable, Sendable {
                                   intensity: intensity, location: place.x / glow.width))
             }
         }
-        return GlowMatrix(cells: cells, pitch: pitch, spread: spread)
+        return GlowMatrix(cells: cells, pitch: pitch, spread: spread, rowPitch: rowPitch)
     }
 
     /// Dot positions of a Braille character as (column, row, Unicode bit).
@@ -137,12 +142,13 @@ public struct GlowMatrix: Hashable, Sendable {
     ]
 
     /// The eight dots of a cell drawn as a Braille character, 2 across and 4 down, each sampled on its own as
-    /// in the design. Dots over the island are left out; grid indices are per dot for dithering and noise.
+    /// in the design. With rows twice the pitch the dots fall on a square lattice of half the pitch. Dots over the
+    /// island are left out; grid indices are per dot for dithering and noise.
     public func brailleDots(of cell: Cell, glow: GlowGeometry, islandRadius: Double) -> [(bit: Int, dot: Cell)] {
         let decay = max(0.1, spread) * pitch
         return Self.brailleLayout.compactMap { layout in
             let x = cell.x - cell.width / 2 + (Double(layout.column) + 0.5) * cell.width / 2
-            let y = cell.y - pitch / 2 + (Double(layout.row) + 0.5) * pitch / 4
+            let y = cell.y - rowPitch / 2 + (Double(layout.row) + 0.5) * rowPitch / 4
             let distance = Self.distance(x: x, y: y, glow: glow, islandRadius: islandRadius)
             guard distance >= 0 else { return nil }
             let dot = Cell(column: cell.column * 2 + layout.column, row: cell.row * 4 + layout.row, x: x, y: y,
