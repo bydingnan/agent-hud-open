@@ -1,8 +1,8 @@
 # Command line
 
-Launch options, read-only probes, and adapter commands of the standalone application, for developers and for anyone diagnosing a source. The same switches work on `build/Agent HUD Open.app/Contents/MacOS/Agent HUD Open` (after `make build`), on `swift run AgentHUDOpen`, and through Launch Services as `open "build/Agent HUD Open.app" --args …`. Applications that embed the libraries document their own parameters.
+## Overview
 
-Switches are parsed by `DesktopLaunchOptions` (AgentHUDDesktop); unknown switches are ignored. The standalone commands under *Read-only probes* and *Adapter commands* are handled in `main.swift` before the application object exists, so they never show a window.
+Launch options, read-only probes and adapter commands of the standalone application. The same switches work on `build/Agent HUD Open.app/Contents/MacOS/Agent HUD Open` (after `make build`), on `swift run AgentHUDOpen`, and through Launch Services as `open "build/Agent HUD Open.app" --args …`. Unknown switches are ignored; probes and adapter commands run before the application object exists and never show a window. Applications that embed the libraries document their own parameters.
 
 ## Launch and display
 
@@ -24,7 +24,7 @@ Switches are parsed by `DesktopLaunchOptions` (AgentHUDDesktop); unknown switche
 | Command | Output |
 | --- | --- |
 | `--probe` | One real account refresh (48 h of history) followed by one report; prints `Quota windows: n; sessions: n; live: n; billing accounts: n` and exits 0, or prints the error and exits 1. It issues the same provider requests as the running application and nothing else. |
-| `--probe-open-agents` | Indexes the last seven days of local OpenCode, Kimi and Pi sessions (up to 40 indexing rounds) and prints, per client, the session count, running count, distinct usage events, In / Out / Cache totals and the read status. No network requests, no transcript text, no credentials in the output. |
+| `--probe-open-agents` | Indexes the last seven days of local OpenCode, Kimi and Pi sessions and prints, per client, the session count, running count, distinct usage events, In / Out / Cache totals and the read status. No network requests, no transcript text, no credentials in the output. |
 | `AGENT_HUD_PROBE_ADDITIONAL=1 swift test --filter AdditionalProviderTests/testInstalledSourcesReadOnlyProbe` | Read-only probe of the installed Antigravity, Cursor and Grok sources from the test suite; the test is skipped unless the variable is set. |
 
 ## Adapter commands
@@ -33,13 +33,28 @@ Switches are parsed by `DesktopLaunchOptions` (AgentHUDDesktop); unknown switche
 | --- | --- |
 | `--install-pi-observer` | Write or update the Agent HUD extension `extensions/agent-hud.ts` under the Pi directory (`PI_CODING_AGENT_DIR`, default `~/.pi/agent`), then exit. Existing Pi sessions need `/reload` once. A same-named file that is not Agent HUD's is left alone and the command fails. |
 | `--install-completion-hook antigravity\|cursor` | Register this executable as the client's stop-hook handler, replacing a handler that belongs to another installation. Other hooks in the client's configuration are preserved. |
-| `--completion-hook antigravity\|cursor` | The handler the clients invoke: reads the hook payload from standard input (at most 1 MiB), stores a completion record when the payload describes a successful stop, prints `{"decision":"stop"}` for Antigravity or `{}` for Cursor, and exits 0 even when recording fails. It never initializes the interface or queries an account. |
+| `--completion-hook antigravity\|cursor` | The handler the clients invoke: reads the hook payload from standard input, stores a completion record when the payload describes a successful stop, prints `{"decision":"stop"}` for Antigravity or `{}` for Cursor, and exits 0 even when recording fails. It never initializes the interface or queries an account. |
 
-Normal start-up already runs `SessionObservers.configure(executable:)` for installed clients. The install commands exist for a first setup without launching the application and for taking a hook over from another installation; see [Completion hooks](session-lifecycle.md#completion-hooks).
+Normal start-up already runs `SessionObservers.configure(executable:)` for installed clients. The install commands exist for a first setup without launching the application and for taking a hook over from another installation ([completion hooks](session-lifecycle.md#completion-hooks)).
 
 ## Environment
 
-- `SWIFT_SCRATCH_PATH` — passed to `swift build` as `--scratch-path` by `scripts/build-app.sh`.
-- `AGENTHUD_SNAPSHOT_PREFIX` — see `--snapshot`.
-- `AGENT_HUD_PROBE_ADDITIONAL` — see the probe table.
-- Client home overrides such as `CODEX_HOME`, `DSH_HOME` and `PI_CODING_AGENT_DIR`, and provider keys read from the environment, come from the process environment. An application started from Finder or Launch Services inherits the login session's environment, not the exports of a terminal shell.
+| Variable | Meaning |
+| --- | --- |
+| `SWIFT_SCRATCH_PATH` | Passed to `swift build` as `--scratch-path` by the build script |
+| `AGENTHUD_SNAPSHOT_PREFIX` | Limits `--snapshot` to snapshots whose name starts with the prefix |
+| `AGENT_HUD_PROBE_ADDITIONAL` | Enables the read-only probe test above |
+| Client home overrides and provider keys (`CODEX_HOME`, `DSH_HOME`, `PI_CODING_AGENT_DIR`, …) | Read from the process environment ([providers](providers.md)). An application started from Finder or Launch Services inherits the login session's environment, not the exports of a terminal shell. |
+
+## Code map
+
+| Concept | Code |
+| --- | --- |
+| Switch parsing | `Sources/AgentHUDDesktop/App/LaunchOptions.swift` |
+| Probes, adapter commands, hook handler | `Sources/AgentHUDOpenApp/main.swift` |
+| Snapshot rendering and checks | `Sources/AgentHUDDesktop/Debug/SnapshotRunner.swift` |
+| Build script and targets | `scripts/build-app.sh`, `Makefile` |
+
+## Related
+
+[session-lifecycle.md](session-lifecycle.md) completion hooks and the Pi observer · [providers.md](providers.md) per-client environment variables · [architecture.md](architecture.md) host integration

@@ -1,91 +1,77 @@
 # Usage semantics
 
-How Agent HUD Open counts tokens, names quota windows, colors status, throttles account requests, and keeps readings. These rules are shared by every provider and by the desktop. Where each client's data comes from is in [data access](data-access.md); running and terminal turn evidence is in [session lifecycle](session-lifecycle.md).
+## Overview
 
-## Token dimensions
+How Agent HUD Open counts tokens, names quota windows, colors readings, spaces account requests and keeps readings. The rules apply to every provider and to the desktop, and hosts use the same numbers. Where each client's fields come from is in [providers](providers.md); running and terminal turns are in [session lifecycle](session-lifecycle.md).
 
-Three additive dimensions (`TokenDimensions`): **In**, **Out** and **Cache**. They never overlap.
+## Model
 
 | Dimension | Contains | Excludes |
 | --- | --- | --- |
-| In | Fresh input: prompt tokens plus cache writes (cache creation) | Cache reads |
+| In | Fresh input: prompt tokens plus cache writes | Cache reads |
 | Out | Output tokens; reasoning or thinking is already part of the output count and is never added a second time | — |
 | Cache | Cache reads only | — |
 
-- Charts, the heat map, model shares and session rows follow the selected dimensions. The default selection is In + Out (`TokenDimensions.fresh`); `all` adds Cache.
-- Records written before the Cache dimension existed decode with `cacheReadTokens = 0`.
-- Bar buckets are 15 min, 30 min, 1 h or 1 d. Sub-day buckets start on local quarter-hour or hour boundaries inside the exact, half-open range. 1 d buckets are local calendar days: they start at local midnight and last 23 or 25 hours across a daylight-saving change. Events outside the selected range are not counted, empty buckets keep their position, and counts stay integers — never rounded or interpolated.
-- One API response is counted once whatever the client's log layout: Claude by message id, Codex by deltas of its cumulative totals, DeepSeek by (turn, step) attempt, Cursor by a stable event identity, Grok by event and prompt id, Pi by response id, OpenCode by message id, Kimi by turn-scoped usage records. Copies of the same event from two files or two Macs merge in `UsageAggregation.usageUnion`; distinct requests with identical counts are kept.
+The three dimensions (`TokenDimensions`) are additive and never overlap. Charts, the heat map, model shares and session rows follow the selected dimensions; the default is In + Out (`fresh`), and `all` adds Cache. Records written before the Cache dimension existed decode with zero cache reads. The panel's per-session token figure is In + Out of that session. A quota window is one row per window the service reports, with that window's own reset time and period; a reading is the last value of a window, balance or reset-credit count together with its observation time.
 
-Source fields per client:
+## Rules
 
-| Client | In | Out | Cache |
-| --- | --- | --- | --- |
-| Claude Code | `input_tokens` + `cache_creation_input_tokens` | `output_tokens` | `cache_read_input_tokens` |
-| Codex | delta of `input_tokens` minus delta of `cached_input_tokens` | delta of `output_tokens` (reasoning included) | delta of `cached_input_tokens` |
-| DeepSeek Harness | `inputTokens` + `cacheWriteTokens` (Harness already excludes cache hits from `inputTokens`) | `outputTokens` (reasoning included) | `cacheReadTokens` |
-| Antigravity | system prompt + new input | output + thinking (separate counters, added) | cache read |
-| Cursor | `inputTokens` + `cacheWriteTokens` | `outputTokens` | `cacheReadTokens` |
-| Grok CLI | prompt tokens minus cached tokens | completion tokens (reasoning included) | cached tokens |
-| OpenCode | `tokens.input` + `tokens.cache.write` | `tokens.output` + `tokens.reasoning` (separate counters, added) | `tokens.cache.read` |
-| Kimi | `inputOther` + `inputCacheCreation` | `output` | `inputCacheRead` |
-| Pi | `usage.input` + `usage.cacheWrite` | `usage.output` (reasoning included) | `usage.cacheRead` |
+### Percentages, windows and presentation
 
-The panel's per-session token figure is In + Out of that session.
+- Every percentage shown is used, the convention of Claude Code's `/usage`; providers store the remaining share and the desktop converts.
+- Rows come from the response, never from a template: `primary` is not assumed to mean 5 hours, and a window the service names by period (minutes, "7d", weekly, monthly, "MCP") keeps that label.
+- One account's windows are shown once even when two programs share the account (Codex Desktop and CLI); usage recorded by one client is never duplicated into another client's account, and model token spend is shown separately from quota windows.
+- Money keeps its currency and is never converted or turned into a percentage; API-billed clients (DeepSeek) show balance and estimated cost instead of windows, and estimates are labelled as estimates.
+- Codex reset credits show the service's `availableCount`; the per-credit expiry list is supplementary and never derives the count.
+- A missing reading is "—", not 0; zero is shown only when the service reported zero.
+- Tokens are never converted into quota, and an unavailable quota is never inferred from token counts. Claude Code's session share is its share of the tokens in the current 5 h window times the window's utilization; every other client shows "—".
+- One API response is counted once whatever the log layout; copies of one event from two files or two Macs merge, and distinct requests with identical counts are kept. Bar buckets are 15 min, 30 min, 1 h or 1 d on local quarter-hour, hour or calendar-day boundaries inside the exact half-open range; empty buckets keep their position and counts stay integers.
 
-## Percentages and window naming
-
-- Every percentage shown is **used**, the same convention as Claude Code's `/usage`. Providers store the remaining share; the desktop converts.
-- Each row is one quota window the service actually reports, with that window's own reset time and period. Rows come from the response, never from a template. Claude reports a session (5 h) window, a weekly all-models window and weekly per-family windows. Codex reports one or more buckets, each with primary and secondary windows named by `windowDurationMins` ("Weekly", "5h", "30m"; "Primary" / "Secondary" when the period is unknown) — the primary window can be the weekly one. Cursor reports plan, model-category, personal, team and extra-usage percentages. Grok reports weekly or monthly subscription credits and an extra usage budget. Antigravity reports the service's named buckets. Kimi, GLM and OpenCode Go report their own windows labelled by period (minutes, "7d", rolling / weekly / monthly, or "MCP" for GLM's time limit).
-- One account's windows are shown once even when two programs share the account (Codex Desktop and CLI). Usage recorded by one client is never duplicated into another client's account.
-- Money keeps its currency and is never converted or turned into a percentage. An API balance has no fixed denominator, so API-billed clients (DeepSeek) show balance and estimated cost instead of quota rows. Estimates are labelled as estimates; they are not invoices.
-- Codex reset credits show the service's `availableCount`. The per-credit expiry list is supplementary and is never used to derive the count.
-- A missing reading is "—", not 0. Zero is shown only when the service reported zero.
-
-## Status levels
-
-Fixed policy in `AlertPolicy`. Nothing is stored, synchronized or configurable, and hosts and companion surfaces must use the same numbers.
+### Alert levels
 
 | Reading | OK | Warning | Critical |
 | --- | --- | --- | --- |
 | Quota window | used < 70% | used ≥ 70% | used ≥ 90% |
-| API balance in CNY | > 10 | ≤ 10 | ≤ 0 |
-| API balance in USD | > 2 | ≤ 2 | ≤ 0 |
-| API balance in another currency | > 0 | — | ≤ 0 |
-| Account reported unavailable (`isAvailable == false`) | — | — | always |
+| DeepSeek balance in CNY | > 10 | ≤ 10 | ≤ 0 |
+| DeepSeek balance in USD | > 2 | ≤ 2 | ≤ 0 |
+| Balance in another currency | > 0 | — | ≤ 0 |
+| Account reported unavailable | — | — | always |
 
-Colors come from `StatusPalette` (dark: `#3ddc84`, `#ffd23f`, `#ff453a`; light: `#30d158`, `#ffcc00`, `#ff3b30`, with a darker warning text color on light surfaces; idle grey `#9a9aa0`). The glow shows one segment per enabled window that has a reading; windows without a reading stay out of the glow, and a paused or hidden glow is grey. A color describes the resource state of one reading. Readings of different windows are never combined into one health score, and a color never indicates task progress.
+- The policy is fixed (`AlertPolicy`): nothing is stored, synchronized or configurable. A color describes the resource state of one reading; readings of different windows are never combined into one health score, and a color never indicates task progress.
+- The glow shows one segment per enabled window that has a reading; windows without a reading stay out of it, and a paused or hidden glow is grey.
+- Alerts (`QuotaAlertTracker`): the first reading of a window is a silent baseline; crossing 90% used, reaching zero, a forecast of exhaustion before the reset, and a confirmed reset each notify once. Readings older than 30 minutes stay visible but generate no alerts.
 
-Alerts derive from these levels (`QuotaAlertTracker`): the first reading of a window is a silent baseline; crossing 90% used, reaching zero, a forecast of exhaustion before the reset, and a confirmed reset each notify once.
+### Account request intervals
 
-## Account request intervals
-
-Local activity is polled about every 5 seconds, every 2 seconds while an index is still building. Account requests run on their own task, so a slow account query never delays local polling, and each provider keeps its own cadence:
+Account requests run on their own task, so a slow account query never delays local activity polling, and each provider keeps its own cadence. A failure is cached for the same interval as a success and reported as a source notice while the other sources keep working. Every account request is a metadata read: no model message is sent and no reset credit is consumed.
 
 | Request | Minimum interval |
 | --- | --- |
-| Claude Code engine `get_usage` | 120 s, also after a failure, so completion polling never respawns a broken engine |
+| Claude Code engine `get_usage` (also after a failure) | 120 s |
 | Codex `account/rateLimits/read` | 120 s |
 | DeepSeek balance | 120 s |
 | Antigravity, Cursor and Grok quota | 120 s |
-| Kimi, GLM and OpenCode Go quota | 120 s per billing pool; Kimi account identity is re-checked at most every 120 s until it is confirmed |
-| Cursor account usage events | 300 s; a failed fetch is cached for the same interval |
+| Kimi, GLM and OpenCode Go quota, per billing pool; Kimi identity re-check until confirmed | 120 s |
+| Cursor account usage events | 300 s |
 
-Failures are cached for the same interval as successes and reported as a source notice; the other sources keep working. Every account request is a metadata read: no model message is sent and no reset credit is consumed.
+### Reading retention
 
-## Reading retention
-
-- The last successful reading of every window, balance and reset-credit count is kept together with its observation time. A failed refresh keeps it and exposes the failure; a restart restores it from `last-usage-report.json` before the first poll.
-- When a window's reset time has passed, the row keeps showing the last reading and its time. A passed deadline does not mean the quota is back: a reset is confirmed only by a new reading whose reset time moved forward or that shows the window full again, and alert evaluation treats a passed deadline as pending confirmation.
-- Readings older than 30 minutes stay visible but no longer generate alerts.
+- The last successful reading is kept with its observation time; a failed refresh keeps it and exposes the failure, and a restart restores it before the first poll.
+- When a window's reset time has passed, the row keeps the last reading and its time. A reset is confirmed only by a new reading whose reset time moved forward or that shows the window full again; until then alert evaluation treats the deadline as pending.
 - A window the service stops reporting keeps its stored history while it is enabled. Kimi, GLM and OpenCode Go rows are retired — readings, cached rows and display settings — once a completed credential scan finds their credentials expired, removed or rejected; a temporary network failure retires nothing.
-- A running session leaves the running indicator 120 seconds after its last source observation ("Status out of date"); the session stays in history without an invented end time.
-- History for a newly connected window starts at its first observation; earlier hours are not back-filled.
+- Quota histories keep 30 days. History for a newly connected window starts at its first observation; earlier hours are never back-filled, and a few minutes of data are never stretched into a full day.
+- A running session leaves the running indicator 120 s after its last source observation and stays in history without an invented end time.
 
-## Presentation constraints
+## Code map
 
-1. Desktop and CLI of the same account share one group of quota rows; model token spend is shown separately from quota windows.
-2. Rows follow the windows and periods the service returns; `primary` is not assumed to mean 5 hours.
-3. Clients without a per-session quota share (every client except Claude Code) show "—" in the session's share column. Tokens are never converted into quota.
-4. Input excludes the cache reads already counted in the source's input total; output already includes reasoning and is not added twice.
-5. A newly connected source draws only the history it has observed; a few minutes of data are never stretched into a full day.
+| Concept | Code |
+| --- | --- |
+| Token dimensions, bar buckets | `Sources/AgentHUDCore/Logic/ChartData.swift` |
+| Alert levels, status colors | `Sources/AgentHUDCore/Models/AgentThresholds.swift`, `Sources/AgentHUDCore/Logic/StatusLevel.swift` |
+| Alert tracker, forecast, reading age | `Sources/AgentHUDCore/Logic/QuotaAlerts.swift`, `QuotaForecast.swift` |
+| Event union, analytics, history retention | `Sources/AgentHUDCore/Store/UsageAggregation.swift`, `QuotaHistoryStore.swift`, `Sources/AgentHUDCore/Logic/UsageAnalytics.swift` |
+| Session liveness, retained readings | `Sources/AgentHUDCore/Models/LiveSession.swift`, `Sources/AgentHUDCore/Providers/RetainedUsageProvider.swift` |
+
+## Related
+
+[providers.md](providers.md) per-client fields and request intervals · [session-lifecycle.md](session-lifecycle.md) running and terminal turns · [architecture.md](architecture.md) design invariants

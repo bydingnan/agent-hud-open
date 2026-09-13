@@ -1,6 +1,8 @@
 # Data access
 
-Agent HUD Open reads agent activity and usage metadata on your Mac. It has no Agent HUD account, cloud synchronization, or push service.
+## Overview
+
+Agent HUD Open reads agent activity and usage metadata on your Mac. It has no Agent HUD account, cloud synchronization or push service. Building it requires no developer account, product credential, provisioning profile or signing certificate; local builds use ad-hoc signing.
 
 ## Providers
 
@@ -14,24 +16,24 @@ Agent HUD Open reads agent activity and usage metadata on your Mac. It has no Ag
 | Grok CLI | Local session records and credential file | Official Grok CLI billing endpoint |
 | OpenCode, Kimi, GLM, Pi | Local JSON/SQLite session records and supported provider configuration; automatically prepared Pi lifecycle observer | Official Kimi, GLM, and OpenCode Go quota endpoints where configured |
 
-Per-client details are in [providers](providers.md). How token counts, percentages, alert levels, request intervals, and reading retention are defined is in [usage semantics](usage-semantics.md).
+Per-client fields, endpoints and caches: [providers](providers.md). Token counts, percentages, alert levels, request intervals and reading retention: [usage semantics](usage-semantics.md).
 
-Some providers read agent API keys or tokens from their own configuration, environment variables, or local credential files. Credentials are used only for the corresponding provider's usage request. They are not included in reports or persisted to the HUD's caches. Custom endpoints are not assumed to share official billing accounts, and executable key resolvers are not run.
+## Credentials
 
-Claude and Codex quota queries use the installed clients' existing sign-in. Codex `auth.json` is not read directly. The app does not request model responses or consume usage-reset credits.
-
-DeepSeek's open turns remain active during quiet tools or questions while a Node process holds the same Harness home's profile and predates the turn. Process inspection reads executable identity and start time, not profile contents or browser credentials. Without that evidence, activity falls back to recent log updates. A process started after a turn does not keep that old turn active.
+- A provider that needs a key or token reads it from the client's own configuration, environment variables or local credential files, uses it only for that provider's usage request, and never includes it in reports or caches.
+- Claude and Codex quota queries use the installed clients' existing sign-in; Codex `auth.json` is not read. No request sends a model message or consumes a usage-reset credit.
+- Custom endpoints are not assumed to share official billing accounts, and executable key resolvers are never run.
+- Kimi account identity is confirmed through the official profile endpoint, separately for each deployment; only hashed credential-to-account associations are cached, and accounts are never merged from matching quota values, reset times or unverified token claims.
+- DeepSeek process inspection reads executable identity and start time only, not profile contents or browser credentials.
 
 ## Local storage
 
-Preferences use the application's UserDefaults domain. Cached reports, quota observations, and session indexes are stored in `~/Library/Application Support/Agent HUD Open`. Local metadata can include session titles and workspace paths. Raw conversation bodies and authentication secrets are not copied into these caches.
+- Preferences use the application's UserDefaults domain; cached reports, quota observations and session indexes live in `~/Library/Application Support/Agent HUD Open`. Local metadata can include session titles and workspace paths; raw conversation bodies and authentication secrets are never copied into these caches.
+- Quota, balance and account-wide usage requests run separately from local activity polling with their own request intervals; a missing or signed-out client does not prevent other sources from reporting.
+- Saved readings appear immediately after a restart with their original observation times; a failed refresh keeps them and reports the failure. Unavailable quotas are never inferred from token counts.
+- A completed credential scan retires expired, removed or rejected OpenCode Go, Kimi and GLM quota rows, including cached rows and saved display settings.
+- Optional completion hooks write one small local record per finished turn (session and turn identity, model, workspace folder name and time) and nothing else; they send no notifications and upload nothing ([completion hooks](session-lifecycle.md#completion-hooks)).
 
-Quota, balance, and account-wide usage requests run separately from local activity polling and retain their own request intervals. Missing or signed-out clients do not prevent other sources from reporting. Saved readings appear immediately after restart with their original observation times. A failed refresh keeps those readings and reports the failure. A completed credential scan retires expired, removed, or rejected OpenCode Go / Kimi / GLM quota rows, including cached rows and saved display settings. Unavailable quotas are not inferred from token counts.
+## Related
 
-Kimi account identity is verified with the official `/coding/v1/me` response (`user_id`, `domain`, and `region`), separately for each deployment. An omitted or null `domain` uses the official parser's default of `0`. Only hashed credential-to-account associations are cached locally, so verified keys can share one quota pool across restarts. Failed identity lookups remain explicit and do not merge accounts based on matching quota values or reset times. JWT expiry may exclude an expired token; unverified JWT identity claims are never used to merge accounts.
-
-Optional completion hooks write one small local record per finished turn (session and turn identity, model, workspace folder name, and time) and nothing else; they do not send notifications or upload data. Their setup, ownership, and record format are described under [Completion hooks](session-lifecycle.md#completion-hooks).
-
-## Building
-
-Building the application requires no developer account, product credential, provisioning profile, or signing certificate. Local builds use ad-hoc signing. Provider protocol references and licenses are included in [third-party notices](../THIRD_PARTY_NOTICES.txt).
+[providers.md](providers.md) per-client details · [usage-semantics.md](usage-semantics.md) counting and retention · [session-lifecycle.md](session-lifecycle.md) turn evidence · [../THIRD_PARTY_NOTICES.txt](../THIRD_PARTY_NOTICES.txt) provider protocol references and licenses
