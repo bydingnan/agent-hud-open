@@ -14,7 +14,7 @@ Agent HUD Open reads agent activity and usage metadata on your Mac. It has no Ag
 | Grok CLI | Local session records and credential file | Official Grok CLI billing endpoint |
 | OpenCode, Kimi, GLM, Pi | Local JSON/SQLite session records and supported provider configuration; automatically prepared Pi lifecycle observer | Official Kimi, GLM, and OpenCode Go quota endpoints where configured |
 
-How token counts, percentages, alert levels, request intervals, and reading retention are defined is in [usage semantics](usage-semantics.md).
+Per-client details are in [providers](providers.md). How token counts, percentages, alert levels, request intervals, and reading retention are defined is in [usage semantics](usage-semantics.md).
 
 Some providers read agent API keys or tokens from their own configuration, environment variables, or local credential files. Credentials are used only for the corresponding provider's usage request. They are not included in reports or persisted to the HUD's caches. Custom endpoints are not assumed to share official billing accounts, and executable key resolvers are not run.
 
