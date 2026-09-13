@@ -14,6 +14,8 @@ Agent HUD Open reads agent activity and usage metadata on your Mac. It has no Ag
 | Grok CLI | Local session records and credential file | Official Grok CLI billing endpoint |
 | OpenCode, Kimi, GLM, Pi | Local JSON/SQLite session records and supported provider configuration; automatically prepared Pi lifecycle observer | Official Kimi, GLM, and OpenCode Go quota endpoints where configured |
 
+How token counts, percentages, alert levels, request intervals, and reading retention are defined is in [usage semantics](usage-semantics.md).
+
 Some providers read agent API keys or tokens from their own configuration, environment variables, or local credential files. Credentials are used only for the corresponding provider's usage request. They are not included in reports or persisted to the HUD's caches. Custom endpoints are not assumed to share official billing accounts, and executable key resolvers are not run.
 
 Claude and Codex quota queries use the installed clients' existing sign-in. Codex `auth.json` is not read directly. The app does not request model responses or consume usage-reset credits.
@@ -28,9 +30,7 @@ Quota, balance, and account-wide usage requests run separately from local activi
 
 Kimi account identity is verified with the official `/coding/v1/me` response (`user_id`, `domain`, and `region`), separately for each deployment. An omitted or null `domain` uses the official parser's default of `0`. Only hashed credential-to-account associations are cached locally, so verified keys can share one quota pool across restarts. Failed identity lookups remain explicit and do not merge accounts based on matching quota values or reset times. JWT expiry may exclude an expired token; unverified JWT identity claims are never used to merge accounts.
 
-Optional completion hooks write a small local event record to identify finished sessions. They do not send notifications or upload data.
-
-The standalone host prepares available observers at startup. It reports a conflict if a completion hook already belongs to another installation. Running `AgentHUDOpen --install-completion-hook cursor` (or `antigravity`) explicitly selects this installation as the callback owner.
+Optional completion hooks write one small local record per finished turn (session and turn identity, model, workspace folder name, and time) and nothing else; they do not send notifications or upload data. Their setup, ownership, and record format are described under [Completion hooks](session-lifecycle.md#completion-hooks).
 
 ## Building
 

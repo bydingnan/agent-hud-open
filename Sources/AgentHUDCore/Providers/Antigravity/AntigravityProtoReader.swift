@@ -1,5 +1,5 @@
 // Adapted from CodexBar (MIT), copyright 2026 Peter Steinberger.
-// See THIRD_PARTY_NOTICES.md for the pinned source and license.
+// See THIRD_PARTY_NOTICES.txt for the pinned source and license.
 import Foundation
 
 /// Decodes only the independently recorded generation layout; no inferred opaque timestamps.

@@ -1,6 +1,6 @@
 import Foundation
 
-// Protocol reference: CodexBar GrokCreditsProxyFetcher/GrokAuth (MIT), pinned in THIRD_PARTY_NOTICES.md.
+// Protocol reference: CodexBar GrokCreditsProxyFetcher/GrokAuth (MIT), pinned in THIRD_PARTY_NOTICES.txt.
 struct GrokClient: Sendable {
     var home = AdditionalLocalStore.grokHome
     var http = ProviderHTTP()
