@@ -3,11 +3,11 @@ import Foundation
 /// Real data for the Claude rows.
 /// Quota: the Claude Code engine's SDK control protocol (`get_usage`). Sessions/tokens/heatmap: local transcripts.
 /// Trends: persisted quota samples.
-public struct ClaudeCodeProvider: UsageProvider {
+public struct ClaudeCodeProvider: UsageProvider, LedgerRecording {
     public static let liveThreshold: TimeInterval = 120
 
     /// Engine queries spawn a process, so they run at most this often regardless of the poll interval.
-    public static let engineMinimumInterval: TimeInterval = 120
+    public static let engineMinimumInterval = UsageRefresh.accountRequestSpacing
 
     private let engine: ClaudeEngineUsageClient?
     private let engineCache = EngineUsageCache()
@@ -37,18 +37,20 @@ public struct ClaudeCodeProvider: UsageProvider {
         self.clock = clock
     }
 
-    /// Production wiring: the engine binary if present, plus local caches.
-    public static func standard() -> ClaudeCodeProvider {
+    /// Production wiring: the engine binary if present, plus the usage ledger.
+    public static func standard(ledger: UsageLedger) -> ClaudeCodeProvider {
         ClaudeCodeProvider(
             engine: ClaudeEngineLocator.find().map {
                 ClaudeEngineUsageClient(executable: $0, workingDirectory: ClaudeEngineUsageClient.defaultWorkingDirectory)
             },
-            transcripts: ClaudeTranscriptStore(cacheURL: ClaudeTranscriptStore.defaultCacheURL),
-            history: QuotaHistoryStore(fileURL: QuotaHistoryStore.defaultFileURL),
+            transcripts: ClaudeTranscriptStore(ledger: ledger, watchesChanges: true),
+            history: QuotaHistoryStore(ledger: ledger, scope: "claude", importing: AppSupport.directory.appendingPathComponent("quota-history.json")),
             accountProfileURL: ClaudeSubscription.accountProfileURL,
             home: ClaudeSubscription.home
         )
     }
+
+    public var watchedDirectories: [URL]? { transcripts.roots }
 
     private func account(for reading: EngineUsageCache.Reading) -> ProviderAccount {
         reading.identity?.account ?? .unresolved(provider: "Claude", home: home)
@@ -79,7 +81,7 @@ public struct ClaudeCodeProvider: UsageProvider {
         let indexed = await transcripts.index(modifiedSince: cutoff)
         let sessions = indexed.sessions
         let indexing = indexed.pending > 0 ? IndexProgress(done: sessions.count, total: sessions.count + indexed.pending) : nil
-        let usageEvents = sessions.flatMap(\.usage)
+        let weekUsage = await transcripts.usage(since: weekAgo)
         let observations: [(modelId: String, seenAt: Date)] = sessions.flatMap { session in
             session.modelsSeen.map { (modelId: $0.key, seenAt: $0.value) }
         }
@@ -158,11 +160,12 @@ public struct ClaudeCodeProvider: UsageProvider {
             if lhsLive != rhsLive { return lhsLive }
             return lhs.lastActivityAt > rhs.lastActivityAt
         }
-        let windowTotal = sessions.reduce(0) { $0 + $1.tokens(since: windowStart) }
+        let windowTokens = await transcripts.tokens(since: windowStart)
+        let windowTotal = windowTokens.values.reduce(0, +)
         let utilization = usage?.fiveHour?.utilizationPct ?? 0
         let listed = candidates.map { session -> LiveSession in
             let live = session.isLive(now: now, threshold: Self.liveThreshold)
-            let share = windowTotal > 0 ? Double(session.tokens(since: windowStart)) / Double(windowTotal) : 0
+            let share = windowTotal > 0 ? Double(windowTokens[session.path] ?? 0) / Double(windowTotal) : 0
             let agentId = session.dominantAgentId
             return LiveSession(
                 id: session.id,
@@ -192,7 +195,7 @@ public struct ClaudeCodeProvider: UsageProvider {
             weeklyWaitTotal: cap.totalWait,
             weeklyWaitLongest: cap.longestWait,
             weeklyWaitLongestAt: cap.longestAt,
-            weeklyShare: UsageAnalytics.weeklyShare(usage: usageEvents.filter { $0.timestamp >= weekAgo }),
+            weeklyShare: UsageAnalytics.weeklyShare(usage: weekUsage),
             windowSessionCount: sessions.filter { !$0.isSubagent && $0.lastActivityAt >= windowStart }.count,
             windowUsedPct: utilization
         )
@@ -228,20 +231,18 @@ public struct ClaudeCodeProvider: UsageProvider {
             snapshots: snapshots,
             sessions: listed,
             history: historySamples,
-            activity: UsageAnalytics.activityGrid(usage: usageEvents, since: weekAgo, calendar: calendar),
+            activity: UsageAnalytics.activityGrid(usage: weekUsage, since: weekAgo, calendar: calendar),
             insights: insights,
             notice: notice,
             discoveredAgents: discovered,
             subscriptionType: subscription,
             consumers: consumers,
-            consumption: usageEvents.filter { $0.timestamp >= cutoff && $0.timestamp <= now },
             indexing: indexing,
             insightsByAgent: insightsByAgent,
             subscriptions: plan.map { ["Claude": $0] } ?? [:],
             sourceNotices: notice.map { ["Claude": $0] } ?? [:],
             consumerIdsByQuota: consumerIdsByQuota,
             completions: sessions.flatMap(\.completions),
-            claudeConsumptionSince: indexing == nil ? cutoff : nil,
             turns: sessions.compactMap(\.turn),
             // A login without plan limits has no current subscription account; earlier accounts keep their last readings.
             accounts: reading.map { reading in

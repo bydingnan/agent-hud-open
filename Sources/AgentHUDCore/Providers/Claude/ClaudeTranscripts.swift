@@ -169,8 +169,9 @@ public struct TranscriptSession: Hashable, Sendable, Identifiable {
     public let startedAt: Date
     public let lastActivityAt: Date
     public let task: String?
-    /// Usage events with exact model identities; missing model names remain explicitly unknown.
-    public let usage: [UsageEvent]
+    public let tokensIn: Int
+    public let tokensOut: Int
+    public let cacheReadTokens: Int
     public let dominantAgentId: String
     /// Raw model ids seen with their last timestamp, for model discovery.
     public let modelsSeen: [String: Date]
@@ -182,34 +183,16 @@ public struct TranscriptSession: Hashable, Sendable, Identifiable {
     public var turn: SessionTurn? = nil
     public var turnInProgress: Bool? { turn.map { $0.state == .running } }
 
-    public var tokensIn: Int { usage.reduce(0) { $0 + $1.tokensIn } }
-    public var tokensOut: Int { usage.reduce(0) { $0 + $1.tokensOut } }
-    public var cacheReadTokens: Int { usage.reduce(0) { $0 + $1.cacheReadTokens } }
-
     /// Running means a turn is in progress and the log is still being written. A session waiting for input
     /// stops right away; a crashed or stalled process stops once the log has been quiet for `threshold`.
     public func isLive(now: Date, threshold: TimeInterval) -> Bool {
         turnInProgress != false && now.timeIntervalSince(lastActivityAt) < threshold
     }
-
-    /// Tokens consumed at or after `since`.
-    public func tokens(since: Date) -> Int {
-        usage.reduce(0) { $0 + ($1.timestamp >= since ? $1.total : 0) }
-    }
 }
 
 /// Mutable builder that ingests events (possibly in several batches) and produces a `TranscriptSession`.
-/// Codable so the transcript store can persist it between runs.
+/// Codable so the transcript store can persist it between runs; token events themselves go to the usage ledger.
 public struct TranscriptAccumulator: Hashable, Sendable, Codable {
-    private struct RawUsage: Hashable, Sendable, Codable {
-        let timestamp: Date
-        // A required field invalidates old family-only caches, which must be reindexed from the logs.
-        let consumerId: String
-        let tokensIn: Int
-        let tokensOut: Int
-        let cacheReadTokens: Int
-    }
-
     public let path: String
     public let isSubagent: Bool
     private var sessionId: String?
@@ -217,9 +200,14 @@ public struct TranscriptAccumulator: Hashable, Sendable, Codable {
     private var startedAt: Date?
     private var lastActivityAt: Date?
     private var task: String?
-    private var rawUsage: [RawUsage] = []
+    private var tokensIn = 0
+    private var tokensOut = 0
+    private var cacheReadTokens = 0
     private var outputByAgent: [String: Int] = [:]
-    private var seenUsageKeys: Set<String> = []
+    /// Keys of recently counted responses. Claude Code writes the lines of one response back to back.
+    private var recentUsageKeys: [String] = []
+    /// Usage lines without a response id, numbered so each keeps its own ledger key.
+    private var unkeyedUsage = 0
     private var modelsSeen: [String: Date] = [:]
     private var entrypoint: String?
     private struct Turn: Hashable, Sendable, Codable {
@@ -235,13 +223,17 @@ public struct TranscriptAccumulator: Hashable, Sendable, Codable {
     static let completedStopReasons: Set<String> = ["end_turn", "stop_sequence"]
     /// Enough for every turn a poll can observe; the notification tracker ignores older ones anyway.
     static let retainedCompletions = 32
+    static let retainedUsageKeys = 512
 
     public init(path: String, isSubagent: Bool) {
         self.path = path
         self.isSubagent = isSubagent
     }
 
-    public mutating func ingest(_ events: [TranscriptEvent]) {
+    /// Returns the usage these lines added, keyed by response so a repeated line never counts twice.
+    @discardableResult
+    public mutating func ingest(_ events: [TranscriptEvent]) -> [UsageLedger.Event] {
+        var added: [UsageLedger.Event] = []
         for event in events {
             if sessionId == nil { sessionId = event.sessionId }
             if cwd == nil { cwd = event.cwd }
@@ -278,19 +270,30 @@ public struct TranscriptAccumulator: Hashable, Sendable, Codable {
                 }
             }
             guard event.hasUsage else { continue }
-            if let key = event.usageKey {
+            let key: String
+            if let usageKey = event.usageKey {
                 // Same API response written as several lines: count its usage once.
-                guard seenUsageKeys.insert(key).inserted else { continue }
+                guard !recentUsageKeys.contains(usageKey) else { continue }
+                recentUsageKeys.append(usageKey)
+                if recentUsageKeys.count > Self.retainedUsageKeys { recentUsageKeys.removeFirst(recentUsageKeys.count - Self.retainedUsageKeys) }
+                key = usageKey
+            } else {
+                unkeyedUsage += 1
+                key = "n:\(unkeyedUsage)"
             }
             let mapped = ClaudeModelMapper.agentId(for: event.model) ?? "claude-model:Unknown"
-            rawUsage.append(RawUsage(timestamp: event.timestamp, consumerId: mapped, tokensIn: event.tokensIn, tokensOut: event.outputTokens,
-                                     cacheReadTokens: event.cacheReadTokens))
+            tokensIn += event.tokensIn
+            tokensOut += event.outputTokens
+            cacheReadTokens += event.cacheReadTokens
             outputByAgent[mapped, default: 0] += event.outputTokens
             let model = String(mapped.dropFirst("claude-model:".count))
             if (modelsSeen[model] ?? .distantPast) < event.timestamp {
                 modelsSeen[model] = event.timestamp
             }
+            added.append(UsageLedger.Event(key: key, timestamp: event.timestamp, agentId: mapped, tokensIn: event.tokensIn,
+                                           tokensOut: event.outputTokens, cacheReadTokens: event.cacheReadTokens))
         }
+        return added
     }
 
     public var isEmpty: Bool { startedAt == nil }
@@ -321,23 +324,18 @@ public struct TranscriptAccumulator: Hashable, Sendable, Codable {
         completions = Array(((completions ?? []) + [completion]).suffix(Self.retainedCompletions))
     }
 
-    /// Drops the dedupe set and old completions once a file can no longer receive appended lines (Claude Code
-    /// writes the duplicate lines of one response back to back, so an old file never needs them again). Keeps
-    /// memory and the on-disk cache small for thousands of finished sessions.
+    /// Drops the recent response keys and old completions once a file can no longer receive appended lines, keeping
+    /// the persisted state of thousands of finished sessions small.
     public mutating func compactIfFinished(now: Date, idleFor interval: TimeInterval = 86400) {
         guard let lastActivityAt, now.timeIntervalSince(lastActivityAt) > interval,
-              !seenUsageKeys.isEmpty || completions != nil else { return }
-        seenUsageKeys.removeAll()
+              !recentUsageKeys.isEmpty || completions != nil else { return }
+        recentUsageKeys.removeAll()
         completions = nil
     }
 
     public func build() -> TranscriptSession? {
         guard let startedAt, let lastActivityAt else { return nil }
         let dominant = outputByAgent.max { $0.value < $1.value }?.key ?? "claude-model:Unknown"
-        let usage = rawUsage.map { raw in
-            UsageEvent(timestamp: raw.timestamp, agentId: raw.consumerId, tokensIn: raw.tokensIn, tokensOut: raw.tokensOut,
-                                         cacheReadTokens: raw.cacheReadTokens)
-        }
         let fileName = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
         return TranscriptSession(
             id: sessionId ?? fileName,
@@ -347,7 +345,9 @@ public struct TranscriptAccumulator: Hashable, Sendable, Codable {
             startedAt: startedAt,
             lastActivityAt: lastActivityAt,
             task: task,
-            usage: usage,
+            tokensIn: tokensIn,
+            tokensOut: tokensOut,
+            cacheReadTokens: cacheReadTokens,
             dominantAgentId: dominant,
             modelsSeen: modelsSeen,
             entrypoint: entrypoint,

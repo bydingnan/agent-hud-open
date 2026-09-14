@@ -109,7 +109,7 @@ final class ClaudeEngineTests: XCTestCase {
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fake.path)
         let now = try XCTUnwrap(DateParsing.iso8601("2026-09-08T00:00:00Z"))
         let provider = ClaudeCodeProvider(engine: .init(executable: fake, workingDirectory: dir),
-                                         transcripts: .init(roots: []), history: .init(fileURL: nil), clock: { now })
+                                         transcripts: .init(roots: []), history: .init(), clock: { now })
         let report = try await provider.fetchAccountAndLocalUsage(agents: [], historyHours: 2)
         let sessionRowId = ProviderAccount.unresolved(provider: "Claude", home: "").windowID(ClaudeUsage.sessionRowId)
         let quota = try XCTUnwrap(report.snapshot(for: sessionRowId))

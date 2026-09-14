@@ -270,11 +270,11 @@ final class UsageStoreTests: XCTestCase {
     func testTokenChartsIncludeAllModelsRegardlessOfQuotaSwitches() {
         let store = makeStore()
         let hour = Calendar.current.dateInterval(of: .hour, for: Date())!.start
-        let consumption = [("claude-opus", 100), ("codex", 200), ("antigravity", 900)].map { id, tokens in
-            UsageEvent(timestamp: hour, agentId: id, tokensIn: tokens, tokensOut: 0)
+        let usage = [("claude-opus", 100), ("codex", 200), ("antigravity", 900)].map { id, tokens in
+            UsageBucket(start: hour, agentId: id, tokensIn: tokens, tokensOut: 0)
         }
         store.replace(report: UsageReport(generatedAt: Date(), snapshots: [], sessions: [], history: [],
-            activity: .empty, insights: .empty, consumers: DemoData.agents, consumption: consumption))
+            activity: .empty, insights: .empty, consumers: DemoData.agents, usage: usage))
 
         func total() -> Int { store.tokenColumns.reduce(0) { $0 + $1.total } }
         XCTAssertEqual(total(), 1200, "quota settings do not exclude token spenders")

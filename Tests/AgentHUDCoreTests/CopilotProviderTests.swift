@@ -82,7 +82,7 @@ final class CopilotProviderTests: XCTestCase, @unchecked Sendable {
         }))
         let clock = now
         let copilot = AdditionalUsageProvider(source: .copilot, readQuota: { try await client.fetch() }, readSessions: { _ in .init() },
-            history: QuotaHistoryStore(fileURL: nil), clock: { clock }, quotaKey: { String(consent.on) })
+            history: QuotaHistoryStore(), clock: { clock }, quotaKey: { String(consent.on) })
         let retained = RetainedUsageProvider(provider: copilot)
         await retained.refreshAccountUsage(historyHours: 24)
         let signedIn = try await retained.fetchUsage(agents: [], historyHours: 24)

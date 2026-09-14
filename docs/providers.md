@@ -2,7 +2,7 @@
 
 ## Overview
 
-A provider is the `AgentHUDCore` component that turns one client's local records and account queries into a `UsageReport`: sessions, usage events, quota windows with the account they belong to, balances, turns and completions. Common rules: a provider reads only what the client already stores on this Mac; it uses the client's existing sign-in or configured key for metadata requests only, never sending a model message or consuming a reset credit; credentials never enter reports or caches; network requests follow no redirects and share no cookies; SQLite databases are opened read-only in one read transaction, which sees committed WAL pages; a missing, signed-out or failing client never hides another. Counting conventions and request intervals: [usage semantics](usage-semantics.md); running and terminal turns: [session lifecycle](session-lifecycle.md); boundaries: [data access](data-access.md); probes: [command line](command-line.md).
+A provider is the `AgentHUDCore` component that turns one client's local records and account queries into a `UsageReport` and the usage ledger: sessions, token events, quota windows with the account they belong to, balances, turns and completions. Common rules: a provider reads only what the client already stores on this Mac; it uses the client's existing sign-in or configured key for metadata requests only, never sending a model message or consuming a reset credit; credentials never enter reports or stored data; network requests follow no redirects and share no cookies; SQLite databases are opened read-only in one read transaction, which sees committed WAL pages; a missing, signed-out or failing client never hides another. Counting conventions and request intervals: [usage semantics](usage-semantics.md); running and terminal turns: [session lifecycle](session-lifecycle.md); boundaries: [data access](data-access.md); probes: [command line](command-line.md).
 
 | Client | Reads | Quota source | Account (user · workspace) | Balance or cost | Running / terminal turns |
 | --- | --- | --- | --- | --- | --- |
@@ -122,17 +122,20 @@ Account ids hash the listed user and workspace values; a quota row is `account:<
 - Each pool's quota is fetched once per interval with any of its credentials; when every credential is rejected the pool is inactive and `UsageReport.activeQuotaPoolIDs` retires its rows, readings and display settings, while a temporary failure keeps the last reading.
 - Historical usage keeps the attribution recorded at the time (`UsageAttribution`); events without a pool are shown as billing unconfirmed and never re-attributed from today's login. Claude and Codex quotas are read only from their own engines; no copy is created for OpenCode or Pi sessions.
 
-## Caches
+## Storage
 
-Files in the data directory ([architecture](architecture.md#storage)); quota histories keep 30 days, and no file contains conversation text or credentials.
+Files in the data directory ([architecture](architecture.md#storage)); none contains conversation text or credentials.
 
-| File | Owner |
+| File | Contents |
 | --- | --- |
-| `last-usage-report.json` | The retained report, restored at start; rewritten at most once a minute |
-| `transcripts-cache-v5.json`, `quota-history.json`, `engine/` | Claude Code transcript index, quota history and engine working directory |
-| `codex-transcripts-v5.json`, `codex-quota-history.json`; `deepseek-transcripts-v2.json` | Codex; DeepSeek Harness |
-| `antigravity-quota-history.json`, `cursor-quota-history.json`, `grok-quota-history.json`, `copilot-quota-history.json`, `turn-completions/<source>/` | Antigravity, Cursor, Grok, GitHub Copilot and the completion-hook inbox |
-| `open-agent-quota-history.json`, `open-agent-identities.json` | OpenCode, Kimi, GLM and Pi pools; confirmed Kimi identities as hashes |
+| `usage-ledger.sqlite` | Per log file the client's parse position and session summary; token events grouped by session with their estimated cost; the 15-minute usage and cost totals kept exact as events arrive, change or leave; quota readings per provider |
+| `last-usage-report.json` | The retained report without turns and completions, restored at start; rewritten at most every 5 minutes |
+| `engine/`, `turn-completions/<source>/`, `open-agent-identities.json` | Claude Code engine working directory; the completion-hook inbox; confirmed Kimi identities as hashes |
+
+- An appended log is read from where the previous read stopped; a file that shrank or was rewritten is read again and replaces what it recorded, and a deleted file removes it.
+- Copies of one session in several places, such as a Codex rollout and its archived copy or a copied Harness log, count once, from the newest copy.
+- Sources parsed as whole files or account records replace a session's events from the start of the reading window, so older events stay until the ledger expires them. Their reports resolve overlapping logs first: the highest-priority log of a Grok or Copilot session, and one event per identity.
+- Token events and totals keep 31 days, quota readings 30 days; expired rows are deleted, never rewritten. JSON caches of earlier versions are removed at start, and their quota histories are imported once.
 
 ## Code map and tests
 

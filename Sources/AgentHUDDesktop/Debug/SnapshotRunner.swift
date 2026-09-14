@@ -103,7 +103,7 @@ public enum SnapshotRunner {
         dashboardStore.replace(report: UsageReport(generatedAt: dashboardReport.generatedAt,
             snapshots: dashboardReport.snapshots, sessions: dashboardReport.sessions, history: dashboardReport.history,
             activity: dashboardReport.activity, insights: dashboardReport.insights, consumers: dashboardReport.consumers,
-            consumption: dashboardReport.consumption,
+            usage: dashboardReport.usage,
             insightsByAgent: Dictionary(uniqueKeysWithValues: dashboardReport.snapshots.map { ($0.agentId, dashboardReport.insights) }),
             subscriptions: dashboardReport.subscriptions,
             billing: [DemoData.deepSeekBilling(now: dashboardReport.generatedAt)]))

@@ -5,6 +5,7 @@ actor AdditionalLocalStore {
     let roots: [URL]
     private struct Entry { let signature: String; let result: ProviderSessions }
     private var entries: [URL: Entry] = [:]
+    private var revision = 0
 
     static var grokHome: URL {
         ProcessInfo.processInfo.environment["GROK_HOME"].map { URL(fileURLWithPath: $0) }
@@ -80,9 +81,13 @@ actor AdditionalLocalStore {
                 default: result = try source.layout?.read(candidate.url) ?? ProviderSessions()
                 }
                 entries[candidate.url] = Entry(signature: candidate.signature, result: result)
+                revision += 1
             } catch { failed = true }
         }
-        if !failed { entries = entries.filter { seen.contains($0.key) } }
+        if !failed, entries.keys.contains(where: { !seen.contains($0) }) {
+            entries = entries.filter { seen.contains($0.key) }
+            revision += 1
+        }
         let results = candidates.compactMap { entries[$0.url]?.result }
         var sessions = results.flatMap(\.sessions)
         if source == .grok {
@@ -118,7 +123,7 @@ actor AdditionalLocalStore {
         }
         let notices = ([failed ? ProviderFailure.local.message : nil, overlapNotice] + results.map(\.notice)).compactMap { $0 }
         return ProviderSessions(sessions: byID.keys.sorted().compactMap { byID[$0] }, notice: notices.isEmpty ? nil : Array(Set(notices)).sorted().joined(separator: " · "),
-            indexing: pending > 0 ? IndexProgress(done: candidates.count - pending, total: candidates.count) : nil)
+            indexing: pending > 0 ? IndexProgress(done: candidates.count - pending, total: candidates.count) : nil, revision: revision)
     }
 }
 

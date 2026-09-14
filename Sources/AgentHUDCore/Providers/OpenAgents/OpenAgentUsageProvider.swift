@@ -1,7 +1,7 @@
 import Foundation
 
 /// Clients supply request observations. Billing services supply account observations, exactly once per pool.
-actor OpenAgentUsageProvider: UsageProvider {
+actor OpenAgentUsageProvider: UsageProvider, LedgerRecording {
     private let credentials: @Sendable () -> [OpenAgentCredential]
     private let sessions: @Sendable (Date) async -> OpenAgentLocalStore.Result
     private let fetchQuota: @Sendable (OpenAgentCredential, Date) async throws -> ProviderQuota
@@ -25,29 +25,60 @@ actor OpenAgentUsageProvider: UsageProvider {
     }
     /// Nil until the first account scan completes; an empty result is an observed empty inventory.
     private var cached: [String: QuotaResult]?
+    nonisolated let watchedDirectories: [URL]?
+    private let ledger: UsageLedger
+    private var recorded: (revision: Int, window: Date)?
+    static let source = "open-agents"
     init(credentials: @escaping @Sendable () -> [OpenAgentCredential],
          sessions: @escaping @Sendable (Date) async -> OpenAgentLocalStore.Result,
          fetchQuota: @escaping @Sendable (OpenAgentCredential, Date) async throws -> ProviderQuota,
          history: QuotaHistoryStore, identify: @escaping @Sendable (OpenAgentCredential) async throws -> OpenAgentCredential = { $0 }, clock: @escaping @Sendable () -> Date = { Date() },
          identityCacheURL: URL? = nil,
-         apiServices: @escaping @Sendable () -> [AgentService] = { [] }) {
+         apiServices: @escaping @Sendable () -> [AgentService] = { [] },
+         watchedDirectories: [URL]? = nil, ledger: UsageLedger = .inMemory()) {
         self.credentials = credentials; self.sessions = sessions; self.fetchQuota = fetchQuota
         self.history = history; self.identify = identify; self.clock = clock
         self.apiServices = apiServices
         self.identityCacheURL = identityCacheURL
+        self.watchedDirectories = watchedDirectories
+        self.ledger = ledger
         if let data = identityCacheURL.flatMap({ try? Data(contentsOf: $0) }),
            let saved = try? JSONDecoder().decode([String: BillingPool].self, from: data) {
             identities = saved.filter { $0.value.evidence == .account }.mapValues { Identity(at: .distantPast, pool: $0) }
         }
     }
-    static func standard(persistHistory: Bool = true) -> OpenAgentUsageProvider {
-        let local = OpenAgentLocalStore(paths: .init(home: FileManager.default.homeDirectoryForCurrentUser, environment: ProcessInfo.processInfo.environment))
+    static func standard(ledger: UsageLedger, persistHistory: Bool = true) -> OpenAgentUsageProvider {
+        let paths = OpenAgentPaths(home: FileManager.default.homeDirectoryForCurrentUser, environment: ProcessInfo.processInfo.environment)
+        let local = OpenAgentLocalStore(paths: paths)
         return .init(credentials: { OpenAgentCredentials.discover() }, sessions: { await local.index(since: $0) },
             fetchQuota: { try await OpenAgentQuotaClient().fetch($0, now: $1) },
-            history: QuotaHistoryStore(fileURL: persistHistory ? AppSupport.directory.appendingPathComponent("open-agent-quota-history.json") : nil),
+            history: QuotaHistoryStore(ledger: ledger, scope: Self.source,
+                importing: persistHistory ? AppSupport.directory.appendingPathComponent("open-agent-quota-history.json") : nil),
             identify: { try await OpenAgentQuotaClient().identify($0) },
             identityCacheURL: persistHistory ? AppSupport.directory.appendingPathComponent("open-agent-identities.json") : nil,
-            apiServices: { AgentAPIServiceDiscovery.discover() })
+            apiServices: { AgentAPIServiceDiscovery.discover() },
+            watchedDirectories: [paths.openCode, paths.piTurns] + paths.roots(for: .kimi) + paths.roots(for: .pi), ledger: ledger)
+    }
+
+    /// Token totals of every open agent client from the period holding `since`.
+    func usage(since: Date) async -> [UsageBucket] {
+        (try? await ledger.buckets(since: since, source: Self.source)) ?? []
+    }
+
+    /// Writes each session's usage once the index is complete and something changed.
+    private func record(_ local: OpenAgentLocalStore.Result, since: Date) async {
+        guard local.indexing == nil else { return }
+        let window = SessionContributions.windowStart(since)
+        if let revision = local.revision, let recorded, recorded.revision == revision, recorded.window == window { return }
+        let contributions = SessionContributions.canonical(local.sessions.map { ($0.id, $0.events) })
+        do {
+            try await ledger.write { writer in
+                for (session, events) in contributions {
+                    try writer.replace(source: Self.source, contribution: session, events: events, since: window)
+                }
+            }
+            recorded = local.revision.map { ($0, window) }
+        } catch { /* The next poll writes the same sessions again. */ }
     }
     func refreshAccountUsage(historyHours: Int) async {
         let now = clock()
@@ -56,25 +87,20 @@ actor OpenAgentUsageProvider: UsageProvider {
         let savedIdentities = identities.filter { $0.value.pool.evidence == .account }.mapValues(\.pool)
         identities = identities.filter { activeCredentials.contains($0.key) }
         let prior = identities, identify = identify
-        let resolved = await withTaskGroup(of: (String, OpenAgentCredential, Identity).self) { group in
-            for credential in raw {
-                group.addTask {
-                    if let known = prior[credential.pool.id], (known.pool.evidence == .account || now.timeIntervalSince(known.at) < 120) {
-                        return (credential.pool.id, .init(service: credential.service, token: credential.token,
-                            pool: known.pool, headers: credential.headers, clients: credential.clients, expiresAt: credential.expiresAt), known)
-                    }
-                    do {
-                        let identified = try await identify(credential)
-                        return (credential.pool.id, identified, Identity(at: now, pool: identified.pool))
-                    } catch {
-                        let notice = L10n.text("账户归属未确认", "Account identity unconfirmed") + ": " + error.localizedDescription
-                        return (credential.pool.id, credential, Identity(at: now, pool: credential.pool, notice: notice))
-                    }
-                }
+        var resolved: [(String, OpenAgentCredential, Identity)] = []
+        for credential in raw {
+            if let known = prior[credential.pool.id], (known.pool.evidence == .account || now.timeIntervalSince(known.at) < UsageRefresh.accountRequestSpacing) {
+                resolved.append((credential.pool.id, .init(service: credential.service, token: credential.token,
+                    pool: known.pool, headers: credential.headers, clients: credential.clients, expiresAt: credential.expiresAt), known))
+                continue
             }
-            var results: [(String, OpenAgentCredential, Identity)] = []
-            for await result in group { results.append(result) }
-            return results
+            do {
+                let identified = try await identify(credential)
+                resolved.append((credential.pool.id, identified, Identity(at: now, pool: identified.pool)))
+            } catch {
+                let notice = L10n.text("账户归属未确认", "Account identity unconfirmed") + ": " + error.localizedDescription
+                resolved.append((credential.pool.id, credential, Identity(at: now, pool: credential.pool, notice: notice)))
+            }
         }
         for (key, _, identity) in resolved { identities[key] = identity }
         let confirmed = identities.filter { $0.value.pool.evidence == .account }.mapValues(\.pool)
@@ -90,29 +116,26 @@ actor OpenAgentUsageProvider: UsageProvider {
         let active = Set(accounts.map { $0.pool.id })
         let old = (cached ?? [:]).filter { active.contains($0.key) }, fetch = fetchQuota
         let identityNotices = Dictionary(uniqueKeysWithValues: resolved.map { ($0.0, $0.2.notice) })
-        let results = await withTaskGroup(of: QuotaResult.self) { group in
-            for account in accounts {
-                group.addTask {
-                    if let value = old[account.pool.id], now.timeIntervalSince(value.at) < 120 {
-                        return .init(credential: account, quota: value.quota, notice: value.notice, at: value.at, isActive: value.isActive)
-                    }
-                    var failures: [String] = [], allUnauthorized = true
-                    let identityNotice = identityNotices[account.pool.id] ?? nil
-                    for alias in aliases[account.pool.id] ?? [account] {
-                        do { return .init(credential: account, quota: try await fetch(alias, now), notice: identityNotice, at: now) }
-                        catch {
-                            failures.append(error.localizedDescription)
-                            if (error as? ProviderHTTPError)?.isAuthentication != true { allUnauthorized = false }
-                        }
-                    }
-                    return .init(credential: account, quota: nil,
-                        notice: ([identityNotice].compactMap { $0 } + Array(Set(failures)).sorted()).joined(separator: " · "),
-                        at: now, isActive: !allUnauthorized)
+        var results: [QuotaResult] = []
+        accounts: for account in accounts.sorted(by: { $0.pool.id < $1.pool.id }) {
+            if let value = old[account.pool.id], now.timeIntervalSince(value.at) < UsageRefresh.accountRequestSpacing {
+                results.append(.init(credential: account, quota: value.quota, notice: value.notice, at: value.at, isActive: value.isActive))
+                continue
+            }
+            var failures: [String] = [], allUnauthorized = true
+            let identityNotice = identityNotices[account.pool.id] ?? nil
+            for alias in aliases[account.pool.id] ?? [account] {
+                do {
+                    results.append(.init(credential: account, quota: try await fetch(alias, now), notice: identityNotice, at: now))
+                    continue accounts
+                } catch {
+                    failures.append(error.localizedDescription)
+                    if (error as? ProviderHTTPError)?.isAuthentication != true { allUnauthorized = false }
                 }
             }
-            var all: [QuotaResult] = []
-            for await result in group { all.append(result) }
-            return all.sorted { $0.credential.pool.id < $1.credential.pool.id }
+            results.append(.init(credential: account, quota: nil,
+                notice: ([identityNotice].compactMap { $0 } + Array(Set(failures)).sorted()).joined(separator: " · "),
+                at: now, isActive: !allUnauthorized))
         }
         if Task.isCancelled { return }
         for result in results {
@@ -137,7 +160,9 @@ actor OpenAgentUsageProvider: UsageProvider {
         // Empty sets explicitly retire expired, removed, rejected, or superseded pools.
         var activePools: [String: Set<String>] = ["Kimi": [], "GLM": [], "OpenCode Go": []]
         for result in quotas where result.isActive { activePools[result.credential.pool.provider, default: []].insert(result.credential.pool.id) }
-        let events = UsageAggregation.usageUnion(local.sessions.map(\.events)).filter { $0.timestamp >= since && $0.timestamp <= now }
+        await record(local, since: since)
+        let events = local.sessions.flatMap(\.events)
+        let week = await usage(since: now.addingTimeInterval(-7 * 86400))
         var consumers: [String: AgentDescriptor] = [:]
         for item in local.sessions {
             for event in item.events {
@@ -211,9 +236,9 @@ actor OpenAgentUsageProvider: UsageProvider {
             }
         }
         return UsageReport(generatedAt: now, snapshots: snapshots, sessions: live, history: samples,
-            activity: UsageAnalytics.activityGrid(usage: events, since: now.addingTimeInterval(-7 * 86400), calendar: .current),
+            activity: UsageAnalytics.activityGrid(usage: week, since: now.addingTimeInterval(-7 * 86400), calendar: .current),
             insights: .empty, notice: notices.isEmpty ? nil : notices.keys.sorted().map { "\($0): \(notices[$0]!)" }.joined(separator: " · "),
-            discoveredAgents: descriptors, consumers: consumers.values.sorted { $0.id < $1.id }, consumption: events,
+            discoveredAgents: descriptors, consumers: consumers.values.sorted { $0.id < $1.id },
             indexing: local.indexing, insightsByAgent: insights, subscriptions: plans, sourceNotices: notices, consumerIdsByQuota: links,
             completions: local.sessions.flatMap(\.completions), turns: local.sessions.flatMap(\.turns), services: services,
             activeQuotaPoolIDs: cached == nil ? nil : activePools, accounts: cached == nil ? nil : accounts)

@@ -132,16 +132,21 @@ final class DeepSeekProviderTests: XCTestCase {
             var starts: [Date] = []
             func set(_ value: [Date]) { starts = value }
         }
-        let runtime = Runtime()
+        final class Clock: @unchecked Sendable { var now: Date; init(_ now: Date) { self.now = now } }
+        let runtime = Runtime(), clock = Clock(now.addingTimeInterval(7200))
         await runtime.set([now.addingTimeInterval(-60)])
         let provider = DeepSeekUsageProvider(directory: dir, transcripts: DeepSeekTranscriptStore(root: root),
-            readProcessStarts: { await runtime.starts }, clock: { now.addingTimeInterval(7200) })
+            readProcessStarts: { await runtime.starts }, clock: { clock.now })
         let waiting = try await provider.fetchAccountAndLocalUsage(agents: [], historyHours: 24)
         XCTAssertTrue(try XCTUnwrap(waiting.sessions.first).isLive)
         await runtime.set([])
+        let cached = try await provider.fetchAccountAndLocalUsage(agents: [], historyHours: 24)
+        XCTAssertTrue(try XCTUnwrap(cached.sessions.first).isLive, "the process table is inspected at most every 30 seconds")
+        clock.now += 30
         let stopped = try await provider.fetchAccountAndLocalUsage(agents: [], historyHours: 24)
         XCTAssertFalse(try XCTUnwrap(stopped.sessions.first).isLive)
         await runtime.set([now.addingTimeInterval(60)])
+        clock.now += 30
         let restarted = try await provider.fetchAccountAndLocalUsage(agents: [], historyHours: 24)
         XCTAssertFalse(try XCTUnwrap(restarted.sessions.first).isLive)
     }
@@ -153,24 +158,29 @@ final class DeepSeekProviderTests: XCTestCase {
         let file = try logFile(root, id: "first")
         let countLine = usage(seq: 1)
         try (header() + "\n" + model(seq: 0) + "\n" + String(countLine.prefix(30))).write(to: file, atomically: true, encoding: .utf8)
-        let cache = dir.appendingPathComponent("cache.json")
-        let store = DeepSeekTranscriptStore(root: root, cacheURL: cache)
+        let ledgerURL = dir.appendingPathComponent("usage-ledger.sqlite")
+        let store = DeepSeekTranscriptStore(root: root, ledger: try UsageLedger(url: ledgerURL))
         let first = await store.index(since: .distantPast)
         XCTAssertEqual(first.sessions.count, 1)
-        XCTAssertTrue(first.sessions[0].transcript.usage.isEmpty)
+        XCTAssertEqual(first.sessions[0].transcript.inputTokens, 0)
         XCTAssertNil(first.indexing)
         try append(String(countLine.dropFirst(30)) + "\n", to: file)
         let second = await store.index(since: .distantPast)
-        XCTAssertEqual(second.sessions[0].transcript.usage.count, 1)
+        XCTAssertEqual(second.sessions[0].transcript.inputTokens, 8086)
         let copy = try logFile(root, id: "copy")
         try FileManager.default.copyItem(at: file, to: copy)
-        let restored = DeepSeekTranscriptStore(root: root, cacheURL: cache)
+        let reopened = try UsageLedger(url: ledgerURL)
+        let restored = DeepSeekTranscriptStore(root: root, ledger: reopened)
         let third = await restored.index(since: .distantPast)
         XCTAssertEqual(third.sessions.count, 1)
-        XCTAssertEqual(third.sessions[0].transcript.usage[0].input, 8086)
+        XCTAssertEqual(third.sessions[0].transcript.inputTokens, 8086)
+        let counted = try await reopened.buckets(since: .distantPast)
+        XCTAssertEqual(counted.map(\.tokensIn), [8086], "a copied log of the same session counts once")
         try (header(id: "replacement") + "\n").write(to: file, atomically: true, encoding: .utf8)
-        let fourth = await store.index(since: .distantPast)
-        XCTAssertTrue(fourth.sessions.contains { $0.transcript.id == "replacement" && $0.transcript.usage.isEmpty })
+        let fourth = await restored.index(since: .distantPast)
+        XCTAssertTrue(fourth.sessions.contains { $0.transcript.id == "replacement" && $0.transcript.inputTokens == 0 })
+        let replaced = try await reopened.buckets(since: .distantPast)
+        XCTAssertEqual(replaced.map(\.tokensIn), [8086], "the copy keeps the session once the original is rewritten")
     }
 
     func testConcatenatedZstandardFramesAndTornFinalFrameMatchPlaintext() async throws {
@@ -192,15 +202,15 @@ final class DeepSeekProviderTests: XCTestCase {
         let store = DeepSeekTranscriptStore(root: dir)
         let full = await store.index(since: .distantPast, timeBudget: 5)
         XCTAssertNil(full.notice)
-        XCTAssertEqual(full.sessions[0].transcript.usage[0].input, 8086)
+        XCTAssertEqual(full.sessions[0].transcript.inputTokens, 8086)
         XCTAssertFalse(full.sessions[0].transcript.isLive(now: now, modifiedAt: now))
         try Data(frames.dropLast(8)).write(to: file)
         let partial = await store.index(since: .distantPast, timeBudget: 5)
         XCTAssertNil(partial.notice)
-        XCTAssertEqual(partial.sessions[0].transcript.usage.count, 1)
+        XCTAssertEqual(partial.sessions[0].transcript.inputTokens, 8086)
         try frames.write(to: file)
         let complete = await store.index(since: .distantPast, timeBudget: 5)
-        XCTAssertEqual(complete.sessions[0].transcript.usage.count, 1)
+        XCTAssertEqual(complete.sessions[0].transcript.inputTokens, 8086)
         XCTAssertFalse(complete.sessions[0].transcript.isLive(now: now, modifiedAt: now))
     }
 
@@ -277,7 +287,8 @@ final class DeepSeekProviderTests: XCTestCase {
         actor Counter { var calls = 0; func increment() { calls += 1 } }
         let counter = Counter(), now = now
         let balance = try JSONDecoder().decode(DeepSeekBalance.self, from: Data(Self.balanceJSON.utf8))
-        let provider = DeepSeekUsageProvider(directory: dir, transcripts: DeepSeekTranscriptStore(root: root), readBalance: {
+        let transcripts = DeepSeekTranscriptStore(root: root)
+        let provider = DeepSeekUsageProvider(directory: dir, transcripts: transcripts, readBalance: {
             await counter.increment(); return balance
         }, clock: { now })
         let report = try await provider.fetchAccountAndLocalUsage(agents: [], historyHours: 169)
@@ -286,7 +297,9 @@ final class DeepSeekProviderTests: XCTestCase {
         XCTAssertEqual(calls, 1)
         XCTAssertEqual(report.sessions.count, 1)
         XCTAssertEqual(report.sessions[0].tokensIn, 8086)
-        XCTAssertEqual(report.consumption.reduce(0) { $0 + $1.tokensIn }, 8096)
+        let recorded = await transcripts.usage(since: .distantPast)
+        XCTAssertEqual(recorded.reduce(0) { $0 + $1.tokensIn }, 8096, "sub-agent usage counts")
+        XCTAssertEqual(report.billing[0].sessionCosts["deepseek:main"]?["CNY"], Decimal(string: "0.01239"))
         XCTAssertTrue(report.snapshots.isEmpty)
         XCTAssertTrue(report.history.isEmpty)
         XCTAssertTrue(report.consumerIdsByQuota.isEmpty)
@@ -312,7 +325,8 @@ final class DeepSeekProviderTests: XCTestCase {
         XCTAssertEqual(report.sourceNotices["DeepSeek"], "offline")
         XCTAssertTrue(report.billing[0].balances.isEmpty)
         XCTAssertNil(report.billing[0].estimatedCost(currency: "CNY"))
-        XCTAssertEqual(report.billing[0].estimatedCost(currency: "CNY", during: DateInterval(start: now.addingTimeInterval(1), duration: 10)), 0)
+        XCTAssertEqual(report.billing[0].estimatedCost(currency: "CNY", during: DateInterval(start: now.addingTimeInterval(900), duration: 10)), 0,
+                       "a period without requests costs nothing")
     }
 
     func testFreshInstallDetectionAndDSHHomeOverride() throws {

@@ -5,10 +5,13 @@ actor OpenAgentLocalStore {
         var sessions: [OpenAgentSession] = []
         var notices: [String: String] = [:]
         var indexing: IndexProgress?
+        /// Changes whenever the parsed files change; nil when the reader cannot tell.
+        var revision: Int? = nil
     }
     let paths: OpenAgentPaths
     private struct Entry { let signature: String; let sessions: [OpenAgentSession] }
     private var cache: [URL: Entry] = [:]
+    private var revision = 0
     init(paths: OpenAgentPaths) { self.paths = paths }
 
     func index(since: Date) -> Result {
@@ -74,9 +77,13 @@ actor OpenAgentLocalStore {
                     }
                 }
                 cache[url] = .init(signature: signature, sessions: sessions)
+                revision += 1
             } catch { result.notices[source.name] = ProviderFailure.local.message }
         }
-        if result.notices.isEmpty { cache = cache.filter { seen.contains($0.key) } }
+        if result.notices.isEmpty, cache.keys.contains(where: { !seen.contains($0) }) {
+            cache = cache.filter { seen.contains($0.key) }
+            revision += 1
+        }
         var grouped: [String: OpenAgentSession] = [:]
         var workspaceIndexes: [URL: ProviderJSON] = [:]
         for (url, _, _, _) in candidates {
@@ -112,6 +119,7 @@ actor OpenAgentLocalStore {
         }
         result.sessions = grouped.values.sorted { $0.id < $1.id }
         result.indexing = pending > 0 ? IndexProgress(done: candidates.count - pending, total: candidates.count) : nil
+        result.revision = revision
         return result
     }
 }

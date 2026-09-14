@@ -46,18 +46,6 @@ public enum UsageAnalytics {
         }
     }
 
-    /// 7 × 24 grid (Mon → Sun) of token consumption since `since`.
-    public static func activityGrid(usage: [UsageEvent], since: Date, calendar: Calendar, dimensions: TokenDimensions = .fresh) -> ActivityGrid {
-        var cells = Array(repeating: Array(repeating: [String: Int](), count: 24), count: 7)
-        for event in usage where event.timestamp >= since {
-            let weekday = calendar.component(.weekday, from: event.timestamp) // 1 = Sunday
-            let row = (weekday + 5) % 7 // Monday = 0
-            let hour = calendar.component(.hour, from: event.timestamp)
-            cells[row][hour][event.agentId, default: 0] += dimensions.count(event)
-        }
-        return ActivityGrid(tokensByModel: cells)
-    }
-
     /// Time-weighted average over the observed part of this reset cycle, including idle time.
     public static func burnRate(samples: [QuotaSample], cycle: QuotaCycle?, now: Date) -> BurnRate? {
         guard let cycle, now >= cycle.start, now < cycle.resetAt else { return nil }
@@ -134,10 +122,20 @@ public enum UsageAnalytics {
         return CapStats(hits: hits, totalWait: total, longestWait: longest, longestAt: longestAt)
     }
 
+    /// 7 × 24 grid (Mon → Sun) of 15-minute buckets that end after `since`, by the local hour each bucket starts in.
+    public static func activityGrid(usage: [UsageBucket], since: Date, calendar: Calendar, dimensions: TokenDimensions = .fresh) -> ActivityGrid {
+        var cells = Array(repeating: Array(repeating: [String: Int](), count: 24), count: 7)
+        for bucket in usage where bucket.end > since {
+            let row = (calendar.component(.weekday, from: bucket.start) + 5) % 7 // Monday = 0
+            cells[row][calendar.component(.hour, from: bucket.start)][bucket.agentId, default: 0] += dimensions.count(bucket)
+        }
+        return ActivityGrid(tokensByModel: cells)
+    }
+
     /// Share of tokens per agent (sums to 1 when there is any usage).
-    public static func weeklyShare(usage: [UsageEvent]) -> [String: Double] {
+    public static func weeklyShare(usage: [UsageBucket]) -> [String: Double] {
         var totals: [String: Int] = [:]
-        for event in usage { totals[event.agentId, default: 0] += event.total }
+        for bucket in usage { totals[bucket.agentId, default: 0] += bucket.total }
         let sum = totals.values.reduce(0, +)
         guard sum > 0 else { return [:] }
         return totals.mapValues { Double($0) / Double(sum) }

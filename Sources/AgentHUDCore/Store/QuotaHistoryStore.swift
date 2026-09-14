@@ -13,54 +13,61 @@ public struct QuotaSample: Hashable, Codable, Sendable {
     }
 }
 
-/// JSON-file backed sample store (Application Support). Keeps 30 days.
+/// One provider's quota readings in the usage ledger, appended as they are observed. The ledger keeps 30 days.
 public actor QuotaHistoryStore {
     public static let retention: TimeInterval = 30 * 86400
 
-    public static var defaultFileURL: URL {
-        AppSupport.directory.appendingPathComponent("quota-history.json")
+    private let ledger: UsageLedger
+    private let scope: String
+    private var legacyFile: URL?
+
+    /// - scope: separates providers, so one provider can forget its readings.
+    /// - importing: a JSON history written by earlier versions, moved into the ledger on first use and then deleted.
+    public init(ledger: UsageLedger = .inMemory(), scope: String = "", importing legacyFile: URL? = nil) {
+        self.ledger = ledger
+        self.scope = scope
+        self.legacyFile = legacyFile
     }
 
-    private let fileURL: URL?
-    private var samples: [QuotaSample] = []
+    public func append(_ new: [QuotaSample], now: Date) async {
+        guard !new.isEmpty else { return }
+        await importIfNeeded()
+        let scope = scope
+        _ = try? await ledger.write { try $0.appendSamples(new, scope: scope) }
+    }
 
-    /// - fileURL: nil keeps samples in memory only (tests).
-    public init(fileURL: URL?) {
-        self.fileURL = fileURL
-        if let fileURL, let data = try? Data(contentsOf: fileURL) {
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .secondsSince1970
-            samples = (try? decoder.decode([QuotaSample].self, from: data)) ?? []
+    public func removeAll() async {
+        await importIfNeeded()
+        let scope = scope
+        _ = try? await ledger.write { try $0.removeSamples(scope: scope) }
+    }
+
+    public func samples(agentId: String, since: Date) async -> [QuotaSample] {
+        await importIfNeeded()
+        return (try? await ledger.samples(scope: scope, windowID: agentId, since: since)) ?? []
+    }
+
+    public var count: Int {
+        get async {
+            await importIfNeeded()
+            return (try? await ledger.sampleCount(scope: scope)) ?? 0
         }
     }
 
-    public func append(_ new: [QuotaSample], now: Date) {
-        guard !new.isEmpty else { return }
-        samples.append(contentsOf: new)
-        let cutoff = now.addingTimeInterval(-Self.retention)
-        samples.removeAll { $0.timestamp < cutoff }
-        samples.sort { $0.timestamp < $1.timestamp }
-        save()
-    }
-
-    public func removeAll() {
-        guard !samples.isEmpty else { return }
-        samples = []
-        save()
-    }
-
-    public func samples(agentId: String, since: Date) -> [QuotaSample] {
-        samples.filter { $0.agentId == agentId && $0.timestamp >= since }
-    }
-
-    public var count: Int { samples.count }
-
-    private func save() {
-        guard let fileURL else { return }
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .secondsSince1970
-        guard let data = try? encoder.encode(samples) else { return }
-        try? FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? data.write(to: fileURL, options: .atomic)
+    private func importIfNeeded() async {
+        guard let file = legacyFile else { return }
+        legacyFile = nil
+        guard let data = try? Data(contentsOf: file) else { return }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .secondsSince1970
+        let cutoff = Date().addingTimeInterval(-Self.retention)
+        let samples = ((try? decoder.decode([QuotaSample].self, from: data)) ?? []).filter { $0.timestamp >= cutoff }
+        let scope = scope
+        do {
+            _ = try await ledger.write { try $0.appendSamples(samples, scope: scope) }
+            try? FileManager.default.removeItem(at: file)
+        } catch {
+            legacyFile = file
+        }
     }
 }

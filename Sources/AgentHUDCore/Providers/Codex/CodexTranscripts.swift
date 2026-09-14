@@ -25,7 +25,15 @@ public struct CodexTranscript: Codable, Sendable {
     public private(set) var lastActivityAt: Date?
     public private(set) var task: String?
     public private(set) var model = "Unknown"
+    /// Usage read since the store last recorded it in the ledger; the totals below cover the whole rollout.
     public private(set) var usage: [Usage] = []
+    public private(set) var inputTokens = 0
+    public private(set) var outputTokens = 0
+    public private(set) var cachedInputTokens = 0
+    /// Models that reported usage in this rollout.
+    public private(set) var models: Set<String> = []
+    /// Usage entries already recorded, so each keeps its position as its ledger key.
+    private var recordedUsage = 0
     private struct Turn: Codable, Sendable {
         let id: String?
         let startedAt: Date?
@@ -86,8 +94,13 @@ public struct CodexTranscript: Codable, Sendable {
             totalInput = input; totalCached = cached; totalOutput = output; hasTotals = true
             guard !inherited, inputDelta > 0 || outputDelta > 0 else { return }
             // Cached input is already included in input_tokens; reasoning is already in output_tokens.
-            usage.append(Usage(timestamp: timestamp, model: model, input: max(0, inputDelta - cachedDelta), output: max(0, outputDelta),
-                               cachedInput: max(0, cachedDelta)))
+            let sample = Usage(timestamp: timestamp, model: model, input: max(0, inputDelta - cachedDelta), output: max(0, outputDelta),
+                               cachedInput: max(0, cachedDelta))
+            usage.append(sample)
+            inputTokens += sample.input
+            outputTokens += sample.output
+            cachedInputTokens += sample.cachedInput
+            models.insert(model)
             lastActivityAt = timestamp
         } else if !inherited {
             switch kind {
@@ -127,6 +140,18 @@ public struct CodexTranscript: Codable, Sendable {
         }
     }
 
+    /// Hands the usage read since the last call to the ledger, keyed by its position in the rollout.
+    mutating func drainUsage() -> [UsageLedger.Event] {
+        defer {
+            recordedUsage += usage.count
+            usage = []
+        }
+        return usage.enumerated().map { offset, sample in
+            UsageLedger.Event(key: "u\(recordedUsage + offset)", timestamp: sample.timestamp, agentId: "codex-model:\(sample.model)",
+                              tokensIn: sample.input, tokensOut: sample.output, cacheReadTokens: sample.cachedInput)
+        }
+    }
+
     public func isLive(now: Date, modifiedAt: Date, freshness: TimeInterval = 120) -> Bool {
         guard turns?.last.map({ $0.state == .running }) != false, !isInternal else { return false }
         return now.timeIntervalSince(modifiedAt) < freshness && lastActivityAt != nil
@@ -159,13 +184,22 @@ public struct CodexTranscript: Codable, Sendable {
     private static let envelopes = ["\"session_meta\"", "\"turn_context\"", "\"event_msg\""].map { Data($0.utf8) }
 }
 
-/// Cooperative, persisted tail reader. A partially written final line is retried on the next poll.
+/// Cooperative tail reader over the usage ledger. A partially written final line is retried on the next poll.
+/// Each rollout is one ledger contribution; when a session's rollout exists in several places, only its newest copy counts.
 public actor CodexTranscriptStore {
-    private struct Entry: Codable {
+    private struct Entry: Codable, Sendable {
         var modifiedAt: Date
         var size: Int
         var offset: UInt64
         var transcript: CodexTranscript
+    }
+
+    /// The persisted form of an entry. A different version is read again from the rollout.
+    private struct StoredEntry: Codable {
+        static let version = 1
+        let version: Int
+        let offset: UInt64
+        let transcript: CodexTranscript
     }
 
     public struct Session: Sendable {
@@ -180,57 +214,58 @@ public actor CodexTranscriptStore {
         public let indexing: IndexProgress?
     }
 
-    private let roots: [URL]
-    private let cacheURL: URL?
+    static let source = "codex"
+
+    let roots: [URL]
     private let indexURL: URL?
+    private let ledger: UsageLedger
+    private let logs: LogFiles
     private var entries: [String: Entry] = [:]
-    private var dirty = false
-    private var lastSavedAt = Date.distantPast
-    private let cacheSaveInterval: TimeInterval
+    /// Persisted entries not decoded yet, with their session ids and modification times for choosing the counted copy.
+    private var stored: [String: UsageLedger.FileState] = [:]
+    private var groups: [String: String] = [:]
+    private var modified: [String: Date] = [:]
+    private var loadedGeneration: Int?
+    private var titles: (signature: String, values: [String: String]) = ("", [:])
 
-    public init(roots: [URL], cacheURL: URL? = nil, indexURL: URL? = nil, cacheSaveInterval: TimeInterval = 30) {
+    /// - watchesChanges: after the first listing, polls look only at rollouts a directory watch reports changed.
+    public init(roots: [URL], indexURL: URL? = nil, ledger: UsageLedger = .inMemory(), watchesChanges: Bool = false) {
         self.roots = roots
-        self.cacheURL = cacheURL
         self.indexURL = indexURL
-        self.cacheSaveInterval = cacheSaveInterval
-        if let cacheURL, let data = try? Data(contentsOf: cacheURL) {
-            entries = (try? JSONDecoder().decode([String: Entry].self, from: data)) ?? [:]
-        }
+        self.ledger = ledger
+        logs = LogFiles(roots: roots, watchesChanges: watchesChanges) { $0.pathExtension == "jsonl" && $0.lastPathComponent.hasPrefix("rollout-") }
     }
 
-    public static func standard(directory: URL = CodexLocator.dataDirectory) -> CodexTranscriptStore {
+    public static func standard(directory: URL = CodexLocator.dataDirectory, ledger: UsageLedger = .inMemory()) -> CodexTranscriptStore {
         CodexTranscriptStore(roots: [directory.appendingPathComponent("sessions"), directory.appendingPathComponent("archived_sessions")],
-                             cacheURL: AppSupport.directory.appendingPathComponent("codex-transcripts-v5.json"),
-                             indexURL: directory.appendingPathComponent("session_index.jsonl"))
+                             indexURL: directory.appendingPathComponent("session_index.jsonl"), ledger: ledger, watchesChanges: true)
     }
 
-    public func index(since cutoff: Date, timeBudget: TimeInterval = 1.5) -> Result {
+    /// Codex's 15-minute token totals from the period holding `since`.
+    public func usage(since: Date) async -> [UsageBucket] {
+        (try? await ledger.buckets(since: since, source: Self.source)) ?? []
+    }
+
+    public func index(since cutoff: Date, timeBudget: TimeInterval = 1.5) async -> Result {
+        await loadIfNeeded()
         let deadline = Date().addingTimeInterval(timeBudget)
-        let keys: Set<URLResourceKey> = [.contentModificationDateKey, .fileSizeKey, .isRegularFileKey]
-        var candidates: [(url: URL, modified: Date, size: Int)] = []
-        for root in roots {
-            guard let files = FileManager.default.enumerator(at: root, includingPropertiesForKeys: Array(keys), options: [.skipsHiddenFiles]) else { continue }
-            for case let url as URL in files {
-                guard url.pathExtension == "jsonl", url.lastPathComponent.hasPrefix("rollout-"),
-                      let values = try? url.resourceValues(forKeys: keys), values.isRegularFile == true,
-                      let modified = values.contentModificationDate, modified >= cutoff, let size = values.fileSize else { continue }
-                candidates.append((url, modified, size))
-            }
-        }
-        candidates.sort { $0.modified > $1.modified }
-        let present = Set(candidates.map { $0.url.path })
-        dirty = dirty || entries.keys.contains { !present.contains($0) }
-        entries = entries.filter { present.contains($0.key) }
+        _ = logs.refresh(now: Date())
+        let candidates = logs.files.filter { $0.value.modified >= cutoff }
+            .map { (url: URL(fileURLWithPath: $0.key), modified: $0.value.modified, size: $0.value.size) }
+            .sorted { $0.modified > $1.modified }
         var pending = 0
+        var changed: [String: (entry: Entry, events: [UsageLedger.Event], reset: Bool)] = [:]
         for candidate in candidates {
-            let old = entries[candidate.url.path]
-            if let old, old.size == candidate.size, old.offset == candidate.size, old.modifiedAt == candidate.modified { continue }
+            let old = entry(candidate.url.path)
+            if let old, old.size == candidate.size, old.offset == candidate.size, LedgerCopies.same(old.modifiedAt, candidate.modified) { continue }
             if Date() >= deadline { pending += 1; continue }
             guard let handle = try? FileHandle(forReadingFrom: candidate.url) else { continue }
             defer { try? handle.close() }
             var entry = old ?? Entry(modifiedAt: candidate.modified, size: candidate.size, offset: 0, transcript: CodexTranscript())
-            if candidate.size < entry.offset || (old?.size == candidate.size && old?.modifiedAt != candidate.modified) {
+            var reset = false
+            if candidate.size < entry.offset || (old?.size == candidate.size && !LedgerCopies.same(old!.modifiedAt, candidate.modified)) {
                 entry.offset = 0; entry.transcript = CodexTranscript()
+                reset = old != nil
             }
             try? handle.seek(toOffset: entry.offset)
             var carry = Data()
@@ -245,33 +280,96 @@ public actor CodexTranscriptStore {
                 carry = Data(carry[start...])
             }
             entry.modifiedAt = candidate.modified; entry.size = candidate.size
-            entries[candidate.url.path] = entry; dirty = true
+            let events = entry.transcript.drainUsage()
+            changed[candidate.url.path] = (entry, events, reset)
             // An incomplete final line is not an indexing backlog.
             if entry.offset + UInt64(carry.count) < candidate.size { pending += 1 }
         }
-        if dirty, let cacheURL, Date().timeIntervalSince(lastSavedAt) >= cacheSaveInterval,
-           let data = try? JSONEncoder().encode(entries) {
+        let removed = Set(entries.keys).union(stored.keys).filter { logs.files[$0] == nil && logs.covers($0) }
+        if !changed.isEmpty || !removed.isEmpty {
+            var nextGroups = groups, nextModified = modified
+            for (path, update) in changed {
+                nextGroups[path] = update.entry.transcript.id ?? ""
+                nextModified[path] = update.entry.modifiedAt
+            }
+            for path in removed { nextGroups.removeValue(forKey: path); nextModified.removeValue(forKey: path) }
+            let counted = LedgerCopies.counted(touched: Set(changed.keys).union(removed), previous: groups, members: nextGroups, modified: nextModified)
+            let writes = changed.map { path, update in
+                (path: path, reset: update.reset, events: update.events, state: Self.state(update.entry))
+            }
             do {
-                try FileManager.default.createDirectory(at: cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try data.write(to: cacheURL, options: .atomic)
-                dirty = false
-                lastSavedAt = Date()
-            } catch { /* Retry on the next poll; transcripts remain the source of truth. */ }
-        }
-        var titles: [String: String] = [:]
-        if let indexURL, let text = try? String(contentsOf: indexURL, encoding: .utf8) {
-            for line in text.split(separator: "\n") {
-                if let item = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
-                   let id = item["id"] as? String, let title = item["thread_name"] as? String { titles[id] = title }
+                try await ledger.write { writer in
+                    for write in writes {
+                        if write.reset { try writer.remove(source: Self.source, contribution: write.path) }
+                        try writer.upsert(source: Self.source, contribution: write.path, counted: counted[write.path] ?? false, events: write.events)
+                        try writer.setFile(source: Self.source, path: write.path, state: write.state)
+                    }
+                    for path in removed {
+                        try writer.remove(source: Self.source, contribution: path)
+                        try writer.removeFile(source: Self.source, path: path)
+                    }
+                    for (path, value) in counted where writes.allSatisfy({ $0.path != path }) {
+                        try writer.setCounted(source: Self.source, contribution: path, counted: value)
+                    }
+                }
+                for (path, update) in changed { entries[path] = update.entry }
+                for path in removed { entries.removeValue(forKey: path); stored.removeValue(forKey: path) }
+                groups = nextGroups
+                modified = nextModified
+            } catch {
+                // Positions stay where the ledger has them, so the next poll reads the same bytes again.
+                pending += changed.count
             }
         }
+        let titles = readTitles()
         // A rollout can move into archived_sessions. One session id contributes usage exactly once.
         var sessions: [String: Session] = [:]
         for candidate in candidates {
-            guard let entry = entries[candidate.url.path], let id = entry.transcript.id,
-                  sessions[id] == nil else { continue }
+            guard let entry = entry(candidate.url.path), let id = entry.transcript.id, sessions[id] == nil else { continue }
             sessions[id] = Session(transcript: entry.transcript, modifiedAt: candidate.modified, path: candidate.url.path, title: titles[id])
         }
         return Result(sessions: Array(sessions.values), indexing: pending > 0 ? IndexProgress(done: candidates.count - pending, total: candidates.count) : nil)
+    }
+
+    /// Thread names, read again only when the index file changed.
+    private func readTitles() -> [String: String] {
+        guard let indexURL, let values = try? indexURL.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]) else { return [:] }
+        let signature = "\(values.contentModificationDate?.timeIntervalSince1970 ?? 0):\(values.fileSize ?? 0)"
+        guard signature != titles.signature else { return titles.values }
+        var result: [String: String] = [:]
+        if let text = try? String(contentsOf: indexURL, encoding: .utf8) {
+            for line in text.split(separator: "\n") {
+                if let item = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
+                   let id = item["id"] as? String, let title = item["thread_name"] as? String { result[id] = title }
+            }
+        }
+        titles = (signature, result)
+        return result
+    }
+
+    /// Reads persisted positions once, and again after a failed pass rolled the ledger back.
+    private func loadIfNeeded() async {
+        let generation = await ledger.generation
+        guard loadedGeneration != generation else { return }
+        stored = (try? await ledger.fileStates(source: Self.source)) ?? [:]
+        entries = [:]
+        groups = stored.mapValues { $0.group ?? "" }
+        modified = stored.compactMapValues { LedgerCopies.signature($0.signature)?.modified }
+        loadedGeneration = generation
+    }
+
+    private func entry(_ path: String) -> Entry? {
+        if let entry = entries[path] { return entry }
+        guard let file = stored.removeValue(forKey: path), let parts = LedgerCopies.signature(file.signature), let data = file.state,
+              let decoded = try? JSONDecoder().decode(StoredEntry.self, from: data), decoded.version == StoredEntry.version else { return nil }
+        let entry = Entry(modifiedAt: parts.modified, size: parts.size, offset: decoded.offset, transcript: decoded.transcript)
+        entries[path] = entry
+        return entry
+    }
+
+    private static func state(_ entry: Entry) -> UsageLedger.FileState {
+        let data = try? JSONEncoder().encode(StoredEntry(version: StoredEntry.version, offset: entry.offset, transcript: entry.transcript))
+        return UsageLedger.FileState(signature: LedgerCopies.signature(modified: entry.modifiedAt, size: entry.size), state: data,
+                                     group: entry.transcript.id ?? "")
     }
 }

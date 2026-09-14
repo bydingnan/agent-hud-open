@@ -57,14 +57,6 @@ public enum UsageAggregation {
         return result
     }
 
-    public static func costUnion(_ sources: [[APIBilling.CostSample]]) -> [APIBilling.CostSample] {
-        var identities = Set<String>()
-        return eventUnion(sources).filter { sample in
-            guard let id = sample.eventID else { return true }
-            return identities.insert(RecordCoding.hash([id, sample.billingPool?.id ?? ""])).inserted
-        }
-    }
-
     private struct HistoryKey: Hashable { let agent: String; let hour: Date }
 
     public static func historyUnion(_ sources: [[HistorySample]]) -> [HistorySample] {

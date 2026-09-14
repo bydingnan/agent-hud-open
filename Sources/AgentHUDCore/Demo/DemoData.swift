@@ -48,8 +48,9 @@ public enum DemoData {
             vendor: "DeepSeek",
             balances: [AccountBalance(currency: "CNY", total: balance, granted: 0, toppedUp: balance)],
             isAvailable: true, updatedAt: now,
-            costs: [.init(timestamp: now.addingTimeInterval(-60), sessionId: "deepseek-sample", model: "deepseek-v4-flash",
-                          amounts: ["CNY": Decimal(string: "0.01239")!])],
+            costs: [CostBucket(start: Date(timeIntervalSince1970: (now.timeIntervalSince1970 - 60) - (now.timeIntervalSince1970 - 60).truncatingRemainder(dividingBy: 900)),
+                               amounts: ["CNY": Decimal(string: "0.01239")!])],
+            sessionCosts: ["deepseek-sample": ["CNY": Decimal(string: "0.01239")!]],
             notice: nil
         )
     }

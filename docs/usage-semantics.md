@@ -51,18 +51,19 @@ The three dimensions (`TokenDimensions`) are additive and never overlap. Charts,
 - A login the provider does not identify is one account per client home directory, never merged with another home. A provider that must forget its accounts, for example after reading consent is withdrawn, retires their readings, rows and display settings at once.
 - Codex reset credits belong to the current Codex account. Billing-pool rows (Kimi, GLM, OpenCode Go) keep their pool ids as account ids.
 
-### Account request intervals
+### Collection cadence
 
-Account requests run on their own task, so a slow account query never delays local activity polling, and each provider keeps its own cadence. A failure is cached for the same interval as a success and reported as a source notice while the other sources keep working. Every account request is a metadata read: no model message is sent and no reset credit is consumed.
+Reads never run in parallel: the usage store runs one local poll or one account step at a time, and a pass starts only after the previous one finished. Every account request is a metadata read: no model message is sent and no reset credit is consumed.
 
-| Request | Minimum interval |
+| Work | Cadence |
 | --- | --- |
-| Claude Code engine `get_usage` (also after a failure) | 120 s |
-| Codex `account/rateLimits/read` | 120 s |
-| DeepSeek balance | 120 s |
-| Antigravity, Cursor and Grok quota | 120 s |
-| Kimi, GLM and OpenCode Go quota, per billing pool; Kimi identity re-check until confirmed | 120 s |
-| Cursor account usage events | 300 s |
+| Local logs while a session runs, a turn observed in the last 5 minutes is still running, or a client's data directory changed | Every 5 s |
+| Local logs while the first index is being built | Every 2 s |
+| Account sweep: Claude Code engine `get_usage`, Codex `account/rateLimits/read`, DeepSeek balance, Antigravity, Cursor, Grok and GitHub Copilot quota, Cursor account usage events, and Kimi, GLM and OpenCode Go quota per billing pool | Every 5 minutes, and at once when GitHub Copilot quota reading is switched on or off |
+
+- A sweep runs one provider after another; steps run back to back for at most one second before local logs get their turn, so a slow request delays a poll by that request alone.
+- The sweep also reads every local source once, which catches a change a directory watch missed. Claude Code and Codex polls examine only the logs the watch reported changed, and list every log again every 5 minutes or after dropped events.
+- A provider never repeats an account request within 60 s, whoever asks, and a failure waits as long as a success; it is reported as a source notice while the other sources keep working.
 
 ### Reading retention
 

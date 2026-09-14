@@ -1,3 +1,4 @@
+import AgentHUDSupport
 import Foundation
 import Observation
 
@@ -22,6 +23,14 @@ public struct AgentRow: Hashable, Sendable, Identifiable {
 
     public var missingQuotaLabel: String {
         "—"
+    }
+}
+
+extension UsageReport {
+    /// A live session or a recently observed running turn keeps local polls going; otherwise polls wait for a change.
+    func hasActiveWork(at date: Date) -> Bool {
+        let now = RecordCoding.milliseconds(date), freshness = Int64(UsageRefresh.activeTurnFreshness * 1000)
+        return sessions.contains(where: \.isLive) || turns.contains { $0.state == .running && now - $0.observedAtMs < freshness }
     }
 }
 
@@ -56,7 +65,20 @@ public final class UsageStore {
     private let accessAllowed: () -> Bool
     private var pollTask: Task<Void, Never>?
     private var clockTask: Task<Void, Never>?
-    private var accountTask: Task<Void, Never>?
+    /// One pass of the pipeline runs at a time; a request during a pass is served by the next one.
+    private var isCollecting = false
+    /// Account steps left in the current sweep, run one at a time between local polls.
+    private var accountSteps: [AccountRefreshStep] = []
+    private var accountSweepAt: Date?
+    /// Consent to read an account starts a sweep at once instead of at the next interval.
+    private var sweptWithCopilotQuota: Bool?
+    private var fetchedAt: Date?
+    private var fetchedAgents: [AgentDescriptor]?
+    /// Something the watched directories cannot show changed: a finished account step, a language switch, a failed poll.
+    private var needsFetch = true
+    private var changes: FileChangeMonitor?
+    /// A later poll that found nothing changed extends the report's coverage.
+    private var checkedAt: Date?
 
     public init(provider: any UsageProvider, settings: SettingsStore, accessAllowed: @escaping () -> Bool = { true }) {
         self.provider = provider
@@ -70,14 +92,12 @@ public final class UsageStore {
 
     public func start() {
         stop()
+        changes = provider.watchedDirectories.map { FileChangeMonitor(directories: $0) }
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
-                await self.refresh()
-                // Indexing polls quickly so each step lands on screen; otherwise completion reminders tail local logs every
-                // five seconds, while provider quota and balance queries keep their own two-minute caches.
-                let seconds: Double = self.isIndexing ? 2 : 5
-                try? await Task.sleep(for: .seconds(seconds))
+                let pause = await self.collect(force: false)
+                try? await Task.sleep(for: .seconds(pause))
             }
         }
         clockTask = Task { [weak self] in
@@ -91,40 +111,93 @@ public final class UsageStore {
     public func stop() {
         pollTask?.cancel()
         clockTask?.cancel()
-        accountTask?.cancel()
         pollTask = nil
         clockTask = nil
+        changes = nil
+        if !accountSteps.isEmpty {
+            accountSteps = []
+            accountSweepAt = nil
+        }
     }
 
+    /// Reads local data now unless a pass is already running, in which case the next pass reads it.
     public func refresh() async {
-        guard isAccessAllowed, !isRefreshing else { return }
-        if let pausedUntil, pausedUntil > Date() { return }
-        pausedUntil = nil
-        if accountTask == nil {
-            accountTask = Task { [weak self, provider] in
-                await provider.refreshAccountUsage(historyHours: Self.historyHours)
-                self?.accountTask = nil
-            }
-        }
-        isRefreshing = true
-        defer { isRefreshing = false }
-        do {
-            let fetched = try await provider.fetchUsage(agents: settings.agents, historyHours: Self.historyHours)
-            guard isAccessAllowed, !Task.isCancelled else { return }
-            settings.mergeDiscovered(fetched.discoveredAgents, activeQuotaPoolIDs: fetched.activeQuotaPoolIDs, accounts: fetched.accounts)
-            report = fetched
-            lastError = nil
-        } catch {
-            guard isAccessAllowed, !Task.isCancelled else { return }
-            lastError = error.localizedDescription
-        }
-        now = Date()
+        needsFetch = true
+        _ = await collect(force: true)
     }
 
     /// Installs a report directly (snapshots, tests) without going through the provider.
     public func replace(report: UsageReport) {
         self.report = report
+        checkedAt = nil
         lastError = nil
+        now = Date()
+    }
+
+    /// One pass of the collection pipeline: the local poll when it is due, then account steps within their budget.
+    /// Returns how long to wait before the next pass.
+    private func collect(force: Bool) async -> TimeInterval {
+        guard isAccessAllowed, !isCollecting else { return UsageRefresh.pollInterval }
+        if let pausedUntil, pausedUntil > Date() { return UsageRefresh.pollInterval }
+        pausedUntil = nil
+        isCollecting = true
+        defer { isCollecting = false }
+        let started = Date()
+        let consent = settings.settings.readCopilotQuota
+        if accountSteps.isEmpty, sweptWithCopilotQuota != consent
+            || accountSweepAt.map({ started.timeIntervalSince($0) >= UsageRefresh.accountInterval }) ?? true {
+            accountSweepAt = started
+            sweptWithCopilotQuota = consent
+            accountSteps = provider.accountRefreshSteps
+            // The sweep doubles as the fallback poll and picks up directories created since the last one.
+            changes?.update()
+            needsFetch = true
+        }
+        let localInterval = isIndexing ? UsageRefresh.indexingInterval : UsageRefresh.pollInterval
+        if force || fetchedAt.map({ started.timeIntervalSince($0) >= localInterval }) ?? true {
+            if shouldFetch(at: started) {
+                await fetch(at: started)
+            } else if started.timeIntervalSince(dataDate) >= 60 {
+                checkedAt = started
+            }
+        }
+        guard !accountSteps.isEmpty, !Task.isCancelled else { return localInterval }
+        let stepsStarted = Date()
+        repeat {
+            let step = accountSteps.removeFirst()
+            await step(Self.historyHours)
+        } while !accountSteps.isEmpty && !Task.isCancelled && Date().timeIntervalSince(stepsStarted) < UsageRefresh.accountStepBudget
+        needsFetch = true
+        let untilLocal = (fetchedAt ?? .distantPast).addingTimeInterval(localInterval).timeIntervalSinceNow
+        return max(0, min(accountSteps.isEmpty ? localInterval : 1, untilLocal))
+    }
+
+    /// Polls stay idle while nothing changed and no turn is running.
+    private func shouldFetch(at date: Date) -> Bool {
+        let changed = changes?.consumeChanges() ?? true
+        guard let report, !changed, !needsFetch, report.indexing == nil, fetchedAgents == settings.agents else { return true }
+        return report.hasActiveWork(at: date)
+    }
+
+    private func fetch(at date: Date) async {
+        needsFetch = false
+        isRefreshing = true
+        defer { isRefreshing = false }
+        do {
+            let fetched = try await provider.fetchUsage(agents: settings.agents, historyHours: Self.historyHours)
+            guard isAccessAllowed, !Task.isCancelled else { needsFetch = true; return }
+            settings.mergeDiscovered(fetched.discoveredAgents, activeQuotaPoolIDs: fetched.activeQuotaPoolIDs, accounts: fetched.accounts)
+            report = fetched
+            fetchedAt = date
+            fetchedAgents = settings.agents
+            checkedAt = nil
+            lastError = nil
+        } catch {
+            needsFetch = true
+            guard isAccessAllowed, !Task.isCancelled else { return }
+            fetchedAt = date
+            lastError = error.localizedDescription
+        }
         now = Date()
     }
 
@@ -257,7 +330,8 @@ public final class UsageStore {
         return (report?.subscriptions ?? [:]).filter { vendors.contains($0.key) }
     }
 
-    public var dataDate: Date { report?.generatedAt ?? now }
+    /// The end of the data on screen: the report's time, or the latest poll that confirmed nothing changed.
+    public var dataDate: Date { max(report?.generatedAt ?? now, checkedAt ?? .distantPast) }
     public var statsInterval: DateInterval { statsRange.interval(endingAt: dataDate) }
 
     /// Include sessions active during the selected range, including ones that started before it.
@@ -324,19 +398,20 @@ public final class UsageStore {
 
     /// Both surfaces show every model's token spend.
     public var tokenColumns: [TokenColumn] {
-        ChartData.tokenBars(usage: report?.consumption ?? [], agentIds: consumers.map(\.id), range: statsRange, bucketSize: tokenBucketSize,
+        ChartData.tokenBars(usage: report?.usage ?? [], agentIds: consumers.map(\.id), range: statsRange, bucketSize: tokenBucketSize,
                             now: dataDate, dimensions: tokenDimensions)
     }
 
     public var statsActivity: ActivityGrid {
-        UsageAnalytics.activityGrid(usage: (report?.consumption ?? []).filter { $0.timestamp <= dataDate },
+        UsageAnalytics.activityGrid(usage: (report?.usage ?? []).filter { $0.start < dataDate },
             since: dataDate.addingTimeInterval(-7 * 86400), calendar: .current, dimensions: tokenDimensions)
     }
 
     public var weeklyTokenShare: [String: Double] {
         var totals: [String: Int] = [:]
-        for event in report?.consumption ?? [] where event.timestamp >= dataDate.addingTimeInterval(-7 * 86400) && event.timestamp <= dataDate {
-            totals[event.agentId, default: 0] += tokenDimensions.count(event)
+        let week = DateInterval(start: dataDate.addingTimeInterval(-7 * 86400), end: dataDate)
+        for bucket in report?.usage ?? [] where bucket.overlaps(week) {
+            totals[bucket.agentId, default: 0] += tokenDimensions.count(bucket)
         }
         let total = totals.values.reduce(0, +)
         return total > 0 ? totals.mapValues { Double($0) / Double(total) } : [:]

@@ -1,13 +1,14 @@
 import Foundation
 
 /// Harness exposes local usage, not subscription quota windows.
-public actor DeepSeekUsageProvider: UsageProvider {
+public actor DeepSeekUsageProvider: UsageProvider, LedgerRecording {
     private let directory: URL
     private let transcripts: DeepSeekTranscriptStore
     private let clock: @Sendable () -> Date
     private let readBalance: @Sendable () async throws -> DeepSeekBalance?
     private let readProcessStarts: @Sendable () async -> [Date]
     private var lastBalance: (at: Date, result: Result<DeepSeekBalance?, UsageProviderError>)?
+    private var lastProcessStarts: (at: Date, starts: [Date])?
 
     public init(directory: URL, transcripts: DeepSeekTranscriptStore,
                 readBalance: @escaping @Sendable () async throws -> DeepSeekBalance? = { nil },
@@ -18,19 +19,20 @@ public actor DeepSeekUsageProvider: UsageProvider {
         self.readProcessStarts = readProcessStarts
     }
 
-    public static func standard() -> DeepSeekUsageProvider {
+    public static func standard(ledger: UsageLedger) -> DeepSeekUsageProvider {
         let directory = DeepSeekLocator.dataDirectory
         return DeepSeekUsageProvider(directory: directory, transcripts: DeepSeekTranscriptStore(
-            root: directory.appendingPathComponent("sessions"),
-            cacheURL: AppSupport.directory.appendingPathComponent("deepseek-transcripts-v2.json")),
+            root: directory.appendingPathComponent("sessions"), ledger: ledger),
             readBalance: { try await DeepSeekBalanceClient(directory: directory).fetch() },
             readProcessStarts: { await DeepSeekRuntime.processStarts(directory: directory) })
     }
 
+    public nonisolated var watchedDirectories: [URL]? { [transcripts.root] }
+
     public func refreshAccountUsage(historyHours: Int) async {
         guard DeepSeekLocator.isInstalled(directory: directory) else { return }
         let now = clock()
-        if lastBalance == nil || now.timeIntervalSince(lastBalance!.at) >= 120 {
+        if lastBalance == nil || now.timeIntervalSince(lastBalance!.at) >= UsageRefresh.accountRequestSpacing {
             do { lastBalance = (now, .success(try await readBalance())) }
             catch {
                 if Task.isCancelled { return }
@@ -42,9 +44,8 @@ public actor DeepSeekUsageProvider: UsageProvider {
     public func fetchUsage(agents: [AgentDescriptor], historyHours: Int) async throws -> UsageReport {
         let now = clock(), weekAgo = now.addingTimeInterval(-7 * 86400)
         let cutoff = min(weekAgo, now.addingTimeInterval(-Double(historyHours) * 3600))
-        async let processStartsResult = readProcessStarts()
         let indexed = await transcripts.index(since: cutoff)
-        let processStarts = await processStartsResult
+        let processStarts = await processStarts(for: indexed.sessions, now: now)
         let balance: DeepSeekBalance?, balanceAt: Date?, balanceNotice: String?
         switch lastBalance?.result {
         case .success(let value): (balance, balanceAt, balanceNotice) = (value, value == nil ? nil : lastBalance?.at, nil)
@@ -52,8 +53,8 @@ public actor DeepSeekUsageProvider: UsageProvider {
         case nil: (balance, balanceAt, balanceNotice) = (nil, nil, nil)
         }
         let installed = DeepSeekLocator.isInstalled(directory: directory)
-        let events = indexed.sessions.flatMap { $0.transcript.usage.map(\.event) }.filter { $0.timestamp >= cutoff && $0.timestamp <= now }
-        let models = Set(indexed.sessions.flatMap { [$0.transcript.model] + $0.transcript.usage.map(\.model) }).sorted()
+        let week = await transcripts.usage(since: weekAgo)
+        let models = Set(indexed.sessions.flatMap { [$0.transcript.model] + $0.transcript.models }).sorted()
         let consumers = models.map { AgentDescriptor(id: "deepseek-model:\($0)", vendor: "DeepSeek", model: $0,
                                                      source: L10n.sourceDeepSeekSessions, enabled: true) }
         let sessions = indexed.sessions.filter { !$0.transcript.isSubagent }.map { session in
@@ -63,9 +64,9 @@ public actor DeepSeekUsageProvider: UsageProvider {
                                terminal: t.cwd.map { URL(fileURLWithPath: $0).lastPathComponent },
                                startedAt: t.startedAt ?? session.modifiedAt,
                                endedAt: t.isLive(now: now, modifiedAt: session.modifiedAt, processStarts: processStarts) ? nil : (t.lastActivityAt ?? t.startedAt ?? session.modifiedAt),
-                               pctOfWindow: nil, tokensIn: t.usage.reduce(0) { $0 + $1.input }, tokensOut: t.usage.reduce(0) { $0 + $1.output },
+                               pctOfWindow: nil, tokensIn: t.inputTokens, tokensOut: t.outputTokens,
                                client: "DeepSeek Harness", transcriptPath: session.path,
-                               cacheReadTokens: t.usage.reduce(0) { $0 + $1.cachedInput }, observedAt: now)
+                               cacheReadTokens: t.cachedInputTokens, observedAt: now)
         }.sorted { a, b in
             if a.isLive != b.isLive { return a.isLive }
             return (a.endedAt ?? a.startedAt) > (b.endedAt ?? b.startedAt)
@@ -75,26 +76,37 @@ public actor DeepSeekUsageProvider: UsageProvider {
         let discovered = consumers.isEmpty
             ? (agents.contains { $0.id.hasPrefix("deepseek-model:") } ? [] : [descriptor]) : consumers
         let notice = [indexed.notice, balanceNotice].compactMap { $0 }.joined(separator: " · ")
-        let costs = indexed.sessions.flatMap { session in
-            session.transcript.usage.map { usage in
-                APIBilling.CostSample(timestamp: usage.timestamp, sessionId: "deepseek:\(session.transcript.id!)", model: usage.model,
-                                      amounts: Dictionary(uniqueKeysWithValues: ["CNY", "USD"].compactMap { currency in
-                    DeepSeekPricing.estimate(usage, currency: currency).map { (currency, $0) }
-                }))
-            }
+        let costs = await transcripts.costs(since: cutoff)
+        var sessionCosts: [String: [String: Decimal]] = [:]
+        for session in indexed.sessions {
+            if let estimate = costs.logs[session.path] { sessionCosts["deepseek:\(session.transcript.id!)"] = estimate }
         }
         let billing = APIBilling(vendor: "DeepSeek", balances: balance?.balances ?? [], isAvailable: balance?.isAvailable,
-                                 updatedAt: balanceAt, costs: costs, notice: balanceNotice)
+                                 updatedAt: balanceAt, costs: costs.buckets, sessionCosts: sessionCosts, notice: balanceNotice)
         return UsageReport(generatedAt: now, snapshots: [], sessions: sessions, history: [],
-                           activity: UsageAnalytics.activityGrid(usage: events, since: weekAgo, calendar: .current),
+                           activity: UsageAnalytics.activityGrid(usage: week, since: weekAgo, calendar: .current),
                            insights: UsageInsights(burnRatePctPerHour: nil, timeToExhaust: nil, weeklyCapHits: 0,
                                                   weeklyWaitTotal: 0, weeklyWaitLongest: 0, weeklyWaitLongestAt: nil,
-                                                  weeklyShare: UsageAnalytics.weeklyShare(usage: events.filter { $0.timestamp >= weekAgo }),
+                                                  weeklyShare: UsageAnalytics.weeklyShare(usage: week),
                                                   windowSessionCount: sessions.count, windowUsedPct: 0),
                            notice: notice.isEmpty ? nil : notice, discoveredAgents: installed ? discovered : [], consumers: consumers,
-                           consumption: events, indexing: indexed.indexing,
+                           indexing: indexed.indexing,
                            sourceNotices: notice.isEmpty ? [:] : ["DeepSeek": notice], billing: installed ? [billing] : [],
                            completions: indexed.sessions.flatMap { $0.transcript.completions ?? [] },
                            turns: indexed.sessions.flatMap { $0.transcript.sessionTurns })
+    }
+
+    /// Process starts only decide a running turn whose log went quiet, so the process table is inspected only then,
+    /// at most every 30 seconds.
+    private func processStarts(for sessions: [DeepSeekTranscriptStore.Session], now: Date) async -> [Date] {
+        let quiet = sessions.contains { session in
+            !session.transcript.isSubagent && session.transcript.sessionTurns.last?.state == .running
+                && now.timeIntervalSince(session.modifiedAt) >= 120
+        }
+        guard quiet else { lastProcessStarts = nil; return [] }
+        if let last = lastProcessStarts, now.timeIntervalSince(last.at) < 30 { return last.starts }
+        let starts = await readProcessStarts()
+        lastProcessStarts = (now, starts)
+        return starts
     }
 }

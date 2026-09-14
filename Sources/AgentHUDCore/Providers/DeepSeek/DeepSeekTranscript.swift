@@ -26,7 +26,16 @@ public struct DeepSeekTranscript: Codable, Sendable {
     private var provider = "Unknown"
     private var requestedAt: Date?
     public private(set) var isSubagent = false
+    /// Usage read since the store last recorded it in the ledger; the totals below cover the whole log.
     public private(set) var usage: [Usage] = []
+    /// The ledger key of each pending usage entry: one per attempt, so a later chunk of the attempt corrects it.
+    private var usageKeys: [String] = []
+    public private(set) var inputTokens = 0
+    public private(set) var outputTokens = 0
+    public private(set) var cachedInputTokens = 0
+    /// Models that reported usage in this log.
+    public private(set) var models: Set<String> = []
+    private var attempts = 0
     private var seedLength = 0
     private struct Turn: Codable, Sendable {
         let id: Int
@@ -41,7 +50,8 @@ public struct DeepSeekTranscript: Codable, Sendable {
     private struct Attempt: Codable {
         let turn: Int
         let step: Int
-        let index: Int
+        let key: String
+        var sample: Usage
     }
 
     public init() {}
@@ -134,13 +144,43 @@ public struct DeepSeekTranscript: Codable, Sendable {
             let sample = Usage(timestamp: timestamp, requestedAt: requestedAt ?? timestamp, provider: provider, model: model,
                                input: input + max(0, counters["cacheWriteTokens"] as? Int ?? 0),
                                cachedInput: max(0, counters["cacheReadTokens"] as? Int ?? 0), output: output)
-            if let previous = lastAttempt, previous.turn == turn, previous.step == step {
-                usage[previous.index] = sample
+            if var previous = lastAttempt, previous.turn == turn, previous.step == step {
+                count(previous.sample, sign: -1)
+                previous.sample = sample
+                lastAttempt = previous
+                if let index = usageKeys.lastIndex(of: previous.key) { usage[index] = sample }
+                else { usage.append(sample); usageKeys.append(previous.key) }
             } else {
-                lastAttempt = Attempt(turn: turn, step: step, index: usage.count)
+                attempts += 1
+                lastAttempt = Attempt(turn: turn, step: step, key: "a\(attempts)", sample: sample)
                 usage.append(sample)
+                usageKeys.append("a\(attempts)")
             }
+            count(sample, sign: 1)
         default: break
+        }
+    }
+
+    private mutating func count(_ sample: Usage, sign: Int) {
+        inputTokens += sign * sample.input
+        outputTokens += sign * sample.output
+        cachedInputTokens += sign * sample.cachedInput
+        if sign > 0 { models.insert(sample.model) }
+    }
+
+    /// Hands the usage read since the last call to the ledger with its estimated price.
+    mutating func drainUsage() -> [UsageLedger.Event] {
+        defer {
+            usage = []
+            usageKeys = []
+        }
+        return zip(usageKeys, usage).map { key, sample in
+            let costs = Dictionary(uniqueKeysWithValues: ["CNY", "USD"].compactMap { currency in
+                DeepSeekPricing.estimate(sample, currency: currency).map { (currency, $0) }
+            })
+            return UsageLedger.Event(key: key, timestamp: sample.timestamp, agentId: "deepseek-model:\(sample.model)",
+                                     tokensIn: sample.input, tokensOut: sample.output, cacheReadTokens: sample.cachedInput,
+                                     billingID: "DeepSeek", costs: costs)
         }
     }
 

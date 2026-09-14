@@ -138,29 +138,32 @@ final class ClaudeTranscriptTests: XCTestCase {
         try FileManager.default.createDirectory(at: projects, withIntermediateDirectories: true)
         let file = projects.appendingPathComponent("s-1.jsonl")
         try (Self.user + "\n" + Self.assistant + "\n").write(to: file, atomically: true, encoding: .utf8)
-        let cache = base.appendingPathComponent("cache.json")
+        let ledgerURL = base.appendingPathComponent("usage-ledger.sqlite")
 
-        let first = ClaudeTranscriptStore(roots: [projects.deletingLastPathComponent()], cacheURL: cache)
+        let first = ClaudeTranscriptStore(roots: [projects.deletingLastPathComponent()], ledger: try UsageLedger(url: ledgerURL))
         let sessions = await first.sessions(modifiedSince: .distantPast)
         XCTAssertEqual(sessions.first?.tokensOut, 80)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: cache.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: ledgerURL.path))
 
-        // A second instance answers from the cache without re-reading unchanged files.
+        // A second instance answers from the ledger without re-reading unchanged files.
         try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: file.path)
         defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: file.path) }
-        let second = ClaudeTranscriptStore(roots: [projects.deletingLastPathComponent()], cacheURL: cache)
+        let reopened = try UsageLedger(url: ledgerURL)
+        let second = ClaudeTranscriptStore(roots: [projects.deletingLastPathComponent()], ledger: reopened)
         let cached = await second.sessions(modifiedSince: .distantPast)
         XCTAssertEqual(cached.first?.tokensOut, 80)
         XCTAssertEqual(cached.first?.task, "fix auth bug in middleware")
+        let buckets = try await reopened.buckets(since: .distantPast)
+        XCTAssertEqual(buckets.map(\.tokensOut), [80])
     }
 
     func testDuplicateMessageLinesCountOnce() {
         let first = #"{"sessionId":"s-2","type":"assistant","requestId":"req_1","message":{"id":"msg_dup","role":"assistant","model":"claude-opus-4-5","content":[{"type":"text","text":"a"}],"usage":{"input_tokens":10,"output_tokens":20}},"timestamp":"2026-09-07T05:43:00Z"}"#
         let second = #"{"sessionId":"s-2","type":"assistant","requestId":"req_1","message":{"id":"msg_dup","role":"assistant","model":"claude-opus-4-5","content":[{"type":"tool_use","name":"Read"}],"usage":{"input_tokens":10,"output_tokens":20}},"timestamp":"2026-09-07T05:43:01Z"}"#
         var accumulator = TranscriptAccumulator(path: "/x/s-2.jsonl", isSubagent: false)
-        accumulator.ingest(ClaudeTranscriptParser.parse([first, second].joined(separator: "\n")))
+        let added = accumulator.ingest(ClaudeTranscriptParser.parse([first, second].joined(separator: "\n")))
         let session = try! XCTUnwrap(accumulator.build())
-        XCTAssertEqual(session.usage.count, 1)
+        XCTAssertEqual(added.map(\.key), ["m:msg_dup"])
         XCTAssertEqual(session.tokensOut, 20)
         XCTAssertEqual(ClaudeTranscriptParser.parseLine(first)?.usageKey, "m:msg_dup")
     }
@@ -207,14 +210,14 @@ final class ClaudeTranscriptTests: XCTestCase {
 
     func testAccumulatorBuildsSessionWithDominantModel() {
         var accumulator = TranscriptAccumulator(path: "/x/s-1.jsonl", isSubagent: false)
-        accumulator.ingest(ClaudeTranscriptParser.parse([Self.user, Self.assistant].joined(separator: "\n")))
-        accumulator.ingest(ClaudeTranscriptParser.parse(Self.haiku))
+        let added = accumulator.ingest(ClaudeTranscriptParser.parse([Self.user, Self.assistant].joined(separator: "\n")))
+            + accumulator.ingest(ClaudeTranscriptParser.parse(Self.haiku))
         let session = try! XCTUnwrap(accumulator.build())
         XCTAssertEqual(session.id, "s-1")
         XCTAssertEqual(session.task, "fix auth bug in middleware")
         XCTAssertEqual(session.dominantAgentId, "claude-model:claude-opus-4-5-20251101")
-        XCTAssertEqual(session.usage.count, 2)
-        XCTAssertEqual(session.usage.map(\.agentId), ["claude-model:claude-opus-4-5-20251101", "claude-model:claude-haiku-4-5"], "each actual model keeps its own tokens")
+        XCTAssertEqual(added.map(\.agentId), ["claude-model:claude-opus-4-5-20251101", "claude-model:claude-haiku-4-5"], "each actual model keeps its own tokens")
+        XCTAssertEqual(added.map(\.key), ["m:msg_1", "n:1"], "a line without a response id gets its own key")
         XCTAssertEqual(session.modelsSeen.keys.sorted(), ["claude-haiku-4-5", "claude-opus-4-5-20251101"])
         XCTAssertEqual(session.entrypoint, "claude-desktop", "kept from the last line that carried it")
         XCTAssertEqual(session.tokensIn, 312 + 5)
@@ -233,7 +236,7 @@ final class ClaudeTranscriptTests: XCTestCase {
         let store = ClaudeTranscriptStore(root: dir.deletingLastPathComponent())
         let first = await store.sessions(modifiedSince: .distantPast)
         XCTAssertEqual(first.count, 1)
-        XCTAssertEqual(first[0].usage.count, 0)
+        XCTAssertEqual(first[0].tokensOut, 0)
 
         let handle = try FileHandle(forWritingTo: file)
         try handle.seekToEnd()
@@ -244,8 +247,9 @@ final class ClaudeTranscriptTests: XCTestCase {
 
         let second = await store.sessions(modifiedSince: .distantPast)
         XCTAssertEqual(second.count, 1)
-        XCTAssertEqual(second[0].usage.count, 1)
         XCTAssertEqual(second[0].tokensOut, 80)
+        let recorded = await store.usage(since: .distantPast)
+        XCTAssertEqual(recorded.map(\.tokensOut), [80], "only the appended line reaches the ledger")
         let none = await store.sessions(modifiedSince: Date().addingTimeInterval(3600))
         XCTAssertEqual(none.count, 0)
     }
@@ -297,8 +301,8 @@ final class UsageAnalyticsTests: XCTestCase {
     func testActivityGridNormalises() {
         let monday = DateParsing.iso8601("2026-08-31T02:00:00Z")! // Monday 10:00 CST
         let usage = [
-            UsageEvent(timestamp: monday, agentId: "a", tokensIn: 400, tokensOut: 100),
-            UsageEvent(timestamp: monday.addingTimeInterval(3600), agentId: "a", tokensIn: 200, tokensOut: 50),
+            UsageBucket(start: monday, agentId: "a", tokensIn: 400, tokensOut: 100),
+            UsageBucket(start: monday.addingTimeInterval(3600), agentId: "a", tokensIn: 200, tokensOut: 50),
         ]
         let grid = UsageAnalytics.activityGrid(usage: usage, since: .distantPast, calendar: calendar)
         XCTAssertEqual(grid.rows[0][10], 1)
@@ -311,12 +315,12 @@ final class UsageAnalyticsTests: XCTestCase {
 
     func testActivityGridRetainsEveryModelAndVersion() {
         let monday = DateParsing.iso8601("2026-08-31T02:00:00Z")!
-        let usage: [UsageEvent] = [
-            .init(timestamp: monday, agentId: "claude-model:opus-4-8", tokensIn: 80, tokensOut: 20),
-            .init(timestamp: monday.addingTimeInterval(60), agentId: "claude-model:opus-4-8", tokensIn: 8, tokensOut: 2),
-            .init(timestamp: monday, agentId: "claude-model:opus-5", tokensIn: 150, tokensOut: 50),
-            .init(timestamp: monday, agentId: "codex-model:new-model", tokensIn: 1, tokensOut: 0),
-            .init(timestamp: monday.addingTimeInterval(-1), agentId: "outside-range", tokensIn: 999, tokensOut: 0),
+        let usage: [UsageBucket] = [
+            .init(start: monday, agentId: "claude-model:opus-4-8", tokensIn: 80, tokensOut: 20),
+            .init(start: monday.addingTimeInterval(900), agentId: "claude-model:opus-4-8", tokensIn: 8, tokensOut: 2),
+            .init(start: monday, agentId: "claude-model:opus-5", tokensIn: 150, tokensOut: 50),
+            .init(start: monday, agentId: "codex-model:new-model", tokensIn: 1, tokensOut: 0),
+            .init(start: monday.addingTimeInterval(-900), agentId: "outside-range", tokensIn: 999, tokensOut: 0),
         ]
         let grid = UsageAnalytics.activityGrid(usage: usage, since: monday, calendar: calendar)
         XCTAssertEqual(grid.tokensByModel[0][10], ["claude-model:opus-4-8": 110, "claude-model:opus-5": 200, "codex-model:new-model": 1])
@@ -357,29 +361,37 @@ final class UsageAnalyticsTests: XCTestCase {
 
     func testWeeklyShare() {
         let usage = [
-            UsageEvent(timestamp: now, agentId: "a", tokensIn: 30, tokensOut: 0),
-            UsageEvent(timestamp: now, agentId: "b", tokensIn: 10, tokensOut: 0),
+            UsageBucket(start: now, agentId: "a", tokensIn: 30, tokensOut: 0),
+            UsageBucket(start: now, agentId: "b", tokensIn: 10, tokensOut: 0),
         ]
         let share = UsageAnalytics.weeklyShare(usage: usage)
         XCTAssertEqual(share["a"] ?? 0, 0.75, accuracy: 1e-9)
         XCTAssertEqual(share["b"] ?? 0, 0.25, accuracy: 1e-9)
-        XCTAssertEqual(UsageAnalytics.weeklyShare(usage: []), [:])
+        XCTAssertEqual(UsageAnalytics.weeklyShare(usage: [UsageBucket]()), [:])
     }
 }
 
 final class QuotaHistoryStoreTests: XCTestCase {
-    func testPersistsAcrossInstances() async {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("agenthud-\(UUID().uuidString)/quota.json")
+    func testImportsTheJSONHistoryOnceAndPersistsInTheLedger() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("agenthud-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let legacy = directory.appendingPathComponent("quota-history.json"), ledgerURL = directory.appendingPathComponent("usage-ledger.sqlite")
         let now = Date()
-        let store = QuotaHistoryStore(fileURL: url)
-        await store.append([
-            QuotaSample(agentId: "a", timestamp: now.addingTimeInterval(-40 * 86400), remainingPct: 1),
-            QuotaSample(agentId: "a", timestamp: now, remainingPct: 72),
-        ], now: now)
-        let reloaded = QuotaHistoryStore(fileURL: url)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .secondsSince1970
+        try encoder.encode([QuotaSample(agentId: "a", timestamp: now.addingTimeInterval(-40 * 86400), remainingPct: 1),
+                            QuotaSample(agentId: "a", timestamp: now.addingTimeInterval(-60), remainingPct: 80)]).write(to: legacy)
+        let store = QuotaHistoryStore(ledger: try UsageLedger(url: ledgerURL), scope: "claude", importing: legacy)
+        await store.append([QuotaSample(agentId: "a", timestamp: now, remainingPct: 72)], now: now)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacy.path), "the JSON history is removed once imported")
+        let reloaded = QuotaHistoryStore(ledger: try UsageLedger(url: ledgerURL), scope: "claude")
         let samples = await reloaded.samples(agentId: "a", since: .distantPast)
-        XCTAssertEqual(samples.count, 1, "samples older than the retention window are pruned")
-        XCTAssertEqual(samples.first?.remainingPct, 72)
+        XCTAssertEqual(samples.map(\.remainingPct), [80, 72], "readings older than the retention window are not imported")
+        let other = QuotaHistoryStore(ledger: try UsageLedger(url: ledgerURL), scope: "codex")
+        await other.removeAll()
+        let kept = await reloaded.count
+        XCTAssertEqual(kept, 2, "forgetting one provider's readings keeps the others")
     }
 }
 
@@ -440,15 +452,16 @@ final class ClaudeCodeProviderTests: XCTestCase {
         let weeklyResets = now.addingTimeInterval(2 * 86400)
         let body = #"{"five_hour":{"utilization":28,"resets_at":"\#(iso.format(resets))"},"seven_day":{"utilization":39,"resets_at":"\#(iso.format(weeklyResets))"},"seven_day_opus":{"utilization":61,"resets_at":"\#(iso.format(weeklyResets))"}}"#
         let account = ProviderAccount.unresolved(provider: "Claude", home: "")
-        let history = QuotaHistoryStore(fileURL: nil)
+        let history = QuotaHistoryStore()
         await history.append([
             QuotaSample(agentId: account.windowID(ClaudeUsage.sessionRowId), timestamp: now.addingTimeInterval(-2 * 3600), remainingPct: 80),
             QuotaSample(agentId: account.windowID(ClaudeUsage.weeklyRowId), timestamp: now.addingTimeInterval(-5 * 86400), remainingPct: 100),
             QuotaSample(agentId: account.windowID("claude-weekly-opus"), timestamp: now.addingTimeInterval(-2 * 86400), remainingPct: 90)
         ], now: now)
+        let transcripts = ClaudeTranscriptStore(root: root)
         let provider = ClaudeCodeProvider(
             engine: try fakeEngine(rateLimits: body),
-            transcripts: ClaudeTranscriptStore(root: root),
+            transcripts: transcripts,
             history: history,
             clock: { now }
         )
@@ -492,13 +505,12 @@ final class ClaudeCodeProviderTests: XCTestCase {
 
         XCTAssertEqual(report.history.count, 48 * 3)
         XCTAssertEqual(report.history(for: account.windowID("claude-session")).last?.remainingEnd, 72)
-        XCTAssertEqual(report.consumption.filter { $0.agentId == "claude-model:claude-opus-4-5" }.map(\.total).reduce(0, +), 1200)
-        let eventTimes = report.consumption.filter { $0.agentId == "claude-model:claude-opus-4-5" }.map(\.timestamp)
-        let expectedTimes = [-1400.0, -30.0].map { DateParsing.iso8601(iso.format(now.addingTimeInterval($0)))! }
-        XCTAssertEqual(eventTimes.count, expectedTimes.count)
-        for (actual, expected) in zip(eventTimes, expectedTimes) {
-            XCTAssertEqual(actual.timeIntervalSince1970, expected.timeIntervalSince1970, accuracy: 0.001)
-        }
+        let opus = await transcripts.usage(since: now.addingTimeInterval(-7200)).filter { $0.agentId == "claude-model:claude-opus-4-5" }
+        XCTAssertEqual(opus.map(\.total).reduce(0, +), 1200)
+        let periods = Set([-1400.0, -30.0].map { offset in
+            Date(timeIntervalSince1970: (DateParsing.iso8601(iso.format(now.addingTimeInterval(offset)))!.timeIntervalSince1970 / 900).rounded(.down) * 900)
+        })
+        XCTAssertEqual(Set(opus.map(\.start)), periods, "each response lands in the 15-minute period of its line")
         XCTAssertEqual(report.insights.windowUsedPct, 28)
         XCTAssertEqual(report.insights.windowSessionCount, 2)
         XCTAssertEqual(report.insights.weeklyShare["claude-model:claude-opus-4-5"] ?? 0, 0.75, accuracy: 1e-9)
@@ -524,7 +536,7 @@ final class ClaudeCodeProviderTests: XCTestCase {
         let provider = ClaudeCodeProvider(
             engine: engine,
             transcripts: ClaudeTranscriptStore(root: root.deletingLastPathComponent()),
-            history: QuotaHistoryStore(fileURL: nil),
+            history: QuotaHistoryStore(),
             clock: { now }
         )
         let report = try await provider.fetchAccountAndLocalUsage(agents: DefaultAgents.list, historyHours: 48)
@@ -557,7 +569,7 @@ final class ClaudeCodeProviderTests: XCTestCase {
         }
         let provider = ClaudeCodeProvider(
             engine: try fakeEngine(rateLimits: #"{"five_hour":{"utilization":10}}"#),
-            transcripts: ClaudeTranscriptStore(root: root), history: QuotaHistoryStore(fileURL: nil), clock: { now }
+            transcripts: ClaudeTranscriptStore(root: root), history: QuotaHistoryStore(), clock: { now }
         )
         let report = try await provider.fetchAccountAndLocalUsage(agents: [], historyHours: 169)
         XCTAssertEqual(report.sessions.count, 12, "the view controls how many sessions are expanded")
@@ -575,7 +587,7 @@ final class ClaudeCodeProviderTests: XCTestCase {
         let provider = ClaudeCodeProvider(
             engine: try fakeEngine(script: "#!/bin/bash\nread -r l\necho '\(response)'\n"),
             transcripts: ClaudeTranscriptStore(root: root.deletingLastPathComponent()),
-            history: QuotaHistoryStore(fileURL: nil),
+            history: QuotaHistoryStore(),
             clock: { now }
         )
         let report = try await provider.fetchAccountAndLocalUsage(agents: DefaultAgents.list, historyHours: 48)
@@ -588,7 +600,7 @@ final class ClaudeCodeProviderTests: XCTestCase {
         let provider = ClaudeCodeProvider(
             engine: try fakeEngine(script: "#!/bin/bash\nread -r l\necho boom >&2\nexit 1\n"),
             transcripts: ClaudeTranscriptStore(root: FileManager.default.temporaryDirectory.appendingPathComponent("agenthud-empty-\(UUID().uuidString)")),
-            history: QuotaHistoryStore(fileURL: nil)
+            history: QuotaHistoryStore()
         )
         do {
             _ = try await provider.fetchAccountAndLocalUsage(agents: DefaultAgents.list, historyHours: 48)
@@ -604,7 +616,7 @@ final class ClaudeCodeProviderTests: XCTestCase {
         let provider = ClaudeCodeProvider(
             engine: nil,
             transcripts: ClaudeTranscriptStore(root: FileManager.default.temporaryDirectory.appendingPathComponent("agenthud-empty-\(UUID().uuidString)")),
-            history: QuotaHistoryStore(fileURL: nil)
+            history: QuotaHistoryStore()
         )
         do {
             _ = try await provider.fetchAccountAndLocalUsage(agents: DefaultAgents.list, historyHours: 48)
@@ -655,17 +667,17 @@ final class AccumulatorCompactionTests: XCTestCase {
     func testCompactionDropsDedupeSetOnlyForIdleFiles() {
         let line = ClaudeTranscriptTests.assistant
         var fresh = TranscriptAccumulator(path: "/x/a.jsonl", isSubagent: false)
-        fresh.ingest(ClaudeTranscriptParser.parse(line))
+        var counted = fresh.ingest(ClaudeTranscriptParser.parse(line)).count
         let stamp = DateParsing.iso8601("2026-09-07T05:42:10.000Z")!
         fresh.compactIfFinished(now: stamp.addingTimeInterval(3600))
         // Still active: a duplicate of the same message is still recognised.
-        fresh.ingest(ClaudeTranscriptParser.parse(line))
-        XCTAssertEqual(fresh.build()?.usage.count, 1)
+        counted += fresh.ingest(ClaudeTranscriptParser.parse(line)).count
+        XCTAssertEqual(counted, 1)
 
         var old = TranscriptAccumulator(path: "/x/b.jsonl", isSubagent: false)
-        old.ingest(ClaudeTranscriptParser.parse(line))
+        counted = old.ingest(ClaudeTranscriptParser.parse(line)).count
         old.compactIfFinished(now: stamp.addingTimeInterval(3 * 86400))
-        old.ingest(ClaudeTranscriptParser.parse(line))
-        XCTAssertEqual(old.build()?.usage.count, 2, "after compaction the set is gone; finished files never get appended anyway")
+        counted += old.ingest(ClaudeTranscriptParser.parse(line)).count
+        XCTAssertEqual(counted, 2, "after compaction the keys are gone; finished files never get appended anyway, and the ledger keeps one row per key")
     }
 }

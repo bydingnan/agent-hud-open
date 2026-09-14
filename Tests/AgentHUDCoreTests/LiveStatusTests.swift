@@ -16,11 +16,11 @@ final class LiveStatusTests: XCTestCase {
             LiveSession(id: $0.id, agentId: $0.id, task: "Task", terminal: nil,
                 startedAt: now.addingTimeInterval(-60), pctOfWindow: nil, tokensIn: 10, tokensOut: 2)
         }
-        let events = consumers.map {
-            UsageEvent(timestamp: now, agentId: $0.id, tokensIn: 10, tokensOut: 2)
+        let buckets = consumers.map {
+            UsageBucket(start: Date(timeIntervalSince1970: (now.timeIntervalSince1970 / 900).rounded(.down) * 900), agentId: $0.id, tokensIn: 10, tokensOut: 2)
         }
         let report = UsageReport(generatedAt: now, snapshots: [], sessions: sessions, history: [], activity: .empty,
-            insights: .empty, consumers: consumers, consumption: events)
+            insights: .empty, consumers: consumers, usage: buckets)
         store.replace(report: report)
         let columns = store.tokenColumns
         for vendor in SessionSource.agentVendors {

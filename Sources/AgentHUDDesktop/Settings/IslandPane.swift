@@ -132,15 +132,15 @@ private enum IslandSampleData {
     static let interval = StatsRange.hours24.interval(endingAt: now)
     static let columns: [TokenColumn] = {
         let amounts = [4, 8, 5, 11, 16, 9, 6, 13, 20, 14, 10, 7]
-        let events = (0..<24).flatMap { hour in
+        let buckets = (0..<24).flatMap { hour in
             consumers.enumerated().map { index, consumer in
                 let count = amounts[(hour + index * 4) % amounts.count] * 1000
-                return UsageEvent(
-                    timestamp: interval.start.addingTimeInterval(Double(hour) * 3600 + 1800),
+                return UsageBucket(
+                    start: interval.start.addingTimeInterval(Double(hour) * 3600 + 1800),
                     agentId: consumer.id, tokensIn: count * 4 / 5, tokensOut: count / 5
                 )
             }
         }
-        return ChartData.tokenBars(usage: events, agentIds: consumers.map(\.id), range: .hours24, now: now)
+        return ChartData.tokenBars(usage: buckets, agentIds: consumers.map(\.id), range: .hours24, now: now)
     }()
 }

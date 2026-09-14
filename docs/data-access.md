@@ -18,11 +18,11 @@ Agent HUD Open reads agent activity and usage metadata on your Mac. It has no Ag
 | GitHub Copilot CLI | Local session events and OpenTelemetry export files | GitHub Copilot quota endpoint with the GitHub CLI sign-in, only after consent in Settings |
 | OpenClaw, Hermes Agent, ZCode, CodeBuddy, WorkBuddy | Local session databases and transcripts | None |
 
-Per-client fields, endpoints and caches: [providers](providers.md). Token counts, percentages, alert levels, request intervals and reading retention: [usage semantics](usage-semantics.md).
+Per-client fields, endpoints and stored data: [providers](providers.md). Token counts, percentages, alert levels, request intervals and reading retention: [usage semantics](usage-semantics.md).
 
 ## Credentials
 
-- A provider that needs a key or token reads it from the client's own configuration, environment variables or local credential files, uses it only for that provider's usage request, and never includes it in reports or caches.
+- A provider that needs a key or token reads it from the client's own configuration, environment variables or local credential files, uses it only for that provider's usage request, and never includes it in reports or stored data.
 - Claude and Codex quota queries use the installed clients' existing sign-in; Codex `auth.json` is not read. No request sends a model message or consumes a usage-reset credit.
 - Account identity comes only from data a provider already reads or a response it already requests: the Claude profile, Codex `account/read`, Cursor's local database, the Grok login record, Antigravity's local server and, for GitHub Copilot, GitHub's `/user` response. Provider user and workspace ids are stored as hashes; the account's email or name is kept locally to label its rows.
 - GitHub Copilot quota reads no credential until the user confirms Settings → Agents → GitHub Copilot → Read quota; the dialog, shown each time it is switched on, names the environment variables, the keychain item `gh:github.com` and the GitHub CLI `hosts.yml`, and macOS may ask for keychain access. Switching it off forgets the account, its rows and its quota history at once.
@@ -33,8 +33,8 @@ Per-client fields, endpoints and caches: [providers](providers.md). Token counts
 
 ## Local storage
 
-- Preferences use the application's UserDefaults domain; cached reports, quota observations and session indexes live in `~/Library/Application Support/Agent HUD Open`. Local metadata can include session titles and workspace paths; raw conversation bodies and authentication secrets are never copied into these caches.
-- Quota, balance and account-wide usage requests run separately from local activity polling with their own request intervals; a missing or signed-out client does not prevent other sources from reporting.
+- Preferences use the application's UserDefaults domain; the usage ledger, the restart copy of the report and completion records live in `~/Library/Application Support/Agent HUD Open`. Local metadata can include session titles and workspace paths; raw conversation bodies and authentication secrets are never stored.
+- Quota, balance and account-wide usage requests run every 5 minutes between local polls, one provider at a time; a missing or signed-out client does not prevent other sources from reporting.
 - Saved readings appear immediately after a restart with their original observation times; a failed refresh keeps them and reports the failure. Unavailable quotas are never inferred from token counts.
 - Readings of an account a client is no longer signed in to stay until the account has not been seen for 30 days.
 - A completed credential scan retires expired, removed or rejected OpenCode Go, Kimi and GLM quota rows, including cached rows and saved display settings.

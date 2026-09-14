@@ -33,6 +33,14 @@ public enum AdditionalSource: String, CaseIterable, Sendable {
         }
     }
 
+    /// Database readers return only this much recent history, however long the requested window.
+    var readerWindow: TimeInterval? {
+        switch self {
+        case .openclaw, .hermes, .zcode: 8 * 86400
+        default: nil
+        }
+    }
+
     public func isInstalled(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> Bool {
         let paths: [String]
         switch self {
@@ -112,6 +120,8 @@ struct ProviderSessions: Sendable {
     var sessions: [ProviderSession] = []
     var notice: String? = nil
     var indexing: IndexProgress? = nil
+    /// Changes whenever the reader's results change; nil when the reader cannot tell.
+    var revision: Int? = nil
 }
 
 // The existing JSON value representation keeps parsed data Sendable without passing Foundation Any graphs.

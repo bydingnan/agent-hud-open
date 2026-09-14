@@ -69,12 +69,12 @@ final class RetainedUsageProviderTests: XCTestCase {
         let file = directory.appendingPathComponent("report.json")
         let pool = OpenAgentCredentials.credential(.kimi, token: "fixture-key", client: "Pi").pool
         let id = pool.windowID("weekly")
-        let usage = UsageEvent(timestamp: now, agentId: "pi-model", tokensIn: 10, tokensOut: 20)
+        let usage = UsageBucket(start: now, agentId: "pi-model", tokensIn: 10, tokensOut: 20)
         let saved = UsageReport(generatedAt: now, snapshots: [.init(agentId: id, remainingPct: 90, updatedAt: now)],
             sessions: [], history: [], activity: .empty, insights: .empty,
             discoveredAgents: [.init(id: id, vendor: "Kimi", model: "7d", source: "Pi", enabled: true, billingPool: pool)],
             consumers: [.init(id: "pi-model", vendor: "Pi", model: "model", source: "local", enabled: true)],
-            consumption: [usage], subscriptions: [pool.id: "Allegretto"],
+            usage: [usage], subscriptions: [pool.id: "Allegretto"],
             services: [.init(client: "Pi", provider: "Kimi", product: .plan, accountID: pool.id)])
         try JSONEncoder().encode(saved).write(to: file)
         let restarted = RetainedUsageProvider(provider: SequenceProvider([]), cacheURL: file)
@@ -124,7 +124,7 @@ final class RetainedUsageProviderTests: XCTestCase {
         let descriptor = AgentDescriptor(id: "codex", vendor: "Codex", model: "5h", source: "", enabled: true)
         return UsageReport(generatedAt: date,
             snapshots: remaining.map { [.init(agentId: "codex", remainingPct: $0, resetAt: now.addingTimeInterval(60), updatedAt: date)] } ?? [],
-            sessions: [], history: [], activity: UsageAnalytics.activityGrid(usage: [], since: date, calendar: .current),
+            sessions: [], history: [], activity: UsageAnalytics.activityGrid(usage: [UsageBucket](), since: date, calendar: .current),
             insights: .empty, discoveredAgents: [descriptor], subscriptions: remaining == nil ? [:] : ["Codex": "Pro"],
             sourceNotices: remaining == nil ? ["Codex": "offline"] : [:],
             billing: [.init(vendor: "DeepSeek", balances: balance.map { [.init(currency: "CNY", total: $0, granted: 0, toppedUp: $0)] } ?? [],

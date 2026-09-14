@@ -5,12 +5,12 @@ public actor RetainedUsageProvider: UsageProvider {
     public nonisolated let initialReport: UsageReport?
     private let provider: any UsageProvider
     private let cacheURL: URL?
-    /// Local polls run every few seconds and the report spans weeks; the restart copy is rewritten at most this often.
+    /// Local polls run every few seconds; the restart copy is rewritten at most this often.
     private let saveInterval: TimeInterval
     private var latest: UsageReport?
     private var savedAt: Date?
 
-    public init(provider: any UsageProvider, cacheURL: URL? = nil, saveInterval: TimeInterval = 60) {
+    public init(provider: any UsageProvider, cacheURL: URL? = nil, saveInterval: TimeInterval = UsageRefresh.accountInterval) {
         self.provider = provider
         self.cacheURL = cacheURL
         self.saveInterval = saveInterval
@@ -21,6 +21,8 @@ public actor RetainedUsageProvider: UsageProvider {
     }
 
     public func refreshAccountUsage(historyHours: Int) async { await provider.refreshAccountUsage(historyHours: historyHours) }
+    public nonisolated var accountRefreshSteps: [AccountRefreshStep] { provider.accountRefreshSteps }
+    public nonisolated var watchedDirectories: [URL]? { provider.watchedDirectories }
 
     public func fetchUsage(agents: [AgentDescriptor], historyHours: Int) async throws -> UsageReport {
         let incoming = try await provider.fetchUsage(agents: agents, historyHours: historyHours)
@@ -31,7 +33,7 @@ public actor RetainedUsageProvider: UsageProvider {
             savedAt = report.generatedAt
             do {
                 try FileManager.default.createDirectory(at: cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try JSONEncoder().encode(report).write(to: cacheURL, options: .atomic)
+                try JSONEncoder().encode(report.restartCopy).write(to: cacheURL, options: .atomic)
             } catch { NSLog("[AgentHUD] Reading cache write failed: %@", error.localizedDescription) }
         }
         return report
@@ -39,6 +41,16 @@ public actor RetainedUsageProvider: UsageProvider {
 }
 
 extension UsageReport {
+    /// Turns and completions only matter as they happen, and a restart never reports earlier ones, so the copy leaves them out.
+    var restartCopy: UsageReport {
+        UsageReport(generatedAt: generatedAt, snapshots: snapshots, sessions: sessions, history: history, activity: activity, insights: insights,
+                    notice: notice, discoveredAgents: discoveredAgents, subscriptionType: subscriptionType, consumers: consumers, usage: usage,
+                    indexing: indexing, insightsByAgent: insightsByAgent, subscriptions: subscriptions, sourceNotices: sourceNotices,
+                    consumerIdsByQuota: consumerIdsByQuota, billing: billing, codexResetCredits: codexResetCredits,
+                    codexResetCreditsObservedAt: codexResetCreditsObservedAt, services: services, activeQuotaPoolIDs: activeQuotaPoolIDs,
+                    accounts: accounts, forgottenAccountProviders: forgottenAccountProviders)
+    }
+
     /// An absent reading is not a zero or a confirmed reset. Keep its original observation time.
     func retainingReadings(from previous: UsageReport) -> UsageReport {
         func isActive(_ agent: AgentDescriptor) -> Bool {
@@ -65,7 +77,7 @@ extension UsageReport {
         let retainedBilling = billing.map { value -> APIBilling in
             guard value.updatedAt == nil, let old = previous.billing.first(where: { $0.id == value.id }) else { return value }
             return APIBilling(vendor: value.vendor, balances: old.balances, isAvailable: old.isAvailable,
-                updatedAt: old.updatedAt, costs: value.costs, notice: value.notice, billingPool: value.billingPool)
+                updatedAt: old.updatedAt, costs: value.costs, sessionCosts: value.sessionCosts, notice: value.notice, billingPool: value.billingPool)
         } + previous.billing.filter { !billingIDs.contains($0.id) }
         let knownAgents = UsageAggregation.consumersUnion([discoveredAgents, consumers, previous.discoveredAgents, previous.consumers])
         let failedIDs = Set(knownAgents.filter { sourceNotices[$0.vendor] != nil }.map(\.id))
@@ -77,9 +89,8 @@ extension UsageReport {
             discoveredAgents: UsageAggregation.consumersUnion([discoveredAgents, previous.discoveredAgents.filter(isRetained)]),
             subscriptionType: subscriptionType ?? previous.subscriptionType,
             consumers: UsageAggregation.consumersUnion([consumers, previous.consumers.filter(isActive)]),
-            // Providers already deduplicate their own events; only vendors whose refresh failed merge in previous events.
-            consumption: consumption.filter { !failedIDs.contains($0.agentId) }
-                + UsageAggregation.usageUnion([consumption.filter { failedIDs.contains($0.agentId) }, previous.consumption.filter { failedIDs.contains($0.agentId) }]),
+            // Recorded usage outlives a failed refresh in the ledger, so the new report's periods are complete.
+            usage: usage,
             indexing: indexing,
             insightsByAgent: previous.insightsByAgent.filter { !retiredWindowIDs.contains($0.key) }.merging(insightsByAgent, uniquingKeysWith: { _, new in new }),
             subscriptions: previous.subscriptions.filter { !retiredPoolIDs.contains($0.key) }.merging(subscriptions, uniquingKeysWith: { _, new in new }),
@@ -88,7 +99,7 @@ extension UsageReport {
             billing: retainedBilling, codexResetCredits: codexResetCredits ?? (sameCurrentAccount(as: previous, provider: "Codex") ? previous.codexResetCredits : nil),
             codexResetCreditsObservedAt: codexResetCredits != nil ? codexResetCreditsObservedAt
                 : sameCurrentAccount(as: previous, provider: "Codex") ? previous.codexResetCreditsObservedAt : nil,
-            completions: completions, claudeConsumptionSince: claudeConsumptionSince, turns: turns,
+            completions: completions, turns: turns,
             services: AgentService.merge([(previous.services ?? []).filter { service in
                 // The provider reports all currently usable clients, including during temporary quota failures.
                 service.product != .plan || activeQuotaPoolIDs?[service.provider] == nil

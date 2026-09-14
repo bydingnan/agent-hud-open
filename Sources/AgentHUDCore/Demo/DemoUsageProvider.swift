@@ -16,7 +16,7 @@ public struct DemoUsageProvider: UsageProvider {
         } ?? now
         let tokens = DemoSeries.hourlyTokens(agentCount: max(1, consumers.count), hours: historyHours)
         var history: [HistorySample] = []
-        var consumption: [UsageEvent] = []
+        var usage: [UsageBucket] = []
         for (index, agent) in consumers.enumerated() {
             let candles = DemoSeries.series(count: historyHours, seed: DemoSeries.lineSeed(index: index))
             for (hour, candle) in candles.enumerated() {
@@ -30,13 +30,13 @@ public struct DemoUsageProvider: UsageProvider {
                         tokens: tokens[hour][index] * 1000
                     ))
                 }
-                // Demo events retain sub-hour positions so every chart granularity is populated.
+                // Demo usage fills every quarter hour so every chart granularity is populated.
                 for quarter in 0..<4 {
-                    let timestamp = start.addingTimeInterval(Double(quarter) * 900)
-                    guard timestamp <= now else { continue }
+                    let bucket = start.addingTimeInterval(Double(quarter) * 900)
+                    guard bucket <= now else { continue }
                     let total = tokens[hour][index] * 250
-                    consumption.append(.init(timestamp: timestamp, agentId: agent.id,
-                                             tokensIn: total * 4 / 5, tokensOut: total - total * 4 / 5, cacheReadTokens: total * 2))
+                    usage.append(.init(start: bucket, agentId: agent.id,
+                                       tokensIn: total * 4 / 5, tokensOut: total - total * 4 / 5, cacheReadTokens: total * 2))
                 }
             }
         }
@@ -45,10 +45,10 @@ public struct DemoUsageProvider: UsageProvider {
             snapshots: DemoData.snapshots(now: now),
             sessions: DemoData.sessions(now: now),
             history: history,
-            activity: UsageAnalytics.activityGrid(usage: consumption, since: now.addingTimeInterval(-7 * 86400), calendar: .current),
+            activity: UsageAnalytics.activityGrid(usage: usage, since: now.addingTimeInterval(-7 * 86400), calendar: .current),
             insights: DemoData.insights(now: now),
             consumers: consumers,
-            consumption: consumption,
+            usage: usage,
             subscriptions: ["Claude": "max_20x", "Codex": "prolite"],
             codexResetCredits: DemoData.codexResetCredits(now: now)
         )

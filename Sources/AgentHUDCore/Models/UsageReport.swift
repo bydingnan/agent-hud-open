@@ -75,11 +75,8 @@ public struct UsageReport: Hashable, Codable, Sendable {
     public let subscriptionType: String?
     /// Things that spend tokens (model families), as opposed to quota windows. Sessions and token charts key on these.
     public let consumers: [AgentDescriptor]
-    /// Original token events keyed by consumer id, retaining timestamps for chart aggregation.
-    public let consumption: [UsageEvent]
-    /// A complete Claude transcript scan owns usage in this range through `generatedAt`.
-    /// Nil for partial scans; only this Mac's archived Claude events in the covered range may be replaced.
-    public let claudeConsumptionSince: Date?
+    /// Token totals in 15-minute periods, ordered by start, after overlapping logs were resolved. Charts sum these periods.
+    public let usage: [UsageBucket]
     /// Non-nil while local logs are still being indexed; sessions and token figures are partial until then.
     public let indexing: IndexProgress?
     /// Per-window metrics; a Codex window must never display Claude's burn rate.
@@ -116,7 +113,7 @@ public struct UsageReport: Hashable, Codable, Sendable {
         discoveredAgents: [AgentDescriptor] = [],
         subscriptionType: String? = nil,
         consumers: [AgentDescriptor]? = nil,
-        consumption: [UsageEvent] = [],
+        usage: [UsageBucket] = [],
         indexing: IndexProgress? = nil,
         insightsByAgent: [String: UsageInsights] = [:],
         subscriptions: [String: String] = [:],
@@ -126,7 +123,6 @@ public struct UsageReport: Hashable, Codable, Sendable {
         codexResetCredits: CodexResetCredits? = nil,
         codexResetCreditsObservedAt: Date? = nil,
         completions: [SessionCompletion] = [],
-        claudeConsumptionSince: Date? = nil,
         turns: [SessionTurn] = [],
         services: [AgentService]? = nil,
         activeQuotaPoolIDs: [String: Set<String>]? = nil,
@@ -137,7 +133,6 @@ public struct UsageReport: Hashable, Codable, Sendable {
         self.forgottenAccountProviders = forgottenAccountProviders
         self.services = services
         self.activeQuotaPoolIDs = activeQuotaPoolIDs
-        self.claudeConsumptionSince = claudeConsumptionSince
         self.completions = completions
         self.turns = turns
         self.codexResetCredits = codexResetCredits
@@ -158,7 +153,7 @@ public struct UsageReport: Hashable, Codable, Sendable {
         self.discoveredAgents = discoveredAgents
         self.subscriptionType = subscriptionType
         self.consumers = consumers ?? discoveredAgents
-        self.consumption = consumption
+        self.usage = usage
     }
 
     public func snapshot(for agentId: String) -> UsageSnapshot? {

@@ -17,6 +17,9 @@ public struct TokenDimensions: OptionSet, Hashable, Sendable {
     public func count(_ event: UsageEvent) -> Int {
         count(input: event.tokensIn, output: event.tokensOut, cache: event.cacheReadTokens)
     }
+    public func count(_ bucket: UsageBucket) -> Int {
+        count(input: bucket.tokensIn, output: bucket.tokensOut, cache: bucket.cacheReadTokens)
+    }
 }
 
 public enum StatsRange: Int, CaseIterable, Sendable, Hashable {
@@ -116,12 +119,30 @@ public enum ChartData {
         return result
     }
 
-    /// Bucket original events on local quarter-hour/hour boundaries within the exact, half-open range.
+    /// Sums 15-minute buckets into local quarter-hour, hour or day columns. A bucket counts when it overlaps the range,
+    /// so the period holding the range's start or the current moment counts whole.
     /// Empty periods retain their position, and integer token counts are never rounded or interpolated.
-    public static func tokenBars(usage: [UsageEvent], agentIds: [String], range: StatsRange, bucketSize: TokenBucketSize = .hour1, now: Date, calendar: Calendar = .current, dimensions: TokenDimensions = .fresh) -> [TokenColumn] {
+    public static func tokenBars(usage: [UsageBucket], agentIds: [String], range: StatsRange, bucketSize: TokenBucketSize = .hour1, now: Date, calendar: Calendar = .current, dimensions: TokenDimensions = .fresh) -> [TokenColumn] {
         let interval = range.interval(endingAt: now)
+        let periods = periods(interval: interval, bucketSize: bucketSize, calendar: calendar)
+        let dayIndices = bucketSize == .day1
+            ? Dictionary(uniqueKeysWithValues: periods.enumerated().map { ($0.element.start, $0.offset) }) : [:]
+        var values = Array(repeating: Array(repeating: 0, count: agentIds.count), count: periods.count)
+        let indices = Dictionary(uniqueKeysWithValues: agentIds.enumerated().map { ($0.element, $0.offset) })
+        for bucket in usage where bucket.overlaps(interval) {
+            guard let agent = indices[bucket.agentId], let first = periods.first else { continue }
+            let start = max(bucket.start, first.start)
+            let column = bucketSize == .day1 ? dayIndices[calendar.startOfDay(for: start)] ?? 0
+                : min(periods.count - 1, Int(start.timeIntervalSince(first.start) / bucketSize.duration))
+            values[column][agent] += dimensions.count(bucket)
+        }
+        return values.enumerated().map { index, tokens in
+            TokenColumn(interval: periods[index], tokens: tokens)
+        }
+    }
+
+    private static func periods(interval: DateInterval, bucketSize: TokenBucketSize, calendar: Calendar) -> [DateInterval] {
         let duration = bucketSize.duration
-        let periods: [DateInterval]
         if bucketSize == .day1 {
             // Calendar days start at local midnight and can span 23 or 25 hours at DST changes.
             var days: [DateInterval] = []
@@ -131,26 +152,12 @@ public enum ChartData {
                 days.append(day)
                 start = day.end
             }
-            periods = days
-        } else {
-            let firstHour = calendar.dateInterval(of: .hour, for: interval.start)!.start
-            let firstBucket = firstHour.addingTimeInterval(floor(interval.start.timeIntervalSince(firstHour) / duration) * duration)
-            let count = Int(ceil(interval.end.timeIntervalSince(firstBucket) / duration))
-            periods = (0..<count).map { DateInterval(start: firstBucket.addingTimeInterval(Double($0) * duration), duration: duration) }
+            return days
         }
-        let dayIndices = bucketSize == .day1
-            ? Dictionary(uniqueKeysWithValues: periods.enumerated().map { ($0.element.start, $0.offset) }) : [:]
-        var values = Array(repeating: Array(repeating: 0, count: agentIds.count), count: periods.count)
-        let indices = Dictionary(uniqueKeysWithValues: agentIds.enumerated().map { ($0.element, $0.offset) })
-        for event in usage where event.timestamp >= interval.start && event.timestamp < interval.end {
-            guard let agent = indices[event.agentId] else { continue }
-            let column = bucketSize == .day1 ? dayIndices[calendar.startOfDay(for: event.timestamp)]!
-                : Int(event.timestamp.timeIntervalSince(periods[0].start) / duration)
-            values[column][agent] += dimensions.count(event)
-        }
-        return values.enumerated().map { index, tokens in
-            TokenColumn(interval: periods[index], tokens: tokens)
-        }
+        let firstHour = calendar.dateInterval(of: .hour, for: interval.start)!.start
+        let firstBucket = firstHour.addingTimeInterval(floor(interval.start.timeIntervalSince(firstHour) / duration) * duration)
+        let count = Int(ceil(interval.end.timeIntervalSince(firstBucket) / duration))
+        return (0..<count).map { DateInterval(start: firstBucket.addingTimeInterval(Double($0) * duration), duration: duration) }
     }
 
     /// Hit-test whole time buckets, including empty ones and the chart's rightmost edge.

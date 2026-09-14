@@ -97,23 +97,48 @@ final class CodexProviderTests: XCTestCase {
         let meta = line(type: "session_meta", payload: ["id":"same", "source":"cli"])
         let usage = line(payload: ["type":"token_count", "info":["total_token_usage":["input_tokens":500, "cached_input_tokens":200, "output_tokens":50]]])
         try (meta + "\n" + String(usage.prefix(70))).write(to: file, atomically: true, encoding: .utf8)
-        let cache = dir.appendingPathComponent("cache.json")
-        let store = CodexTranscriptStore(roots: [dir], cacheURL: cache)
+        let ledgerURL = dir.appendingPathComponent("ledger/usage-ledger.sqlite")
+        let store = CodexTranscriptStore(roots: [dir], ledger: try UsageLedger(url: ledgerURL))
         let first = await store.index(since: .distantPast)
         XCTAssertEqual(first.sessions.count, 1)
-        XCTAssertTrue(first.sessions[0].transcript.usage.isEmpty)
-        let checkpoint = try Data(contentsOf: cache)
+        XCTAssertEqual(first.sessions[0].transcript.inputTokens, 0, "a partial line is not read yet")
         let handle = try FileHandle(forWritingTo: file)
         try handle.seekToEnd(); try handle.write(contentsOf: Data((String(usage.dropFirst(70)) + "\n").utf8)); try handle.close()
         let second = await store.index(since: .distantPast)
-        XCTAssertEqual(second.sessions[0].transcript.usage.first?.input, 300)
-        XCTAssertEqual(second.sessions[0].transcript.usage.first?.event.cacheReadTokens, 200)
-        XCTAssertEqual(try Data(contentsOf: cache), checkpoint, "frequent polls coalesce cache writes")
+        XCTAssertEqual(second.sessions[0].transcript.inputTokens, 300)
+        XCTAssertEqual(second.sessions[0].transcript.cachedInputTokens, 200)
+        let recorded = await store.usage(since: .distantPast)
+        XCTAssertEqual(recorded.map(\.tokensIn), [300])
+        XCTAssertEqual(recorded.map(\.cacheReadTokens), [200])
         try FileManager.default.copyItem(at: file, to: dir.appendingPathComponent("rollout-archived.jsonl"))
-        let restored = CodexTranscriptStore(roots: [dir], cacheURL: cache)
+        let reopened = try UsageLedger(url: ledgerURL)
+        let restored = CodexTranscriptStore(roots: [dir], ledger: reopened)
         let third = await restored.index(since: .distantPast)
         XCTAssertEqual(third.sessions.count, 1)
-        XCTAssertEqual(third.sessions[0].transcript.usage.count, 1)
+        XCTAssertEqual(third.sessions[0].transcript.inputTokens, 300)
+        let counted = try await reopened.buckets(since: .distantPast)
+        XCTAssertEqual(counted.map(\.tokensIn), [300], "an archived copy of the same session counts once")
+        try FileManager.default.removeItem(at: file)
+        _ = await restored.index(since: .distantPast)
+        let moved = try await reopened.buckets(since: .distantPast)
+        XCTAssertEqual(moved.map(\.tokensIn), [300], "the remaining copy takes over when the original is gone")
+    }
+
+    func testRestartDoesNotReadAnUnchangedRolloutAgain() async throws {
+        let dir = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appendingPathComponent("rollout-restart.jsonl"), ledgerURL = dir.appendingPathComponent("ledger/usage-ledger.sqlite")
+        let meta = line(type: "session_meta", payload: ["id":"restart", "source":"cli"])
+        let usage = { (input: Int) in self.line(payload: ["type":"token_count", "info":["total_token_usage":["input_tokens":input, "cached_input_tokens":0, "output_tokens":5]]]) }
+        try (meta + "\n" + usage(100) + "\n").write(to: file, atomically: true, encoding: .utf8)
+        let modified = Date(timeIntervalSince1970: 1_788_800_000.123456)
+        try FileManager.default.setAttributes([.modificationDate: modified], ofItemAtPath: file.path)
+        _ = await CodexTranscriptStore(roots: [dir], ledger: try UsageLedger(url: ledgerURL)).index(since: .distantPast)
+        // Same size and modification time, different bytes: only a re-read could notice.
+        try (meta + "\n" + usage(900) + "\n").write(to: file, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.modificationDate: modified], ofItemAtPath: file.path)
+        let restarted = await CodexTranscriptStore(roots: [dir], ledger: try UsageLedger(url: ledgerURL)).index(since: .distantPast)
+        XCTAssertEqual(restarted.sessions.first?.transcript.inputTokens, 100)
     }
 
     func testClientPerformsHandshakeWithoutStartingSession() async throws {
@@ -167,7 +192,7 @@ final class CodexProviderTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: dir) }
         let contents = line(type: "session_meta", payload: ["id":"cli", "source":"cli", "cwd":"/project"]) + "\n" + line(payload: ["type":"task_started"]) + "\n"
         try contents.write(to: dir.appendingPathComponent("rollout-cli.jsonl"), atomically: true, encoding: .utf8)
-        let provider = CodexUsageProvider(readLimits: { throw UsageProviderError("signed out") }, transcripts: CodexTranscriptStore(roots: [dir]), history: QuotaHistoryStore(fileURL: nil))
+        let provider = CodexUsageProvider(readLimits: { throw UsageProviderError("signed out") }, transcripts: CodexTranscriptStore(roots: [dir]), history: QuotaHistoryStore())
         let report = try await provider.fetchAccountAndLocalUsage(agents: DefaultAgents.list, historyHours: 48)
         XCTAssertEqual(report.sessions.first?.client, "CLI")
         let session = try XCTUnwrap(report.sessions.first)
@@ -192,7 +217,7 @@ final class CodexProviderTests: XCTestCase {
         }}
         """)
         let account = ProviderAccount.unresolved(provider: "Codex", home: "")
-        let history = QuotaHistoryStore(fileURL: nil)
+        let history = QuotaHistoryStore()
         await history.append([
             QuotaSample(agentId: account.windowID("codex"), timestamp: now.addingTimeInterval(-5 * 86400), remainingPct: 100),
             QuotaSample(agentId: account.windowID("codex"), timestamp: now.addingTimeInterval(-86400), remainingPct: 70),

@@ -2,8 +2,16 @@ import XCTest
 @testable import AgentHUDCore
 
 final class UsageRefreshTests: XCTestCase, @unchecked Sendable {
+    private actor CountingProvider: UsageProvider {
+        private(set) var fetches = 0
+        func fetchUsage(agents: [AgentDescriptor], historyHours: Int) async throws -> UsageReport {
+            fetches += 1
+            return DemoUsageProvider.report(agents: agents, historyHours: historyHours, now: Date())
+        }
+    }
+
     @MainActor
-    func testSlowAccountQueryDoesNotBlockLocalRefreshOrStartDuplicateQueries() async throws {
+    func testAccountRequestNeverOverlapsLocalReadsOrRepeats() async throws {
         let gate = AsyncStream<Void>.makeStream()
         defer { gate.continuation.finish() }
         let started = expectation(description: "account request started")
@@ -13,23 +21,62 @@ final class UsageRefreshTests: XCTestCase, @unchecked Sendable {
             started.fulfill()
             for await _ in gate.stream { break }
             throw UsageProviderError("account offline")
-        }, transcripts: CodexTranscriptStore(roots: [directory]), history: QuotaHistoryStore(fileURL: nil))
-        let combined = CombinedUsageProvider([.init("Codex", codex), .init("Local", DemoUsageProvider())])
+        }, transcripts: CodexTranscriptStore(roots: [directory]), history: QuotaHistoryStore())
+        let local = CountingProvider()
+        let combined = CombinedUsageProvider([.init("Codex", codex), .init("Local", local)])
         let suite = "UsageRefreshTests.\(UUID())", defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
         let store = UsageStore(provider: RetainedUsageProvider(provider: combined), settings: SettingsStore(defaults: defaults))
         defer { store.stop() }
-        let local = expectation(description: "two local polls finish while account query is pending")
-        let refresh = Task { @MainActor in
-            await store.refresh()
-            await store.refresh()
-            local.fulfill()
-        }
-        await fulfillment(of: [started, local], timeout: 2)
+        let pass = Task { @MainActor in await store.refresh() }
+        await fulfillment(of: [started], timeout: 2)
+        let before = await local.fetches
+        XCTAssertEqual(before, 1, "the pass reads local logs before its account step")
+        await store.refresh()
+        let during = await local.fetches
+        XCTAssertEqual(during, before, "a refresh requested during the account step waits for the next pass")
         gate.continuation.finish()
-        await refresh.value
+        await pass.value
+        await store.refresh()
+        let after = await local.fetches
+        XCTAssertEqual(after, before + 1)
         XCTAssertFalse(store.sessions.isEmpty)
-        XCTAssertTrue(store.hasLiveSession)
+    }
+
+    func testPollsWaitForChangesWhileNoTurnRuns() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000), ms = Int64(1_800_000_000_000)
+        func report(sessions: [LiveSession] = [], turns: [SessionTurn] = []) -> UsageReport {
+            UsageReport(generatedAt: now, snapshots: [], sessions: sessions, history: [], activity: .empty, insights: .empty, turns: turns)
+        }
+        func turn(_ state: SessionTurn.State, observedAgo seconds: Int64) -> SessionTurn {
+            SessionTurn(provider: "codex", sessionID: "s", turnID: "t", state: state, startedAtMs: ms - 900_000, observedAtMs: ms - seconds * 1000)
+        }
+        let finished = LiveSession(id: "s", agentId: "codex-model:gpt", task: "Task", terminal: nil, startedAt: now.addingTimeInterval(-600),
+                                   endedAt: now.addingTimeInterval(-300), pctOfWindow: nil, tokensIn: 1, tokensOut: 1)
+        let running = LiveSession(id: "s", agentId: "codex-model:gpt", task: "Task", terminal: nil, startedAt: now.addingTimeInterval(-600),
+                                  pctOfWindow: nil, tokensIn: 1, tokensOut: 1, observedAt: now)
+        XCTAssertFalse(report(sessions: [finished], turns: [turn(.completed, observedAgo: 30)]).hasActiveWork(at: now))
+        XCTAssertTrue(report(sessions: [running]).hasActiveWork(at: now))
+        XCTAssertTrue(report(turns: [turn(.running, observedAgo: 60)]).hasActiveWork(at: now), "a quiet tool call keeps polling")
+        XCTAssertFalse(report(turns: [turn(.running, observedAgo: 600)]).hasActiveWork(at: now), "an abandoned turn stops polling")
+    }
+
+    func testWatchedDirectoryReportsEachChangeOnce() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let missing = directory.appendingPathComponent("sessions")
+        let monitor = FileChangeMonitor(directories: [directory, missing])
+        XCTAssertTrue(monitor.consumeChanges(), "a new monitor has not seen the directories before")
+        XCTAssertFalse(monitor.consumeChanges())
+        try Data("{}\n".utf8).write(to: directory.appendingPathComponent("session.jsonl"))
+        var changed = false
+        for _ in 0..<50 where !changed {
+            try await Task.sleep(for: .milliseconds(100))
+            changed = monitor.consumeChanges()
+        }
+        XCTAssertTrue(changed)
+        XCTAssertFalse(monitor.consumeChanges())
     }
 
     func testAccountResultAppearsOnNextLocalPollWithItsObservationTime() async throws {
@@ -41,7 +88,7 @@ final class UsageRefreshTests: XCTestCase, @unchecked Sendable {
             started.fulfill()
             for await _ in gate.stream { break }
             return ProviderQuota(windows: [.init(id: "grok", label: "Credits", remaining: 80)])
-        }, readSessions: { _ in .init() }, history: QuotaHistoryStore(fileURL: nil), clock: { now })
+        }, readSessions: { _ in .init() }, history: QuotaHistoryStore(), clock: { now })
         let request = Task { await provider.refreshAccountUsage(historyHours: 24) }
         await fulfillment(of: [started], timeout: 2)
         let local = try await provider.fetchUsage(agents: [], historyHours: 24)
@@ -60,7 +107,7 @@ final class UsageRefreshTests: XCTestCase, @unchecked Sendable {
         let completion = SessionCompletion(sessionID: "cursor:s", vendor: "Cursor", turnID: "t",
             task: "Task", model: "model", startedAt: nil, completedAt: Date())
         let provider = AdditionalUsageProvider(source: .cursor, readQuota: { ProviderQuota() },
-            readSessions: { _ in ProviderSessions() }, history: QuotaHistoryStore(fileURL: nil),
+            readSessions: { _ in ProviderSessions() }, history: QuotaHistoryStore(),
             readCompletions: { _ in [completion] }, refreshSessions: { hours in
                 XCTAssertEqual(hours, 169)
                 started.fulfill()
@@ -77,7 +124,7 @@ final class UsageRefreshTests: XCTestCase, @unchecked Sendable {
     func testQuotaKeyChangeRefreshesBeforeTheInterval() async throws {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         final class State: @unchecked Sendable { var consented = false; var reads = 0 }
-        let state = State(), history = QuotaHistoryStore(fileURL: nil)
+        let state = State(), history = QuotaHistoryStore()
         let provider = AdditionalUsageProvider(source: .copilot, readQuota: {
             state.reads += 1
             return state.consented ? ProviderQuota(windows: [.init(id: "copilot:chat", label: "Chat", remaining: 40)]) : ProviderQuota(forgetAccounts: true)
@@ -110,7 +157,7 @@ final class UsageRefreshTests: XCTestCase, @unchecked Sendable {
         func report(completedAt: Date?) async throws -> UsageReport {
             let hooks = completedAt.map { [SessionCompletion(sessionID: "copilot:s", vendor: "GitHub Copilot", turnID: "stop", task: "Task", model: "m", startedAt: nil, completedAt: $0)] } ?? []
             return try await AdditionalUsageProvider(source: .copilot, readQuota: { ProviderQuota() }, readSessions: { _ in local },
-                history: QuotaHistoryStore(fileURL: nil), readCompletions: { _ in hooks }, clock: { now }).fetchUsage(agents: [], historyHours: 24)
+                history: QuotaHistoryStore(), readCompletions: { _ in hooks }, clock: { now }).fetchUsage(agents: [], historyHours: 24)
         }
         let running = try await report(completedAt: nil)
         XCTAssertEqual(running.turns.first?.state, .running)

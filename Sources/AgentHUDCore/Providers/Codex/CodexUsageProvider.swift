@@ -1,6 +1,6 @@
 import Foundation
 
-public actor CodexUsageProvider: UsageProvider {
+public actor CodexUsageProvider: UsageProvider, LedgerRecording {
     private let readLimits: @Sendable () async throws -> CodexRateLimits
     private let transcripts: CodexTranscriptStore
     private let history: QuotaHistoryStore
@@ -15,21 +15,23 @@ public actor CodexUsageProvider: UsageProvider {
         self.readLimits = readLimits; self.transcripts = transcripts; self.history = history; self.home = home; self.clock = clock
     }
 
-    public static func standard() -> CodexUsageProvider {
+    public static func standard(ledger: UsageLedger) -> CodexUsageProvider {
         let directory = CodexLocator.dataDirectory
         return CodexUsageProvider(readLimits: {
             guard let executable = CodexLocator.find() else {
                 throw UsageProviderError(L10n.text("安装并登录后即可读取额度", "Install and sign in to read quota"))
             }
             return try await CodexAppServerClient(executable: executable, dataDirectory: directory).fetch()
-        }, transcripts: .standard(directory: directory),
-           history: QuotaHistoryStore(fileURL: AppSupport.directory.appendingPathComponent("codex-quota-history.json")),
+        }, transcripts: .standard(directory: directory, ledger: ledger),
+           history: QuotaHistoryStore(ledger: ledger, scope: "codex", importing: AppSupport.directory.appendingPathComponent("codex-quota-history.json")),
            home: ClientHome.key(directory, defaultDirectory: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex", isDirectory: true)))
     }
 
+    public nonisolated var watchedDirectories: [URL]? { transcripts.roots }
+
     public func refreshAccountUsage(historyHours: Int) async {
         let now = clock()
-        if lastQuota == nil || now.timeIntervalSince(lastQuota!.at) >= 120 {
+        if lastQuota == nil || now.timeIntervalSince(lastQuota!.at) >= UsageRefresh.accountRequestSpacing {
             do {
                 let limits = try await readLimits()
                 lastQuota = (now, .success(limits))
@@ -54,8 +56,8 @@ public actor CodexUsageProvider: UsageProvider {
         case nil: (limits, failure) = (nil, nil)
         }
         let windows = limits?.rows(home: home) ?? []
-        let events = indexed.sessions.flatMap { $0.transcript.usage.map(\.event) }
-        let models = Set(indexed.sessions.flatMap { $0.transcript.usage.map(\.model) }).sorted()
+        let week = await transcripts.usage(since: weekAgo)
+        let models = Set(indexed.sessions.flatMap(\.transcript.models)).sorted()
         let consumers = models.map { AgentDescriptor(id: "codex-model:\($0)", vendor: "Codex", model: $0,
                                                      source: L10n.sourceCodexAppServer, enabled: true) }
         let snapshots = windows.map { row in
@@ -94,23 +96,22 @@ public actor CodexUsageProvider: UsageProvider {
                                terminal: t.cwd.map { URL(fileURLWithPath: $0).lastPathComponent },
                                startedAt: t.startedAt ?? session.modifiedAt,
                                endedAt: t.isLive(now: now, modifiedAt: session.modifiedAt) ? nil : (t.lastActivityAt ?? session.modifiedAt),
-                               pctOfWindow: nil, tokensIn: t.usage.reduce(0) { $0 + $1.input },
-                               tokensOut: t.usage.reduce(0) { $0 + $1.output }, client: t.client, transcriptPath: session.path,
-                               cacheReadTokens: t.usage.reduce(0) { $0 + $1.cachedInput }, observedAt: now)
+                               pctOfWindow: nil, tokensIn: t.inputTokens,
+                               tokensOut: t.outputTokens, client: t.client, transcriptPath: session.path,
+                               cacheReadTokens: t.cachedInputTokens, observedAt: now)
         }
-        let cutoff = min(weekAgo, now.addingTimeInterval(-Double(historyHours) * 3600))
         let notice = failure ?? (limits != nil && windows.isEmpty ? L10n.text("当前账户暂无可用额度信息", "Usage limits are unavailable for this account") : nil)
         let consumerIds = Set(consumers.map(\.id) + sessions.map(\.agentId))
         let quotaIds = Set(windows.map(\.id) + agents.filter { $0.vendor == "Codex" }.map(\.id))
         let consumerIdsByQuota = Dictionary(uniqueKeysWithValues: quotaIds.map { ($0, consumerIds) })
         return UsageReport(generatedAt: now, snapshots: snapshots, sessions: sessions, history: quotaHistory,
-                           activity: UsageAnalytics.activityGrid(usage: events, since: weekAgo, calendar: calendar),
+                           activity: UsageAnalytics.activityGrid(usage: week, since: weekAgo, calendar: calendar),
                            insights: UsageInsights(burnRatePctPerHour: nil, timeToExhaust: nil, weeklyCapHits: 0,
                                                   weeklyWaitTotal: 0, weeklyWaitLongest: 0, weeklyWaitLongestAt: nil,
-                                                  weeklyShare: UsageAnalytics.weeklyShare(usage: events.filter { $0.timestamp >= weekAgo }),
+                                                  weeklyShare: UsageAnalytics.weeklyShare(usage: week),
                                                   windowSessionCount: sessionCount, windowUsedPct: 0),
                            notice: notice, discoveredAgents: windows.map(\.descriptor), consumers: consumers,
-                           consumption: events.filter { $0.timestamp >= cutoff && $0.timestamp <= now }, indexing: indexed.indexing, insightsByAgent: byAgent,
+                           indexing: indexed.indexing, insightsByAgent: byAgent,
                            subscriptions: limits?.plan.map { ["Codex": $0] } ?? [:], sourceNotices: notice.map { ["Codex": $0] } ?? [:],
                            consumerIdsByQuota: consumerIdsByQuota, codexResetCredits: limits?.rateLimitResetCredits,
                            codexResetCreditsObservedAt: limits?.rateLimitResetCredits == nil ? nil : fetchedAt,

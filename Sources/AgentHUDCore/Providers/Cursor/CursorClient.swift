@@ -7,8 +7,13 @@ actor CursorClient {
     let database: URL
     let http: ProviderHTTP
     private var cached: (at: Date, account: String, since: Date, result: ProviderSessions)?
+    private var fetches = 0
 
-    var savedSessions: ProviderSessions { cached?.result ?? ProviderSessions() }
+    var savedSessions: ProviderSessions {
+        var result = cached?.result ?? ProviderSessions()
+        result.revision = fetches
+        return result
+    }
 
     init(database: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Cursor/User/globalStorage/state.vscdb"),
          http: ProviderHTTP = ProviderHTTP()) {
@@ -96,14 +101,16 @@ actor CursorClient {
         do { auth = try session(now: now) }
         catch {
             cached = nil
+            fetches += 1
             return ProviderSessions(notice: error.localizedDescription)
         }
-        if let cached, cached.account == auth.account, cached.since == start, now.timeIntervalSince(cached.at) < 300 { return cached.result }
+        if let cached, cached.account == auth.account, cached.since == start, now.timeIntervalSince(cached.at) < UsageRefresh.accountRequestSpacing { return cached.result }
         if cached?.account != auth.account { cached = nil }
         do {
             let events = try await fetchEvents(auth: auth, since: start, until: now)
             let result = try Self.parseEvents(events, account: auth.account)
             cached = (now, auth.account, start, result)
+            fetches += 1
             return result
         } catch {
             // Cache retry failures too: polling local sessions every five seconds must not hammer the dashboard.

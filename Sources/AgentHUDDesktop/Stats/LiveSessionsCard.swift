@@ -147,7 +147,7 @@ struct SessionRow: View {
     }
 
     private var quotaOrCost: String {
-        if let billing = store.report?.billing.first(where: { $0.costs.contains(where: { $0.sessionId == session.id }) }) {
+        if let billing = store.report?.billing.first(where: { $0.sessionCosts[session.id] != nil }) {
             return billing.estimatedCost(currency: billing.currency, sessionId: session.id)
                 .map { "≈" + MoneyFormat.amount($0, currency: billing.currency, estimated: true) } ?? "—"
         }

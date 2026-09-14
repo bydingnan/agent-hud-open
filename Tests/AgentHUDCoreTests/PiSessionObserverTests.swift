@@ -26,7 +26,7 @@ final class PiSessionObserverTests: XCTestCase, @unchecked Sendable {
     private func report(_ local: OpenAgentLocalStore.Result) async throws -> UsageReport {
         let now = now
         let provider = OpenAgentUsageProvider(credentials: { [] }, sessions: { _ in local },
-            fetchQuota: { _, _ in throw ProviderFailure.format }, history: QuotaHistoryStore(fileURL: nil), clock: { now })
+            fetchQuota: { _, _ in throw ProviderFailure.format }, history: QuotaHistoryStore(), clock: { now })
         return try await provider.fetchUsage(agents: [], historyHours: 168)
     }
 
@@ -70,7 +70,7 @@ final class PiSessionObserverTests: XCTestCase, @unchecked Sendable {
         XCTAssertTrue(try XCTUnwrap(running.sessions.first).isLive)
         XCTAssertEqual(running.consumers.first?.model, "model · provider")
         XCTAssertEqual(running.turns.first?.state, .running)
-        XCTAssertTrue(running.consumption.isEmpty)
+        XCTAssertEqual(running.activity.tokens.joined().reduce(0, +), 0)
 
         let transcript = paths.pi.appendingPathComponent("sessions/workspace/session.jsonl")
         try write(Data("""
@@ -87,11 +87,11 @@ final class PiSessionObserverTests: XCTestCase, @unchecked Sendable {
         XCTAssertEqual(session.cacheReadTokens, 20)
         XCTAssertEqual(session.task, "Pi task")
         XCTAssertEqual(URL(fileURLWithPath: try XCTUnwrap(session.transcriptPath)).resolvingSymlinksInPath(), transcript.resolvingSymlinksInPath())
-        XCTAssertEqual(completed.consumption.count, 1)
+        XCTAssertEqual(completed.activity.tokens.joined().reduce(0, +), 17, "input with cache writes plus output")
         XCTAssertEqual(completed.completions.count, 1)
         XCTAssertEqual(completed.turns.first?.state, .completed)
         let cached = try await report(await store.index(since: now.addingTimeInterval(-86400)))
-        XCTAssertEqual(cached.consumption, completed.consumption)
+        XCTAssertEqual(cached.activity, completed.activity)
         XCTAssertEqual(cached.turns, completed.turns, "A poll must not manufacture a newer source timestamp")
     }
 

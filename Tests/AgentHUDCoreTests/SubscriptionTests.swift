@@ -62,7 +62,7 @@ final class SubscriptionTests: XCTestCase {
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
         let provider = ClaudeCodeProvider(
             engine: .init(executable: executable, workingDirectory: directory),
-            transcripts: .init(roots: []), history: .init(fileURL: nil), accountProfileURL: profileURL
+            transcripts: .init(roots: []), history: .init(), accountProfileURL: profileURL
         )
         let report = try await provider.fetchAccountAndLocalUsage(agents: [], historyHours: 1)
         XCTAssertEqual(report.subscriptionType, "max")

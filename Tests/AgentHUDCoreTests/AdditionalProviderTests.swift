@@ -258,7 +258,7 @@ final class AdditionalProviderTests: XCTestCase, @unchecked Sendable {
     }
 
     func testAdditionalProviderCachesQuotaAndStillReportsLocalUsageWhenSignedOut() async throws {
-        let now = now, history = QuotaHistoryStore(fileURL: nil)
+        let now = now, history = QuotaHistoryStore()
         let provider = AdditionalUsageProvider(source: .grok, readQuota: { ProviderQuota(windows: [.init(id: "grok", label: "Credits", remaining: 80)]) },
             readSessions: { _ in ProviderSessions(sessions: [.init(id: "s", title: "Fixture", client: "Grok CLI", events: [.init(id: "e", model: "grok-test", timestamp: now, input: 10, output: 20)])]) },
             history: history, clock: { now })
@@ -266,14 +266,17 @@ final class AdditionalProviderTests: XCTestCase, @unchecked Sendable {
         _ = try await provider.fetchAccountAndLocalUsage(agents: [], historyHours: 48)
         let count = await history.count
         XCTAssertEqual(count, 1)
-        XCTAssertEqual(report.consumption.first?.eventID, "grok:e")
+        let recorded = await provider.usage(since: .distantPast)
+        XCTAssertEqual(recorded.map(\.tokensIn), [10])
+        XCTAssertEqual(recorded.map(\.agentId), ["grok-model:grok-test"])
         XCTAssertEqual(report.consumers.first?.vendor, "Grok")
         XCTAssertEqual(report.consumerIdsByQuota[ProviderAccount.unresolved(provider: "Grok", home: "").windowID("grok")], ["grok-model:grok-test"])
         let unavailable = AdditionalUsageProvider(source: .grok, readQuota: { throw ProviderFailure.login("Grok") },
             readSessions: { _ in ProviderSessions(sessions: [.init(id: "s", title: "Fixture", client: "Grok CLI", events: [.init(id: "e", model: "x", timestamp: now, input: 1, output: 2)])]) },
             history: history, clock: { now })
         let local = try await unavailable.fetchAccountAndLocalUsage(agents: [], historyHours: 48)
-        XCTAssertEqual(local.consumption.count, 1)
+        let localUsage = await unavailable.usage(since: .distantPast)
+        XCTAssertEqual(localUsage.count, 1, "a signed-out source still records local usage")
         XCTAssertTrue(local.snapshots.isEmpty)
         XCTAssertNotNil(local.sourceNotices["Grok"])
     }
@@ -282,8 +285,10 @@ final class AdditionalProviderTests: XCTestCase, @unchecked Sendable {
     func testInstalledSourcesReadOnlyProbe() async throws {
         guard ProcessInfo.processInfo.environment["AGENT_HUD_PROBE_ADDITIONAL"] == "1" else { throw XCTSkip("Set AGENT_HUD_PROBE_ADDITIONAL=1 for a read-only local probe") }
         for source in AdditionalSource.allCases {
-            let report = try await AdditionalUsageProvider.standard(source, persistHistory: false).fetchAccountAndLocalUsage(agents: [], historyHours: 168)
-            print("Probe \(source.vendor): quotas=\(report.snapshots.count), sessions=\(report.sessions.count), events=\(report.consumption.count), completions=\(report.completions.count), indexing=\(report.indexing != nil), notice=\(report.sourceNotices[source.vendor] ?? "none")")
+            let provider = AdditionalUsageProvider.standard(source, ledger: .inMemory(), persistHistory: false)
+            let report = try await provider.fetchAccountAndLocalUsage(agents: [], historyHours: 168)
+            let buckets = await provider.usage(since: .distantPast).count
+            print("Probe \(source.vendor): quotas=\(report.snapshots.count), sessions=\(report.sessions.count), buckets=\(buckets), completions=\(report.completions.count), indexing=\(report.indexing != nil), notice=\(report.sourceNotices[source.vendor] ?? "none")")
         }
     }
 }

@@ -150,7 +150,7 @@ final class ProviderAccountTests: XCTestCase {
             .write(to: engine, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: engine.path)
         let provider = ClaudeCodeProvider(engine: .init(executable: engine, workingDirectory: directory), transcripts: .init(roots: []),
-                                          history: .init(fileURL: nil), accountProfileURL: profile)
+                                          history: .init(), accountProfileURL: profile)
         do {
             _ = try await provider.fetchAccountAndLocalUsage(agents: [], historyHours: 1)
             XCTFail("a reading taken across a login change has no owner")

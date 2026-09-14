@@ -16,8 +16,9 @@ final class ChartDataTests: XCTestCase {
         HistorySample(agentId: agent, hourStart: Date(timeIntervalSince1970: Double(hour) * 3600), remainingStart: start, remainingEnd: end, tokens: tokens)
     }
 
-    private func event(_ agent: String, seconds: Double, tokens: Int) -> UsageEvent {
-        .init(timestamp: Date(timeIntervalSince1970: seconds), agentId: agent, tokensIn: tokens, tokensOut: 0)
+    /// Observations summed into the 15-minute period that holds them, as the ledger records them.
+    private func event(_ agent: String, seconds: Double, tokens: Int) -> UsageBucket {
+        .init(start: Date(timeIntervalSince1970: (seconds / 900).rounded(.down) * 900), agentId: agent, tokensIn: tokens, tokensOut: 0)
     }
 
     func testRemainingPathStartsAtOpenAndEndsAtClose() {
@@ -113,16 +114,16 @@ final class ChartDataTests: XCTestCase {
         XCTAssertEqual(quarters.reduce(0) { $0 + $1.total }, halves.reduce(0) { $0 + $1.total })
     }
 
-    func testPartialBucketsExcludeEventsOutsideTheExactRange() {
+    func testPeriodsOverlappingTheRangeEdgesCountWhole() {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
         let now = Date(timeIntervalSince1970: 5 * 3600 + 7 * 60)
-        let usage = [event("a", seconds: 6 * 60, tokens: 999), event("a", seconds: 7 * 60, tokens: 3),
-                     event("a", seconds: now.timeIntervalSince1970, tokens: 999),
-                     event("a", seconds: now.timeIntervalSince1970 + 1, tokens: 999)]
+        let usage = [event("a", seconds: -60, tokens: 999), event("a", seconds: 6 * 60, tokens: 1),
+                     event("a", seconds: 7 * 60, tokens: 2), event("a", seconds: now.timeIntervalSince1970, tokens: 3),
+                     event("a", seconds: 5 * 3600 + 15 * 60, tokens: 999)]
         for size in TokenBucketSize.allCases {
             let bars = ChartData.tokenBars(usage: usage, agentIds: ["a"], range: .hours5, bucketSize: size, now: now, calendar: calendar)
-            XCTAssertEqual(bars.reduce(0) { $0 + $1.total }, 3)
+            XCTAssertEqual(bars.reduce(0) { $0 + $1.total }, 6, "the periods holding the range start and now count; outside periods do not")
             XCTAssertEqual(bars.first?.interval.start, Date(timeIntervalSince1970: 0))
         }
     }

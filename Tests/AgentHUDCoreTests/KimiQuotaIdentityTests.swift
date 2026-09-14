@@ -20,7 +20,7 @@ final class KimiQuotaIdentityTests: XCTestCase {
     private func provider(_ input: Inputs, _ server: Server, identityCache: URL? = nil) -> OpenAgentUsageProvider {
         let client = OpenAgentQuotaClient(http: ProviderHTTP(send: { try await server.send($0) }))
         return OpenAgentUsageProvider(credentials: { input.credentials }, sessions: { _ in .init() },
-            fetchQuota: { try await client.fetch($0, now: $1) }, history: QuotaHistoryStore(fileURL: nil),
+            fetchQuota: { try await client.fetch($0, now: $1) }, history: QuotaHistoryStore(),
             identify: { try await client.identify($0) }, clock: { input.now }, identityCacheURL: identityCache)
     }
 

@@ -175,7 +175,7 @@ final class OpenAgentProviderTests: XCTestCase {
         XCTAssertEqual(turn.startedAtMs, start)
         XCTAssertEqual(turn.observedAtMs, start + 1000)
         let provider = OpenAgentUsageProvider(credentials: { [] }, sessions: { _ in .init(sessions: [item]) },
-            fetchQuota: { _, _ in ProviderQuota() }, history: QuotaHistoryStore(fileURL: nil),
+            fetchQuota: { _, _ in ProviderQuota() }, history: QuotaHistoryStore(),
             clock: { Date(timeIntervalSince1970: Double(start + 2000) / 1000) })
         let report = try await provider.fetchAccountAndLocalUsage(agents: [], historyHours: 24)
         XCTAssertEqual(report.turns, [turn])
@@ -293,7 +293,7 @@ final class OpenAgentProviderTests: XCTestCase {
         let provider = OpenAgentUsageProvider(credentials: { [first, second] }, sessions: { _ in .init() }, fetchQuota: { c, _ in
             await calls.record()
             return .init(windows: [.init(id: c.pool.windowID("weekly"), label: "Weekly", remaining: 70)], plan: "Allegretto")
-        }, history: QuotaHistoryStore(fileURL: nil), identify: { c in
+        }, history: QuotaHistoryStore(), identify: { c in
             OpenAgentCredentials.credential(c.service, token: c.token, client: c.clients.sorted()[0], accountID: "proven-account")
         }, clock: { now })
         let report = try await provider.fetchAccountAndLocalUsage(agents: [], historyHours: 168)
@@ -336,7 +336,7 @@ final class OpenAgentProviderTests: XCTestCase {
         let agent = AgentDescriptor(id: id, vendor: "Kimi", model: "Weekly", source: "fixture", enabled: true, billingPool: pool)
         func report(remaining: Double, at: Date, client: String, eventID: String) -> UsageReport {
             .init(generatedAt: at, snapshots: [.init(agentId: id, remainingPct: remaining, updatedAt: at)], sessions: [], history: [], activity: .empty, insights: .empty,
-                  discoveredAgents: [agent], consumption: [.init(timestamp: now, agentId: "model", tokensIn: 10, tokensOut: 20, eventID: eventID)], consumerIdsByQuota: [id: [client]])
+                  discoveredAgents: [agent], consumerIdsByQuota: [id: [client]])
         }
         let a = report(remaining: 80, at: now.addingTimeInterval(-1), client: "Pi", eventID: "same")
         let b = report(remaining: 70, at: now, client: "Kimi", eventID: "same")
@@ -347,7 +347,6 @@ final class OpenAgentProviderTests: XCTestCase {
         XCTAssertEqual(result.snapshots[0].remainingPct, 70)
         XCTAssertEqual(result.discoveredAgents.count, 1)
         XCTAssertEqual(result.consumerIdsByQuota[id], ["Pi", "Kimi", "OpenCode"])
-        XCTAssertEqual(result.consumption.count, 2)
     }
 
 
@@ -373,16 +372,18 @@ final class OpenAgentProviderTests: XCTestCase {
     func testProviderFetchesSharedPoolOnceAndDoesNotAssignUnknownHistoricalUsage() async throws {
         let calls = Fetches(), key = credential(), otherClient = credential(client: "Pi"), now = now
         let session = try OpenAgentParser.pi(Data(piLines().utf8), path: "/a")
+        let ledger = UsageLedger.inMemory()
         let provider = OpenAgentUsageProvider(credentials: { [key, otherClient] }, sessions: { _ in .init(sessions: session) }, fetchQuota: { c, _ in
             await calls.record()
             return .init(windows: [.init(id: c.pool.windowID("weekly"), label: "Weekly", remaining: 70)])
-        }, history: QuotaHistoryStore(fileURL: nil), clock: { now })
+        }, history: QuotaHistoryStore(), clock: { now }, ledger: ledger)
         let report = try await provider.fetchAccountAndLocalUsage(agents: [], historyHours: 168)
         _ = try await provider.fetchAccountAndLocalUsage(agents: [], historyHours: 168)
         let count = await calls.count
         XCTAssertEqual(count, 1)
         XCTAssertEqual(report.snapshots.count, 1)
         XCTAssertTrue(report.consumerIdsByQuota.values.allSatisfy(\.isEmpty))
-        XCTAssertEqual(report.consumption.count, 1)
+        let recorded = try await ledger.buckets(since: .distantPast)
+        XCTAssertEqual(recorded.count, 1)
     }
 }

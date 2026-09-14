@@ -9,18 +9,19 @@ Agent HUD Open is a Swift package with three libraries and one executable. `Agen
 | Module | Responsibility | Depends on |
 | --- | --- | --- |
 | `AgentHUDSupport` | `JSONValue` (integer-preserving JSON) and `RecordCoding` (deterministic encoding, millisecond dates, hashed identities) | — |
-| `AgentHUDCore` | Providers, usage models, calculations, local caches, quota history, the settings and usage stores | Support |
+| `AgentHUDCore` | Providers, usage models, calculations, the usage ledger, the settings and usage stores | Support |
 | `AgentHUDDesktop` | Menu bar item, notch glow and panel, alerts, onboarding, settings and statistics windows; its resource bundle holds every logo and notice | Core |
 | `AgentHUDOpenApp` (product `AgentHUDOpen`) | Launch options, live or sample data, adapter setup, process lifetime | Desktop, Core |
 
-`CombinedUsageProvider` runs one provider per client and merges their reports; `RetainedUsageProvider` restores the saved report at start and fills readings a partial refresh could not supply; `UsageStore` polls local activity, runs account refreshes on their own task, and publishes the report the desktop observes. A report carries quota windows, sessions, turns, completions, usage events, history, services, billing and the account inventory (`ProviderAccount`, `AccountObservation`); every quota row belongs to one account.
+`CombinedUsageProvider` reads one provider per client, one after another, and merges their reports; `UsageLedger` is the local SQLite store where providers keep parse positions, token events and quota readings, and from which the 15-minute usage and cost totals are read; `RetainedUsageProvider` restores the saved report at start and fills readings a partial refresh could not supply; `UsageStore` runs the collection pipeline, one local poll or account step at a time, and publishes the report the desktop observes. A report carries quota windows, sessions, turns, completions, 15-minute usage buckets, history, services, billing and the account inventory (`ProviderAccount`, `AccountObservation`); every quota row belongs to one account.
 
 ## Rules
 
 ### Host integration
 
 - A host creates a `SettingsStore` and a `UsageStore` around any `UsageProvider`, then a `DesktopApplication`; it owns every additional service and its lifecycle. The shared UI never initializes account services or transports.
-- `fetchUsage(agents:historyHours:)` assembles local activity with the latest account results; `refreshAccountUsage(historyHours:)` performs the slower quota, balance and account-wide requests and has a no-op default. A provider that wraps another forwards both.
+- `fetchUsage(agents:historyHours:)` assembles local activity with the latest account results; `refreshAccountUsage(historyHours:)` performs the slower quota, balance and account-wide requests and has a no-op default; `accountRefreshSteps` splits it into steps the store runs between polls, and `watchedDirectories` names the directories whose changes need a poll (nil polls every time). A provider that wraps another forwards all of them.
+- A provider that does not write the ledger reports its periods in `UsageReport.usage`; `CombinedUsageProvider` adds them to the ledger's totals.
 - A failed full refresh keeps the previous report and exposes `UsageStore.lastError`; a partial failure keeps the missing readings from the saved report.
 - The standalone application never calls `present(_:)`. Deciding that a quota alert or a completion reminder is due is a host responsibility; `QuotaAlertTracker` supplies the baseline and deduplication logic.
 - Hosts apply the same Live status preference as the desktop, `Settings.liveStatusEnabled(for:)`, in any relay, reminder or synchronization service they add ([session lifecycle](session-lifecycle.md)).
@@ -33,7 +34,7 @@ Agent HUD Open is a Swift package with three libraries and one executable. `Agen
 ### Storage
 
 - The standalone bundle identifier is `app.agenthud.open`; preferences live in its UserDefaults domain, with separate domains for demo and snapshot runs.
-- Cached reports (including account labels), transcript indexes, quota histories, hashed Kimi identities and completion records live in the data directory ([caches](providers.md#caches)); quota histories keep 30 days. No file contains conversation text or credentials.
+- The usage ledger, the restart copy of the report (including account labels), hashed Kimi identities and completion records live in the data directory ([storage](providers.md#storage)); token events keep 31 days and quota readings 30 days. No file contains conversation text or credentials.
 - SwiftPM resources are located through `AppResources`; the app bundle carries `AgentHUDOpen_AgentHUDDesktop.bundle` under `Contents/Resources`.
 
 ### Design invariants
