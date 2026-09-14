@@ -50,10 +50,18 @@ enum AgentSettingsChecks {
         click(x: 450, yFromTop: 130)
         await settle()
         check(documentHeight() > collapsedHeight + 100, "group expands to show windows")
-        click(x: 700, yFromTop: 195)
+        // The first window switch sits below the group's Live status row.
+        let windowSwitchY: CGFloat = 246
+        let agentsBefore = settings.agents
+        let liveStatusBefore = settings.settings.liveStatusEnabled(for: "Claude")
+        click(x: 700, yFromTop: windowSwitchY)
         await settle()
-        check(settings.agents.first { $0.id == "settings-claude-5h" }?.enabled == false,
-              "display switch changes the stored window selection")
+        // Name whatever the click toggled, so a moved layout fails with its cause.
+        let toggled = settings.agents.filter { agent in agentsBefore.first { $0.id == agent.id }?.enabled != agent.enabled }.map(\.id)
+            + (settings.settings.liveStatusEnabled(for: "Claude") != liveStatusBefore ? ["Claude live status"] : [])
+        let hitWindowSwitch = toggled == ["settings-claude-5h"]
+        check(hitWindowSwitch, "display switch changes the stored window selection" + (hitWindowSwitch ? "" :
+            " (click at y \(Int(windowSwitchY)) toggled \(toggled.isEmpty ? "nothing" : toggled.joined(separator: ", ")); compare settings-agents-expanded-dark.png)"))
         let group = AgentSettingsGroup.make(sources: sources, agents: settings.agents).first { $0.id == "Claude" }
         check(group?.displayedCount == 1 && group?.agents.count == 3, "display count changes to 1/3")
         if let scroll = scrollView(hosting) {
