@@ -12,7 +12,6 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(s.glowBrightness, 0.9)
         XCTAssertEqual(s.hoverDelayMs, 400)
         XCTAssertEqual(s.collapseDelayMs, 200)
-        XCTAssertEqual(s.pollInterval, .oneMinute)
         XCTAssertTrue(s.launchAtLogin)
         XCTAssertTrue(s.showMenuBarIcon)
         XCTAssertEqual(s.appearance, .system)
@@ -21,7 +20,7 @@ final class SettingsTests: XCTestCase {
     }
 
     func testDecodesMissingAndRemovedFields() throws {
-        let decoded = try JSONDecoder().decode(Settings.self, from: Data(#"{"glowRange":20,"glowPosition":"below","showIslandTrend":false}"#.utf8))
+        let decoded = try JSONDecoder().decode(Settings.self, from: Data(#"{"glowRange":20,"glowPosition":"below","showIslandTrend":false,"pollInterval":300}"#.utf8))
         XCTAssertEqual(decoded.glowRange, 20)
         XCTAssertEqual(decoded.glowBlur, 8)
         XCTAssertTrue(decoded.glowOutwardOnly)
@@ -32,7 +31,7 @@ final class SettingsTests: XCTestCase {
 
     func testRoundTrip() throws {
         let original = Settings().with {
-            $0.appearance = .light; $0.pollInterval = .fiveMinutes
+            $0.appearance = .light
             $0.glowOutwardOnly = false
             $0.showIslandQuota = false; $0.showIslandTokens = false
             $0.showIslandSessions = false

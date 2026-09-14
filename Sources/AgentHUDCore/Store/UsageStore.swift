@@ -74,11 +74,9 @@ public final class UsageStore {
             while !Task.isCancelled {
                 guard let self else { return }
                 await self.refresh()
-                // While local logs are still being indexed, poll quickly so each step lands on screen.
-                let settings = self.settings.settings
-                // Completion reminders tail local logs promptly; provider quota/balance queries retain their own caches.
-                let interval = min(5, settings.pollInterval.rawValue)
-                let seconds = self.isIndexing ? 2 : interval
+                // Indexing polls quickly so each step lands on screen; otherwise completion reminders tail local logs every
+                // five seconds, while provider quota and balance queries keep their own two-minute caches.
+                let seconds: Double = self.isIndexing ? 2 : 5
                 try? await Task.sleep(for: .seconds(seconds))
             }
         }

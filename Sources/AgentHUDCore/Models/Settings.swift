@@ -1,11 +1,5 @@
 import Foundation
 
-public enum PollInterval: Int, Codable, Sendable, CaseIterable {
-        case thirtySeconds = 30
-        case oneMinute = 60
-        case fiveMinutes = 300
-}
-
 public enum AppearanceMode: String, Codable, Sendable, CaseIterable {
         case system
         case dark
@@ -79,7 +73,6 @@ public struct Settings: Hashable, Codable, Sendable {
     public private(set) var disabledLiveStatusSources: Set<String> = []
     /// Querying GitHub Copilot quota reads the GitHub CLI sign-in, so it stays off until the user agrees.
     public var readCopilotQuota: Bool = false
-    public var pollInterval: PollInterval = .oneMinute
     public var launchAtLogin: Bool = true
     public var showMenuBarIcon: Bool = true
     public var appearance: AppearanceMode = .system
@@ -90,7 +83,7 @@ public struct Settings: Hashable, Codable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case breathSeconds, breathAmplitude, glowRange, glowBlur, glowBrightness, glowOutwardOnly
         case glowStyle, glowGridPitch, glowGridSpread, glowGridDensity, glowEffect
-        case hoverDelayMs, collapseDelayMs, showResetCountdown, pollInterval
+        case hoverDelayMs, collapseDelayMs, showResetCountdown
         case showIslandQuota, showIslandTokens, showIslandSessions
         case disabledLiveStatusSources, readCopilotQuota
         case launchAtLogin, showMenuBarIcon, appearance, language
@@ -119,7 +112,6 @@ public struct Settings: Hashable, Codable, Sendable {
         showIslandSessions = try c.decodeIfPresent(Bool.self, forKey: .showIslandSessions) ?? d.showIslandSessions
         disabledLiveStatusSources = Set((try c.decodeIfPresent([String].self, forKey: .disabledLiveStatusSources) ?? []).map { $0.lowercased() })
         readCopilotQuota = try c.decodeIfPresent(Bool.self, forKey: .readCopilotQuota) ?? d.readCopilotQuota
-        pollInterval = try c.decodeIfPresent(PollInterval.self, forKey: .pollInterval) ?? d.pollInterval
         launchAtLogin = try c.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? d.launchAtLogin
         showMenuBarIcon = try c.decodeIfPresent(Bool.self, forKey: .showMenuBarIcon) ?? d.showMenuBarIcon
         appearance = try c.decodeIfPresent(AppearanceMode.self, forKey: .appearance) ?? d.appearance
@@ -142,7 +134,6 @@ public struct Settings: Hashable, Codable, Sendable {
         try c.encode(hoverDelayMs, forKey: .hoverDelayMs)
         try c.encode(collapseDelayMs, forKey: .collapseDelayMs)
         try c.encode(showResetCountdown, forKey: .showResetCountdown)
-        try c.encode(pollInterval, forKey: .pollInterval)
         try c.encode(showIslandQuota, forKey: .showIslandQuota)
         try c.encode(showIslandTokens, forKey: .showIslandTokens)
         try c.encode(showIslandSessions, forKey: .showIslandSessions)
