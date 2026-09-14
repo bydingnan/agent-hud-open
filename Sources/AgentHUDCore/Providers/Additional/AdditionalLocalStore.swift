@@ -21,6 +21,8 @@ actor AdditionalLocalStore {
         case .grok: self.roots = [Self.grokHome.appendingPathComponent("sessions"), Self.grokHome.appendingPathComponent("logs")]
         case .antigravity: self.roots = ["antigravity-cli/conversations", "antigravity", "antigravity/conversations"].map { Self.geminiHome.appendingPathComponent($0) }
         case .cursor: self.roots = []
+        default: self.roots = source.layout?.roots(home: FileManager.default.homeDirectoryForCurrentUser,
+                                                   environment: ProcessInfo.processInfo.environment) ?? []
         }
     }
 
@@ -36,11 +38,13 @@ actor AdditionalLocalStore {
                 if visited > 20000 { failed = true; break }
                 // Antigravity's recognized SQLite roots are flat; don't recursively scan its configuration/storage.
                 if source == .antigravity, url.pathExtension != "db" { enumerator.skipDescendants(); continue }
+                if source.layout?.skips(url) == true { enumerator.skipDescendants(); continue }
                 let accepted: Bool
                 switch source {
                 case .antigravity: accepted = url.pathExtension == "db"
                 case .grok: accepted = url.lastPathComponent == "updates.jsonl" || url.lastPathComponent == "unified.jsonl"
                 case .cursor: accepted = false
+                default: accepted = source.layout?.accepts(url) ?? false
                 }
                 guard accepted else { continue }
                 guard let attributes = try? url.resourceValues(forKeys: [.isRegularFileKey, .contentModificationDateKey, .fileSizeKey]),
@@ -49,7 +53,8 @@ actor AdditionalLocalStore {
                 var signature = "\(modified.timeIntervalSince1970):\(size)"
                 let related = source == .antigravity ? [URL(fileURLWithPath: url.path + "-wal")]
                     : source == .grok && url.lastPathComponent == "updates.jsonl"
-                    ? ["summary.json", "signals.json"].map { url.deletingLastPathComponent().appendingPathComponent($0) } : []
+                    ? ["summary.json", "signals.json"].map { url.deletingLastPathComponent().appendingPathComponent($0) }
+                    : source.layout?.related(url) ?? []
                 for sibling in related {
                     if let values = try? sibling.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]), let date = values.contentModificationDate {
                         lastModified = max(lastModified, date); signature += ":\(date.timeIntervalSince1970):\(values.fileSize ?? 0)"
@@ -72,6 +77,7 @@ actor AdditionalLocalStore {
                 case .antigravity: result = try AntigravitySessions.read(candidate.url)
                 case .grok: result = try GrokSessions.read(candidate.url)
                 case .cursor: result = ProviderSessions()
+                default: result = try source.layout?.read(candidate.url) ?? ProviderSessions()
                 }
                 entries[candidate.url] = Entry(signature: candidate.signature, result: result)
             } catch { failed = true }
@@ -97,6 +103,7 @@ actor AdditionalLocalStore {
                 return item
             }
         }
+        if let layout = source.layout { sessions = layout.merge(sessions) }
         // Identically named Antigravity SQLite copies in the recognized roots represent the same conversation.
         var byID: [String: ProviderSession] = [:]
         for item in sessions {

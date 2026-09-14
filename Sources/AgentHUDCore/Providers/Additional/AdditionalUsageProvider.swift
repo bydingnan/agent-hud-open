@@ -1,3 +1,4 @@
+import AgentHUDSupport
 import Foundation
 
 actor AdditionalUsageProvider: UsageProvider {
@@ -8,18 +9,21 @@ actor AdditionalUsageProvider: UsageProvider {
     private let readCompletions: @Sendable (Date) throws -> [SessionCompletion]
     private let history: QuotaHistoryStore
     private let clock: @Sendable () -> Date
-    private var lastQuota: (at: Date, result: Result<ProviderQuota, UsageProviderError>)?
+    /// A change of this value (such as a consent toggle) refreshes quota without waiting for the interval.
+    private let quotaKey: @Sendable () -> String
+    private var lastQuota: (at: Date, key: String, result: Result<ProviderQuota, UsageProviderError>)?
 
     init(source: AdditionalSource, readQuota: @escaping @Sendable () async throws -> ProviderQuota,
          readSessions: @escaping @Sendable (Date) async -> ProviderSessions,
          history: QuotaHistoryStore,
          readCompletions: @escaping @Sendable (Date) throws -> [SessionCompletion] = { _ in [] },
          clock: @escaping @Sendable () -> Date = { Date() },
+         quotaKey: @escaping @Sendable () -> String = { "" },
          refreshSessions: @escaping @Sendable (Int) async -> Void = { _ in }) {
         self.source = source; self.readQuota = readQuota; self.readSessions = readSessions
         self.readCompletions = readCompletions
         self.refreshSessions = refreshSessions
-        self.history = history; self.clock = clock
+        self.history = history; self.clock = clock; self.quotaKey = quotaKey
     }
 
     static func standard(_ source: AdditionalSource, persistHistory: Bool = true) -> AdditionalUsageProvider {
@@ -30,6 +34,8 @@ actor AdditionalUsageProvider: UsageProvider {
             case .antigravity: return try await AntigravityClient().fetch()
             case .cursor: return try await cursor.quota()
             case .grok: return try await GrokClient().fetch()
+            case .copilot: return try await CopilotClient().fetch()
+            case .openclaw, .hermes, .zcode, .codebuddy, .workbuddy: return ProviderQuota()
             }
         }, readSessions: { since in
             if source == .cursor { return await cursor.savedSessions }
@@ -38,7 +44,7 @@ actor AdditionalUsageProvider: UsageProvider {
         readCompletions: { since in
             guard let hook = CompletionHooks.Source(rawValue: source.rawValue) else { return [] }
             return try CompletionHooks.read(source: hook, since: since)
-        }, refreshSessions: { hours in
+        }, quotaKey: { source == .copilot ? String(CopilotClient.consented()) : "" }, refreshSessions: { hours in
             if source == .cursor {
                 _ = await cursor.sessions(since: Date().addingTimeInterval(-Double(max(168, hours)) * 3600))
             }
@@ -47,16 +53,17 @@ actor AdditionalUsageProvider: UsageProvider {
 
     func refreshAccountUsage(historyHours: Int) async {
         async let sessions: Void = refreshSessions(historyHours)
-        let now = clock()
-        if lastQuota == nil || now.timeIntervalSince(lastQuota!.at) >= 120 {
+        let now = clock(), key = quotaKey()
+        if lastQuota == nil || lastQuota!.key != key || now.timeIntervalSince(lastQuota!.at) >= 120 {
             do {
                 let result = try await readQuota()
                 try Task.checkCancellation()
-                lastQuota = (now, .success(result))
+                lastQuota = (now, key, .success(result))
+                if result.forgetAccounts { await history.removeAll() }
                 await history.append(result.scopedWindows(source).map { .init(agentId: $0.id, timestamp: now, remainingPct: $0.remaining) }, now: now)
             } catch {
                 if Task.isCancelled { return }
-                lastQuota = (now, .failure(UsageProviderError(error.localizedDescription)))
+                lastQuota = (now, key, .failure(UsageProviderError(error.localizedDescription)))
             }
         }
         await sessions
@@ -65,7 +72,20 @@ actor AdditionalUsageProvider: UsageProvider {
     func fetchUsage(agents: [AgentDescriptor], historyHours: Int) async throws -> UsageReport {
         let now = clock(), weekAgo = now.addingTimeInterval(-7 * 86400)
         let since = min(weekAgo, now.addingTimeInterval(-Double(historyHours) * 3600))
-        let local = await readSessions(since)
+        var local = await readSessions(since)
+        var hookCompletions: [SessionCompletion] = [], hookNotice: String?
+        do { hookCompletions = try readCompletions(since) }
+        catch { hookNotice = L10n.text("完成提醒记录读取失败", "Turn completion records could not be read") }
+        // A stop hook finishes the running turn it follows when the client's own log records no end.
+        let finished = Dictionary(hookCompletions.map { ($0.sessionID, RecordCoding.milliseconds($0.completedAt)) }, uniquingKeysWith: max)
+        for index in local.sessions.indices {
+            guard let done = finished[local.sessions[index].id] else { continue }
+            local.sessions[index].turns = local.sessions[index].turns.map { turn in
+                guard turn.state == .running, done >= turn.observedAtMs else { return turn }
+                return SessionTurn(provider: turn.provider, sessionID: turn.sessionID, turnID: turn.turnID, state: .completed,
+                                   startedAtMs: turn.startedAtMs, observedAtMs: done)
+            }
+        }
         let quota: ProviderQuota, quotaNotice: String?
         let observedAt = lastQuota?.at ?? now
         switch lastQuota?.result {
@@ -112,9 +132,6 @@ actor AdditionalUsageProvider: UsageProvider {
                 weeklyWaitTotal: caps.totalWait, weeklyWaitLongest: caps.longestWait, weeklyWaitLongestAt: caps.longestAt,
                 weeklyShare: [:], windowSessionCount: sessions.count, windowUsedPct: 100 - snapshot.remainingPct)
         }
-        var hookCompletions: [SessionCompletion] = [], hookNotice: String?
-        do { hookCompletions = try readCompletions(since) }
-        catch { hookNotice = L10n.text("完成提醒记录读取失败", "Turn completion records could not be read") }
         let notice = [quotaNotice, local.notice, hookNotice].compactMap { $0 }.joined(separator: " · ")
         let descriptors = windows.map {
             AgentDescriptor(id: $0.id, vendor: source.vendor, model: $0.label, source: L10n.sourceAdditionalUsage, enabled: true, account: account)
@@ -128,6 +145,7 @@ actor AdditionalUsageProvider: UsageProvider {
             sourceNotices: notice.isEmpty ? [:] : [source.vendor: notice],
             consumerIdsByQuota: Dictionary(uniqueKeysWithValues: quotaIDs.map { ($0, consumerIDs) }),
             completions: local.sessions.flatMap(\.completions) + hookCompletions, turns: local.sessions.flatMap(\.turns),
-            accounts: quota.isSignedIn ? [source.vendor: [AccountObservation(account: account, label: quota.label, plan: quota.plan, observedAt: observedAt)]] : nil)
+            accounts: quota.isSignedIn ? [source.vendor: [AccountObservation(account: account, label: quota.label, plan: quota.plan, observedAt: observedAt)]] : nil,
+            forgottenAccountProviders: quota.forgetAccounts ? [source.vendor] : nil)
     }
 }

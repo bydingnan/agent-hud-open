@@ -48,7 +48,7 @@ This builds and opens `build/Agent HUD Open.app`. The app is signed ad-hoc for l
 
 ## Supported clients
 
-**Claude Code** · **Codex Desktop / CLI** · **DeepSeek Harness** · **Antigravity** · **Cursor** · **Grok CLI** · **OpenCode** · **Kimi** · **GLM** · **Pi**
+**Claude Code** · **Codex Desktop / CLI** · **DeepSeek Harness** · **Antigravity** · **Cursor** · **Grok CLI** · **GitHub Copilot CLI** · **OpenCode** · **Kimi** · **GLM** · **Pi** · **OpenClaw** · **Hermes Agent** · **ZCode** · **CodeBuddy** · **WorkBuddy**
 
 Install and sign into the clients you want to monitor. Available activity, quota, and balance information depends on the client and account. See [session lifecycle coverage](docs/session-lifecycle.md) for support for running and terminal turns.
 

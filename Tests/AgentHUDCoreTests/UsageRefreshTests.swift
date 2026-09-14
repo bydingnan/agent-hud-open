@@ -73,4 +73,53 @@ final class UsageRefreshTests: XCTestCase, @unchecked Sendable {
         gate.continuation.finish()
         await request.value
     }
+
+    func testQuotaKeyChangeRefreshesBeforeTheInterval() async throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        final class State: @unchecked Sendable { var consented = false; var reads = 0 }
+        let state = State(), history = QuotaHistoryStore(fileURL: nil)
+        let provider = AdditionalUsageProvider(source: .copilot, readQuota: {
+            state.reads += 1
+            return state.consented ? ProviderQuota(windows: [.init(id: "copilot:chat", label: "Chat", remaining: 40)]) : ProviderQuota(forgetAccounts: true)
+        }, readSessions: { _ in .init() }, history: history, clock: { now }, quotaKey: { String(state.consented) })
+        await provider.refreshAccountUsage(historyHours: 24)
+        await provider.refreshAccountUsage(historyHours: 24)
+        XCTAssertEqual(state.reads, 1)
+        state.consented = true
+        await provider.refreshAccountUsage(historyHours: 24)
+        XCTAssertEqual(state.reads, 2)
+        let report = try await provider.fetchUsage(agents: [], historyHours: 24)
+        XCTAssertEqual(report.snapshots.first?.remainingPct, 40)
+        XCTAssertNil(report.forgottenAccountProviders)
+        let recorded = await history.count
+        XCTAssertEqual(recorded, 1)
+        state.consented = false
+        await provider.refreshAccountUsage(historyHours: 24)
+        let withdrawn = try await provider.fetchUsage(agents: [], historyHours: 24)
+        XCTAssertTrue(withdrawn.snapshots.isEmpty)
+        XCTAssertEqual(withdrawn.forgottenAccountProviders, ["GitHub Copilot"])
+        let cleared = await history.count
+        XCTAssertEqual(cleared, 0, "withdrawn consent deletes the quota history")
+    }
+
+    func testStopHookFinishesTheRunningTurnItFollows() async throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000), ms = Int64(1_800_000_000_000)
+        var session = ProviderSession(id: "copilot:s", title: "Task", client: "Copilot CLI", startedAt: now.addingTimeInterval(-30), lastActivity: now.addingTimeInterval(-10))
+        session.turns = [SessionTurn(provider: "GitHub Copilot", sessionID: "copilot:s", turnID: "t", state: .running, startedAtMs: ms - 30_000, observedAtMs: ms - 10_000)]
+        let local = ProviderSessions(sessions: [session])
+        func report(completedAt: Date?) async throws -> UsageReport {
+            let hooks = completedAt.map { [SessionCompletion(sessionID: "copilot:s", vendor: "GitHub Copilot", turnID: "stop", task: "Task", model: "m", startedAt: nil, completedAt: $0)] } ?? []
+            return try await AdditionalUsageProvider(source: .copilot, readQuota: { ProviderQuota() }, readSessions: { _ in local },
+                history: QuotaHistoryStore(fileURL: nil), readCompletions: { _ in hooks }, clock: { now }).fetchUsage(agents: [], historyHours: 24)
+        }
+        let running = try await report(completedAt: nil)
+        XCTAssertEqual(running.turns.first?.state, .running)
+        XCTAssertNil(running.sessions.first?.endedAt)
+        let earlier = try await report(completedAt: now.addingTimeInterval(-20))
+        XCTAssertEqual(earlier.turns.first?.state, .running, "A completion before the turn's latest activity belongs to an earlier turn")
+        let finished = try await report(completedAt: now.addingTimeInterval(-5))
+        XCTAssertEqual(finished.turns.first?.state, .completed)
+        XCTAssertEqual(finished.turns.first?.observedAtMs, ms - 5_000)
+        XCTAssertNotNil(finished.sessions.first?.endedAt)
+    }
 }

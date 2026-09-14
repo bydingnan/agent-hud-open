@@ -49,6 +49,10 @@ struct AgentSettingsCard: View {
                 SettingsDivider(theme: theme)
                 AgentLiveStatusSettings(vendor: group.id, settings: settings)
             }
+            if isExpanded && group.id == AdditionalSource.copilot.vendor {
+                SettingsDivider(theme: theme)
+                CopilotQuotaSettings(settings: settings)
+            }
             if isExpanded && !group.agents.isEmpty {
                 SettingsDivider(theme: theme)
                 ForEach(group.agents) { agent in
@@ -174,5 +178,33 @@ private struct AgentLiveStatusSettings: View {
         }
         .padding(.leading, 28)
         .help(L10n.text("历史会话和 Token 统计持续更新。", "Session history and token usage keep updating."))
+    }
+}
+
+/// Quota reading uses the GitHub CLI sign-in, so each time it is switched on the user confirms what is read.
+private struct CopilotQuotaSettings: View {
+    let settings: SettingsStore
+    @State private var confirming = false
+
+    var body: some View {
+        SettingRow(label: L10n.text("读取额度", "Read quota"),
+                   subtitle: L10n.text("使用 GitHub CLI 的登录查询 Copilot 额度", "Query Copilot quota with the GitHub CLI sign-in")) {
+            Toggle(L10n.text("读取额度", "Read quota"), isOn: Binding(get: {
+                settings.settings.readCopilotQuota || confirming
+            }, set: { value in
+                if value { confirming = true } else { settings.update { $0.readCopilotQuota = false } }
+            }))
+            .labelsHidden().toggleStyle(.switch).controlSize(.small)
+            .accessibilityIdentifier("agent-copilot-quota")
+        }
+        .padding(.leading, 28)
+        .alert(L10n.text("读取 GitHub Copilot 额度？", "Read GitHub Copilot quota?"), isPresented: $confirming) {
+            Button(L10n.text("取消", "Cancel"), role: .cancel) {}
+            Button(L10n.text("同意", "Allow")) { settings.update { $0.readCopilotQuota = true } }
+        } message: {
+            Text(L10n.text(
+                "将读取 GitHub CLI 的登录信息（环境变量 GH_TOKEN 或 GITHUB_TOKEN、macOS 钥匙串中的 gh:github.com、~/.config/gh/hosts.yml），向 api.github.com 查询 Copilot 额度。macOS 可能会请求访问钥匙串。",
+                "This reads the GitHub CLI sign-in (the GH_TOKEN or GITHUB_TOKEN environment variable, gh:github.com in the macOS keychain, ~/.config/gh/hosts.yml) to query Copilot quota from api.github.com. macOS may ask for keychain access."))
+        }
     }
 }

@@ -1,39 +1,57 @@
 import Foundation
 
+/// A successful finished turn reported by a client's stop hook.
+struct CompletionHookEvent: Equatable, Sendable {
+    let session: String
+    let turn: String
+    var workspace: String? = nil
+    var model: String? = nil
+}
+
+/// One client's hook configuration file and stop payload. `CompletionHooks` owns the callback, the local record and
+/// the installation rules shared by every client.
+protocol CompletionHookFormat {
+    static func configuration(home: URL) -> URL
+    /// The finished turn in a stop payload, or nil when the turn did not finish successfully. `now` is the callback time,
+    /// for clients whose payload names no turn.
+    static func completion(_ payload: ProviderJSON, now: Date) -> CompletionHookEvent?
+    /// Commands of the Agent HUD handlers present in the configuration, enabled or not.
+    static func commands(in configuration: [String: ProviderJSON]) -> [String]
+    /// Whether an Agent HUD handler is present and active.
+    static func isActive(in configuration: [String: ProviderJSON]) -> Bool
+    /// The configuration with Agent HUD's handler set to `command`, or removed when `command` is nil.
+    /// Every other entry is preserved; an unrecognized layout throws instead of being rewritten.
+    static func updating(_ configuration: [String: ProviderJSON], command: String?) throws -> [String: ProviderJSON]
+}
+
+extension CompletionHookFormat {
+    static func isActive(in configuration: [String: ProviderJSON]) -> Bool { !commands(in: configuration).isEmpty }
+}
+
 /// Explicit client stop callbacks. No credentials, prompts, or tool arguments are persisted.
 public enum CompletionHooks {
     public enum Source: String, CaseIterable, Sendable {
-        case antigravity, cursor
-        var vendor: String { self == .antigravity ? "Antigravity" : "Cursor" }
-        func configuration(home: URL) -> URL {
-            home.appendingPathComponent(self == .antigravity ? ".gemini/config/hooks.json" : ".cursor/hooks.json")
+        case antigravity, cursor, copilot, codebuddy
+        var vendor: String { AdditionalSource(rawValue: rawValue)!.vendor }
+        var format: any CompletionHookFormat.Type {
+            switch self {
+            case .antigravity: AntigravityHookFormat.self
+            case .cursor: CursorHookFormat.self
+            case .copilot: CopilotHookFormat.self
+            case .codebuddy: CodeBuddyHookFormat.self
+            }
         }
+        func configuration(home: URL) -> URL { format.configuration(home: home) }
     }
 
     public static var directory: URL { AppSupport.directory.appendingPathComponent("turn-completions") }
 
     static func completion(source: Source, payload: ProviderJSON, now: Date) -> SessionCompletion? {
-        let conversation: String?, turn: String?, workspace: String?, model: String?
-        switch source {
-        case .antigravity:
-            guard payload["terminationReason"].stringValue == "model_stop", payload["fullyIdle"].boolValue == true,
-                  payload["error"].stringValue?.isEmpty != false, let execution = payload["executionNum"].countValue else { return nil }
-            conversation = payload["conversationId"].stringValue
-            turn = "execution-\(execution)"
-            workspace = payload["workspacePaths"].arrayValue?.first?.stringValue
-            model = payload["modelName"].stringValue
-        case .cursor:
-            guard payload["hook_event_name"].stringValue == "stop", payload["status"].stringValue == "completed" else { return nil }
-            conversation = payload["conversation_id"].stringValue
-            turn = payload["generation_id"].stringValue
-            workspace = payload["workspace_roots"].arrayValue?.first?.stringValue
-            model = payload["model_id"].stringValue ?? payload["model"].stringValue
-        }
-        guard let conversation, !conversation.isEmpty, let turn, !turn.isEmpty else { return nil }
-        let title = workspace.map { URL(fileURLWithPath: $0).lastPathComponent }.flatMap { $0.isEmpty ? nil : $0 }
-        return SessionCompletion(sessionID: "\(source.rawValue):\(conversation)", vendor: source.vendor, turnID: turn,
+        guard let event = source.format.completion(payload, now: now), !event.session.isEmpty, !event.turn.isEmpty else { return nil }
+        let title = event.workspace.map { URL(fileURLWithPath: $0).lastPathComponent }.flatMap { $0.isEmpty ? nil : $0 }
+        return SessionCompletion(sessionID: "\(source.rawValue):\(event.session)", vendor: source.vendor, turnID: event.turn,
             task: title.map { "\(source.vendor) · \($0)" } ?? source.vendor,
-            model: model ?? source.vendor, startedAt: nil, completedAt: now)
+            model: event.model ?? source.vendor, startedAt: nil, completedAt: now)
     }
 
     public static func record(source: Source, data: Data, now: Date = Date(), directory: URL = directory) throws {
@@ -76,44 +94,88 @@ public enum CompletionHooks {
 
     public static func isInstalled(_ source: Source, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> Bool {
         guard let object = try? configuration(source, home: home) else { return false }
-        if source == .antigravity { return object["agent-hud"]?["Stop"].arrayValue?.isEmpty == false && object["agent-hud"]?["enabled"].boolValue != false }
-        return object["hooks"]?["stop"].arrayValue?.contains(where: ownsCursorHandler) == true
+        return source.format.isActive(in: object)
     }
 
-    private static func ownsCursorHandler(_ handler: ProviderJSON) -> Bool {
-        handler["command"].stringValue?.hasSuffix(" --completion-hook cursor") == true
+    /// The suffix that marks a handler command as Agent HUD's in formats without a dedicated entry.
+    static func ownsCommand(_ command: String?, source: Source) -> Bool {
+        command?.hasSuffix(" --completion-hook " + source.rawValue) == true
     }
 
     public static func configure(_ source: Source, enabled: Bool, executable: URL,
                                  home: URL = FileManager.default.homeDirectoryForCurrentUser,
                                  replacingExisting: Bool = false) throws {
-        var object = try configuration(source, home: home)
-        let original = object
+        let object = try configuration(source, home: home)
         let quoted = "'" + executable.path.replacingOccurrences(of: "'", with: "'\\''") + "'"
-        let command = ProviderJSON.string(quoted + " --completion-hook " + source.rawValue)
-        let existing = source == .antigravity ? object["agent-hud"]?["Stop"].arrayValue ?? []
-            : (object["hooks"]?["stop"].arrayValue ?? []).filter(ownsCursorHandler)
-        if !replacingExisting && existing.contains(where: { $0["command"] != command }) {
+        let command = quoted + " --completion-hook " + source.rawValue
+        if !replacingExisting && source.format.commands(in: object).contains(where: { $0 != command }) {
             throw UsageProviderError(L10n.text("完成回调由另一安装管理，请手动重新安装以切换", "Completion hook belongs to another installation; reinstall it explicitly to switch"))
         }
-        if source == .antigravity {
-            object["agent-hud"] = enabled ? .object(["Stop": .array([.object([
-                "type": .string("command"), "command": command, "timeout": .integer(5)
-            ])])]) : nil
-        } else {
-            guard object["version"] == nil || object["version"] == .integer(1),
-                  object["hooks"] == nil || object["hooks"]?.objectValue != nil else { throw ProviderFailure.format }
-            var hooks = object["hooks"]?.objectValue ?? [:]
-            guard hooks["stop"] == nil || hooks["stop"]?.arrayValue != nil else { throw ProviderFailure.format }
-            var handlers = (hooks["stop"]?.arrayValue ?? []).filter { !ownsCursorHandler($0) }
-            if enabled { handlers.append(.object(["command": command, "timeout": .integer(5)])) }
-            hooks["stop"] = handlers.isEmpty ? nil : .array(handlers)
-            object["hooks"] = .object(hooks); object["version"] = .integer(1)
-        }
-        guard object != original else { return }
+        let updated = try source.format.updating(object, command: enabled ? command : nil)
+        guard updated != object else { return }
         let url = source.configuration(home: home)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        try encoder.encode(ProviderJSON.object(object)).write(to: url, options: .atomic)
+        try encoder.encode(ProviderJSON.object(updated)).write(to: url, options: .atomic)
+    }
+}
+
+/// `agent-hud` entry of `~/.gemini/config/hooks.json`.
+enum AntigravityHookFormat: CompletionHookFormat {
+    static func configuration(home: URL) -> URL { home.appendingPathComponent(".gemini/config/hooks.json") }
+
+    static func completion(_ payload: ProviderJSON, now: Date) -> CompletionHookEvent? {
+        guard payload["terminationReason"].stringValue == "model_stop", payload["fullyIdle"].boolValue == true,
+              payload["error"].stringValue?.isEmpty != false, let execution = payload["executionNum"].countValue,
+              let conversation = payload["conversationId"].stringValue else { return nil }
+        return .init(session: conversation, turn: "execution-\(execution)",
+                     workspace: payload["workspacePaths"].arrayValue?.first?.stringValue, model: payload["modelName"].stringValue)
+    }
+
+    static func commands(in configuration: [String: ProviderJSON]) -> [String] {
+        (configuration["agent-hud"]?["Stop"].arrayValue ?? []).map { $0["command"].stringValue ?? "" }
+    }
+
+    static func isActive(in configuration: [String: ProviderJSON]) -> Bool {
+        !commands(in: configuration).isEmpty && configuration["agent-hud"]?["enabled"].boolValue != false
+    }
+
+    static func updating(_ configuration: [String: ProviderJSON], command: String?) throws -> [String: ProviderJSON] {
+        var object = configuration
+        object["agent-hud"] = command.map { .object(["Stop": .array([.object([
+            "type": .string("command"), "command": .string($0), "timeout": .integer(5)
+        ])])]) }
+        return object
+    }
+}
+
+/// Handler appended to `hooks.stop` of a version-1 `~/.cursor/hooks.json`.
+enum CursorHookFormat: CompletionHookFormat {
+    static func configuration(home: URL) -> URL { home.appendingPathComponent(".cursor/hooks.json") }
+
+    static func completion(_ payload: ProviderJSON, now: Date) -> CompletionHookEvent? {
+        guard payload["hook_event_name"].stringValue == "stop", payload["status"].stringValue == "completed",
+              let conversation = payload["conversation_id"].stringValue, let generation = payload["generation_id"].stringValue else { return nil }
+        return .init(session: conversation, turn: generation, workspace: payload["workspace_roots"].arrayValue?.first?.stringValue,
+                     model: payload["model_id"].stringValue ?? payload["model"].stringValue)
+    }
+
+    private static func owns(_ handler: ProviderJSON) -> Bool { CompletionHooks.ownsCommand(handler["command"].stringValue, source: .cursor) }
+
+    static func commands(in configuration: [String: ProviderJSON]) -> [String] {
+        (configuration["hooks"]?["stop"].arrayValue ?? []).filter(owns).map { $0["command"].stringValue ?? "" }
+    }
+
+    static func updating(_ configuration: [String: ProviderJSON], command: String?) throws -> [String: ProviderJSON] {
+        var object = configuration
+        guard object["version"] == nil || object["version"] == .integer(1),
+              object["hooks"] == nil || object["hooks"]?.objectValue != nil else { throw ProviderFailure.format }
+        var hooks = object["hooks"]?.objectValue ?? [:]
+        guard hooks["stop"] == nil || hooks["stop"]?.arrayValue != nil else { throw ProviderFailure.format }
+        var handlers = (hooks["stop"]?.arrayValue ?? []).filter { !owns($0) }
+        if let command { handlers.append(.object(["command": .string(command), "timeout": .integer(5)])) }
+        hooks["stop"] = handlers.isEmpty ? nil : .array(handlers)
+        object["hooks"] = .object(hooks); object["version"] = .integer(1)
+        return object
     }
 }

@@ -43,6 +43,12 @@ public actor QuotaHistoryStore {
         save()
     }
 
+    public func removeAll() {
+        guard !samples.isEmpty else { return }
+        samples = []
+        save()
+    }
+
     public func samples(agentId: String, since: Date) -> [QuotaSample] {
         samples.filter { $0.agentId == agentId && $0.timestamp >= since }
     }

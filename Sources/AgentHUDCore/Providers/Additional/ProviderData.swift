@@ -3,13 +3,19 @@ import Foundation
 
 /// The additional integrations share reporting, while each owns its protocol and parser.
 public enum AdditionalSource: String, CaseIterable, Sendable {
-    case antigravity, cursor, grok
+    case antigravity, cursor, grok, copilot, openclaw, hermes, zcode, codebuddy, workbuddy
 
     public var vendor: String {
         switch self {
         case .antigravity: "Antigravity"
         case .cursor: "Cursor"
         case .grok: "Grok"
+        case .copilot: "GitHub Copilot"
+        case .openclaw: "OpenClaw"
+        case .hermes: "Hermes"
+        case .zcode: "ZCode"
+        case .codebuddy: "CodeBuddy"
+        case .workbuddy: "WorkBuddy"
         }
     }
 
@@ -18,6 +24,12 @@ public enum AdditionalSource: String, CaseIterable, Sendable {
         case .antigravity: L10n.text("本地服务额度与会话用量", "Local server quota and session usage")
         case .cursor: L10n.text("账户额度与跨设备用量", "Account quota and usage across devices")
         case .grok: L10n.text("Grok CLI 额度与本地会话", "Grok CLI quota and local sessions")
+        case .copilot: L10n.text("Copilot CLI 额度与本地会话", "Copilot CLI quota and local sessions")
+        case .openclaw: L10n.text("OpenClaw 本地会话与用量", "OpenClaw local sessions and usage")
+        case .hermes: L10n.text("Hermes Agent 本地会话用量", "Hermes Agent local session usage")
+        case .zcode: L10n.text("ZCode 本地会话与用量", "ZCode local sessions and usage")
+        case .codebuddy: L10n.text("CodeBuddy Code 本地会话与用量", "CodeBuddy Code local sessions and usage")
+        case .workbuddy: L10n.text("WorkBuddy 本地会话与用量", "WorkBuddy local sessions and usage")
         }
     }
 
@@ -27,6 +39,8 @@ public enum AdditionalSource: String, CaseIterable, Sendable {
         case .antigravity: paths = [".gemini/antigravity", ".gemini/antigravity-cli", "Applications/Antigravity.app"]
         case .cursor: paths = ["Library/Application Support/Cursor/User/globalStorage/state.vscdb", "Applications/Cursor.app"]
         case .grok: paths = [".grok"]
+        // A same-named desktop app is not the CLI these clients read, and it must not trigger hook installation.
+        default: return layout?.installPaths.contains { FileManager.default.fileExists(atPath: home.appendingPathComponent($0).path) } ?? false
         }
         return paths.contains { FileManager.default.fileExists(atPath: home.appendingPathComponent($0).path) }
             || FileManager.default.fileExists(atPath: "/Applications/\(vendor).app")
@@ -48,6 +62,8 @@ struct ProviderQuota: Sendable {
     var account: ProviderAccount? = nil
     /// An email or name from the same response or login record, shown to this Mac's user.
     var label: String? = nil
+    /// The user withdrew access: the vendor's accounts, rows and quota history are forgotten, not kept as last readings.
+    var forgetAccounts = false
 
     /// Whether the service answered for a signed-in account, as opposed to finding no client.
     var isSignedIn: Bool { account != nil || !windows.isEmpty }

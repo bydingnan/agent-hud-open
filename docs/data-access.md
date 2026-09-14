@@ -15,6 +15,8 @@ Agent HUD Open reads agent activity and usage metadata on your Mac. It has no Ag
 | Cursor | Local application database and session metadata | Official Cursor usage endpoints with the installed client's session token |
 | Grok CLI | Local session records and credential file | Official Grok CLI billing endpoint |
 | OpenCode, Kimi, GLM, Pi | Local JSON/SQLite session records and supported provider configuration; automatically prepared Pi lifecycle observer | Official Kimi, GLM, and OpenCode Go quota endpoints where configured |
+| GitHub Copilot CLI | Local session events and OpenTelemetry export files | GitHub Copilot quota endpoint with the GitHub CLI sign-in, only after consent in Settings |
+| OpenClaw, Hermes Agent, ZCode, CodeBuddy, WorkBuddy | Local session databases and transcripts | None |
 
 Per-client fields, endpoints and caches: [providers](providers.md). Token counts, percentages, alert levels, request intervals and reading retention: [usage semantics](usage-semantics.md).
 
@@ -22,7 +24,9 @@ Per-client fields, endpoints and caches: [providers](providers.md). Token counts
 
 - A provider that needs a key or token reads it from the client's own configuration, environment variables or local credential files, uses it only for that provider's usage request, and never includes it in reports or caches.
 - Claude and Codex quota queries use the installed clients' existing sign-in; Codex `auth.json` is not read. No request sends a model message or consumes a usage-reset credit.
-- Account identity comes only from data a provider already reads or a response it already requests: the Claude profile, Codex `account/read`, Cursor's local database, the Grok login record and Antigravity's local server. Provider user and workspace ids are stored as hashes; the account's email or name is kept locally to label its rows.
+- Account identity comes only from data a provider already reads or a response it already requests: the Claude profile, Codex `account/read`, Cursor's local database, the Grok login record, Antigravity's local server and, for GitHub Copilot, GitHub's `/user` response. Provider user and workspace ids are stored as hashes; the account's email or name is kept locally to label its rows.
+- GitHub Copilot quota reads no credential until the user confirms Settings → Agents → GitHub Copilot → Read quota; the dialog, shown each time it is switched on, names the environment variables, the keychain item `gh:github.com` and the GitHub CLI `hosts.yml`, and macOS may ask for keychain access. Switching it off forgets the account, its rows and its quota history at once.
+- OpenClaw's agent database also stores authentication profiles; only its session tables are queried.
 - Custom endpoints are not assumed to share official billing accounts, and executable key resolvers are never run.
 - Kimi account identity is confirmed through the official profile endpoint, separately for each deployment; only hashed credential-to-account associations are cached, and accounts are never merged from matching quota values, reset times or unverified token claims.
 - DeepSeek process inspection reads executable identity and start time only, not profile contents or browser credentials.

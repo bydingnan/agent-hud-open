@@ -48,6 +48,7 @@ public struct SessionSource: Hashable, Sendable {
         if id.hasPrefix("antigravity") { return "Antigravity" }
         if id.hasPrefix("cursor") { return "Cursor" }
         if id.hasPrefix("grok") { return "Grok" }
+        for source in AdditionalSource.allCases where id.hasPrefix(source.rawValue + "-model:") { return source.vendor }
         for source in OpenAgentSource.allCases where id.hasPrefix(source.rawValue + "-model:") { return source.name }
         return nil
     }

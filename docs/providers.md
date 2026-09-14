@@ -16,6 +16,11 @@ A provider is the `AgentHUDCore` component that turns one client's local records
 | Kimi | Wire logs, OAuth slots, device id | Kimi coding usages | Billing pool | — | Yes / Yes |
 | GLM | None | GLM monitor quota | Billing pool | — | n/a |
 | Pi | Session logs, observer turn files, credentials, model config | Kimi, GLM and Go pools | Billing pool | Per-request cost from the log | Yes / Yes, with the observer |
+| GitHub Copilot CLI | Session events, OpenTelemetry export; GitHub CLI sign-in after consent | GitHub `copilot_internal/user` | GitHub `/user` `id` · — | — | Yes / `agentStop` hook |
+| OpenClaw | Agent databases, transcripts | — | — | — | Yes / Yes |
+| Hermes Agent | State databases | — | — | — | No / No |
+| ZCode | Usage database | — | — | — | No / No |
+| CodeBuddy, WorkBuddy | Session transcripts | — | — | — | No / CodeBuddy `Stop` hook |
 
 Account ids hash the listed user and workspace values; a quota row is `account:<hash>/<window>`, and the window names below are the part after the slash. Account rules are in [usage semantics](usage-semantics.md#accounts).
 
@@ -79,6 +84,36 @@ Account ids hash the listed user and workspace values; a quota row is `account:<
 - **Endpoints** — None of its own; quota comes through the Kimi, GLM and Go pools.
 - **Counting & dedup** — Assistant `message` lines with `usage`: In = `input` + `cacheWrite`, Out = `output` (reasoning included), Cache = `cacheRead`, `cost.total` → `estimatedUSD` (a list-price estimate). Identity is `pi:response:<hash(provider, responseId)>`, or `pi:entry:<hash(entry id, timestamp, provider, model)>` for older lines, so forks that keep the original entries collapse to one request.
 
+## GitHub Copilot CLI
+- **Reads** — `$COPILOT_HOME/session-state/<id>/events.jsonl` with its `workspace.yaml` (default `~/.copilot`), decoding only session, turn, hook and shutdown lines; OpenTelemetry JSON lines under `$COPILOT_HOME/otel/` and the file named by `COPILOT_OTEL_FILE_EXPORTER_PATH`. `data.db` and editor or desktop-app stores are never read.
+- **Credentials & env** — Quota stays off until Settings → Agents → GitHub Copilot → Read quota is confirmed in a dialog that names the sources, shown each time it is switched on; switching it off forgets the account, its rows and its quota history. When on, `GH_TOKEN`, `GITHUB_TOKEN`, keychain generic password `gh:github.com` (`go-keyring-base64:` decoded) and the `github.com` `oauth_token` of `hosts.yml` (`GH_CONFIG_DIR`, `XDG_CONFIG_HOME/gh`, default `~/.config/gh`) are tried in order and used in memory only. Once switched on, the next refresh reads quota without waiting for the request interval; no token is a sign-in notice without rows.
+- **Endpoints** — `GET https://api.github.com/copilot_internal/user` with Copilot Chat editor headers: each metered `quota_snapshots` entry (`percent_remaining`, else `remaining` / `entitlement`) becomes row `copilot:<key>` reset at `quota_reset_date`, and free accounts use `limited_user_quotas` / `monthly_quotas`. Unlimited and zero-entitlement windows have no row; `copilot_plan` is the plan. `GET https://api.github.com/user` with the same token names the account: `id` (host-scoped) with account evidence and `login` as the label; without it the rows stay unresolved.
+- **Counting & dedup** — `session.shutdown` `modelMetrics` are per-model running totals differenced against each model's peak (identity: session, shutdown event `id`, model; `auto` counts under `currentModel`); chat spans count once per `traceId:spanId` and own the usage of the sessions they name in `gen_ai.conversation.id`. In = input − cache reads, Out = output (reasoning included), Cache = cache reads.
+
+## OpenClaw
+- **Reads** — `agents/<id>/agent/openclaw-agent.sqlite` (`session_windows`, `session_nodes`, `transcript_events` for windows active in the last 8 days) and `agents/<id>/sessions/*.jsonl` with plain `.reset` / `.deleted` archives, under `$OPENCLAW_STATE_DIR` (default `~/.openclaw`, `~/.clawdbot` while that is absent, and every `~/.openclaw-<profile>`). Zstandard archives and agent-owned Codex homes are skipped.
+- **Credentials & env** — None read: the database's `auth_profile_store` is never queried, and only whitelisted transcript fields leave SQLite.
+- **Endpoints** — None; events carry no billing attribution.
+- **Counting & dedup** — Assistant messages with `usage`: In = `input` + `cacheWrite`, Out = `output` (reasoning included), Cache = `cacheRead`; identity is `hash(provider, responseId)`, else `hash(entry id, timestamp, counts)`, so fork and SQLite / JSONL copies count once. Bookkeeping rows (`api` `openclaw-transcript`, provider `openclaw` with `delivery-mirror` / `gateway-injected`), provider `claude-cli` (Claude Code records those itself), Codex-harness mirrors (idempotency key `codex-app-server:…`) and all-zero usage are excluded.
+
+## Hermes Agent
+- **Reads** — `state.db` and `profiles/<name>/state.db` under `$HERMES_HOME` (default `~/.hermes`): `sessions` and `session_model_usage` for sessions active in the last 8 days; nothing else in the Hermes home is scanned.
+- **Credentials & env** — None read.
+- **Endpoints** — None.
+- **Counting & dedup** — One event per `session_model_usage` row, identified by a hash of its primary key (session, model, billing provider, base URL, billing mode, task) so its cumulative counters update in place, dated by `first_seen`; In = `input_tokens` + `cache_write_tokens`, Out = `output_tokens`, Cache = `cache_read_tokens`. Sessions without usage rows count their session totals under the key Hermes seeds for them on upgrade.
+
+## ZCode
+- **Reads** — SQLite `model_usage`, joined to `session` for the workspace, in `~/.zcode/cli/db/db.sqlite`: the newest 10,000 requests of the last 8 days. Legacy `projects/**/*.jsonl` transcripts, which carry no recorded token counts, are not read.
+- **Credentials & env** — None read.
+- **Endpoints** — None.
+- **Counting & dedup** — When `computed_total_tokens` equals input + output, or the column is absent, In = `input_tokens` − `cache_read_input_tokens` and Out = `output_tokens`; otherwise the columns are additive: In = input + `cache_creation_input_tokens`, Out = output + `reasoning_tokens`. Cache = cache reads, identity is `model_usage.id`, and the time is `completed_at` (else `started_at`).
+
+## CodeBuddy and WorkBuddy
+- **Reads** — `projects/**/*.jsonl` under `$CODEBUDDY_CONFIG_DIR` (default `~/.codebuddy`) for CodeBuddy Code and under `~/.workbuddy` for WorkBuddy, skipping `tool-results`; `<session>/subagents/` transcripts join their parent session. IDE extension logs and `workbuddy.db` are not read.
+- **Credentials & env** — None read; `CODEBUDDY_INTERNET_ENVIRONMENT` selects the network edition and does not change local paths.
+- **Endpoints** — None.
+- **Counting & dedup** — Assistant `message` and `function_call` lines whose `status` is absent or `completed`, with usage from `message.usage`, `providerData.usage` or `providerData.rawUsage`. A total equal to input + output, or cached tokens nested only in the input details, makes In = input − cache reads and Out = output; otherwise In = input + cache writes and Out = output + reasoning. Identity is `providerData.messageId`, then `traceId`, then the line `id`, and the larger of two copies wins; the two clients stay separate sources.
+
 ## Billing pools
 
 `BillingPool` identifies who pays, independently of the program that made the request: `provider` (Kimi, GLM, OpenCode Go), `realm` (CN, International), `product` (plan, api, unknown), `scope` (account id from Kimi `/me` or a credential hash, never the credential), `evidence` (account, credential, unresolved), `organization` / `project` (GLM team) and `entitlement` (`kimi-code`, `glm-coding-plan`, `opencode-go`). `id` is `pool:` plus a hash of all fields and doubles as the account id; a window row is `<pool id>:<window>`, and windows of one pool are never added together.
@@ -96,7 +131,7 @@ Files in the data directory ([architecture](architecture.md#storage)); quota his
 | `last-usage-report.json` | The retained report, restored at start; rewritten at most once a minute |
 | `transcripts-cache-v5.json`, `quota-history.json`, `engine/` | Claude Code transcript index, quota history and engine working directory |
 | `codex-transcripts-v5.json`, `codex-quota-history.json`; `deepseek-transcripts-v2.json` | Codex; DeepSeek Harness |
-| `antigravity-quota-history.json`, `cursor-quota-history.json`, `grok-quota-history.json`, `turn-completions/<source>/` | Antigravity, Cursor, Grok and the completion-hook inbox |
+| `antigravity-quota-history.json`, `cursor-quota-history.json`, `grok-quota-history.json`, `copilot-quota-history.json`, `turn-completions/<source>/` | Antigravity, Cursor, Grok, GitHub Copilot and the completion-hook inbox |
 | `open-agent-quota-history.json`, `open-agent-identities.json` | OpenCode, Kimi, GLM and Pi pools; confirmed Kimi identities as hashes |
 
 ## Code map and tests
@@ -107,6 +142,7 @@ Files in the data directory ([architecture](architecture.md#storage)); quota his
 | Codex, DeepSeek | `Sources/AgentHUDCore/Providers/Codex/`, `DeepSeek/` | `CodexProviderTests`, `DeepSeekProviderTests` |
 | Antigravity, Cursor, Grok | `Sources/AgentHUDCore/Providers/Antigravity/`, `Cursor/`, `Grok/`; shared HTTP, SQLite and hooks in `Additional/` | `AdditionalProviderTests`, `CompletionHooksTests` |
 | OpenCode, Kimi, GLM, Pi | `Sources/AgentHUDCore/Providers/OpenAgents/` | `OpenAgentProviderTests`, `KimiQuotaIdentityTests`, `PiSessionObserverTests` |
+| GitHub Copilot CLI, OpenClaw, Hermes Agent, ZCode, CodeBuddy, WorkBuddy | `Sources/AgentHUDCore/Providers/Copilot/`, `OpenClaw/`, `Hermes/`, `ZCode/`, `TencentBuddy/`; per-client layouts through `Additional/LocalSessionLayout.swift` | `CopilotProviderTests`, `OpenClawProviderTests`, `HermesProviderTests`, `ZCodeProviderTests`, `TencentBuddyProviderTests` |
 | Cross-provider | `Sources/AgentHUDCore/Providers/CombinedUsageProvider.swift`, `RetainedUsageProvider.swift`, `Sources/AgentHUDCore/Models/BillingPool.swift`, `ProviderAccount.swift` | `ProviderAccountTests`, `CombinedProviderTests`, `RetainedUsageProviderTests`, `UsageRefreshTests`, `LiveStatusTests`, `SessionSourceTests`, `QuotaHistoryStoreTests`, `UsageAnalyticsTests` |
 
 ## Upstream references
@@ -114,8 +150,11 @@ Files in the data directory ([architecture](architecture.md#storage)); quota his
 | Project | Commit | License | Use (adapted: code derived, license reproduced in `THIRD_PARTY_NOTICES.txt`; informed: names or protocol details taken, project listed there; reference-only: read to confirm names, not listed) |
 | --- | --- | --- | --- |
 | [CodexBar](https://github.com/steipete/CodexBar/tree/05bb0e694afa93e234991bbd5eaab6afcd1b9e7d/Sources/CodexBarCore/Providers) | `05bb0e69…`; [`928166f8…`](https://github.com/steipete/CodexBar/tree/928166f899471bbdcb72210641cdec91324d0154) for Go, Kimi and GLM parsing | MIT | Adapted: the Antigravity protobuf reader. Informed: Antigravity service discovery and quota schema, Cursor authentication and dashboard protocol, Grok credits proxy, Go / Kimi / GLM quota parsing |
-| [Tokscale](https://github.com/junhoyeo/tokscale/tree/15516420f2b106750760f6e182559899f814e2dc/crates/tokscale-core/src) | `15516420…` | MIT | Adapted: Grok log parsing and fixtures. Informed: OpenCode SQLite schema, Pi and Kimi storage and token fields, Antigravity token layout, Cursor session identity |
+| [Tokscale](https://github.com/junhoyeo/tokscale/tree/15516420f2b106750760f6e182559899f814e2dc/crates/tokscale-core/src) | `15516420…`; [`4ee45700…`](https://github.com/junhoyeo/tokscale/tree/4ee45700370461e337ebef4053dbdb04ae98299a) for Copilot, OpenClaw, Hermes, ZCode, CodeBuddy and WorkBuddy | MIT | Adapted: Grok log parsing and fixtures; Copilot shutdown differencing, chat-span fields, GitHub CLI credential order and request headers; OpenClaw, Hermes, ZCode and CodeBuddy / WorkBuddy token layouts and identities. Informed: OpenCode SQLite schema, Pi and Kimi storage and token fields, Antigravity token layout, Cursor session identity |
+| [CodexBar Copilot](https://github.com/steipete/CodexBar/tree/86a47f80a71e74c59dd2d4dd14de397348d36546/Sources/CodexBarCore/Providers/Copilot) | `86a47f80…` | MIT | Informed: Copilot quota snapshot semantics |
+| [cc-switch PR 7119](https://github.com/farion1231/cc-switch/pull/7119) | `a043910b…` | MIT | Informed: CodeBuddy nested `cached_tokens` details, `subagents/` and `tool-results` layout |
 | [Kimi Code](https://github.com/MoonshotAI/kimi-code/tree/0b67511291a0dbf6781d4bce63cab3f228ea6fe1) | `0b675112…` | MIT | Informed: regional endpoints, `/me` profile, OAuth storage naming, wire protocol |
+| [OpenClaw](https://github.com/openclaw/openclaw/tree/5e26a6646663a7d960378f8afe3947ba11a59dcc), [Hermes Agent](https://github.com/NousResearch/hermes-agent/tree/5eb99eb2844b22ebb723711b8e6a0bbb80bb5f04), [copilot-sdk](https://github.com/github/copilot-sdk/tree/f45c46fd1812f8bed5b4cbc250f47177c83068f0) | `5e26a664…`, `5eb99eb2…`, `f45c46fd…` | MIT | Reference-only: agent database, lifecycle status and `session_model_usage` schemas; Copilot session event schema |
 | [Pi](https://github.com/earendil-works/pi/tree/6160683a4a8012f0d1cd30c145df18b4ca6f5176), [zai-coding-plugins](https://github.com/zai-org/zai-coding-plugins/blob/0446d0bb0bc537d97d3ab3664c4b8b9c4a0e1254/plugins/glm-plan-usage/skills/usage-query-skill/scripts/query-usage.mjs) | `6160683a…`, `0446d0bb…` | MIT, Apache-2.0 | Reference-only: Pi provider naming, environment variables and OAuth credential fields; the `/api/anthropic` ↔ monitor endpoint mapping |
 
-Official protocol documents: [Antigravity hooks](https://antigravity.google/docs/hooks/), [Antigravity CLI `/resume`](https://antigravity.google/docs/cli/commands/resume/), [Cursor hooks](https://cursor.com/docs/hooks), [Codex app-server](https://learn.chatgpt.com/docs/app-server), [DeepSeek balance](https://api-docs.deepseek.com/api/get-user-balance/) and [pricing](https://api-docs.deepseek.com/quick_start/pricing/).
+Official protocol documents: [Copilot hooks configuration](https://docs.github.com/en/copilot/reference/hooks-configuration), [Copilot CLI directory](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-config-dir-reference), [CodeBuddy hooks](https://www.codebuddy.ai/docs/cli/hooks) and [environment variables](https://www.codebuddy.ai/docs/cli/env-vars), [Antigravity hooks](https://antigravity.google/docs/hooks/), [Antigravity CLI `/resume`](https://antigravity.google/docs/cli/commands/resume/), [Cursor hooks](https://cursor.com/docs/hooks), [Codex app-server](https://learn.chatgpt.com/docs/app-server), [DeepSeek balance](https://api-docs.deepseek.com/api/get-user-balance/) and [pricing](https://api-docs.deepseek.com/quick_start/pricing/).

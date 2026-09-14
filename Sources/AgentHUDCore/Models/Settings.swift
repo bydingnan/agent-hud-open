@@ -77,6 +77,8 @@ public struct Settings: Hashable, Codable, Sendable {
     /// Agent vendors whose live status is excluded from presentation, relay and completion reminders.
     /// Collection, session history and token accounting are independent of this preference.
     public private(set) var disabledLiveStatusSources: Set<String> = []
+    /// Querying GitHub Copilot quota reads the GitHub CLI sign-in, so it stays off until the user agrees.
+    public var readCopilotQuota: Bool = false
     public var pollInterval: PollInterval = .oneMinute
     public var launchAtLogin: Bool = true
     public var showMenuBarIcon: Bool = true
@@ -90,7 +92,7 @@ public struct Settings: Hashable, Codable, Sendable {
         case glowStyle, glowGridPitch, glowGridSpread, glowGridDensity, glowEffect
         case hoverDelayMs, collapseDelayMs, showResetCountdown, pollInterval
         case showIslandQuota, showIslandTokens, showIslandSessions
-        case disabledLiveStatusSources
+        case disabledLiveStatusSources, readCopilotQuota
         case launchAtLogin, showMenuBarIcon, appearance, language
     }
 
@@ -116,6 +118,7 @@ public struct Settings: Hashable, Codable, Sendable {
         showIslandTokens = try c.decodeIfPresent(Bool.self, forKey: .showIslandTokens) ?? d.showIslandTokens
         showIslandSessions = try c.decodeIfPresent(Bool.self, forKey: .showIslandSessions) ?? d.showIslandSessions
         disabledLiveStatusSources = Set((try c.decodeIfPresent([String].self, forKey: .disabledLiveStatusSources) ?? []).map { $0.lowercased() })
+        readCopilotQuota = try c.decodeIfPresent(Bool.self, forKey: .readCopilotQuota) ?? d.readCopilotQuota
         pollInterval = try c.decodeIfPresent(PollInterval.self, forKey: .pollInterval) ?? d.pollInterval
         launchAtLogin = try c.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? d.launchAtLogin
         showMenuBarIcon = try c.decodeIfPresent(Bool.self, forKey: .showMenuBarIcon) ?? d.showMenuBarIcon
@@ -144,6 +147,7 @@ public struct Settings: Hashable, Codable, Sendable {
         try c.encode(showIslandTokens, forKey: .showIslandTokens)
         try c.encode(showIslandSessions, forKey: .showIslandSessions)
         try c.encode(disabledLiveStatusSources.sorted(), forKey: .disabledLiveStatusSources)
+        try c.encode(readCopilotQuota, forKey: .readCopilotQuota)
         try c.encode(launchAtLogin, forKey: .launchAtLogin)
         try c.encode(showMenuBarIcon, forKey: .showMenuBarIcon)
         try c.encode(appearance, forKey: .appearance)

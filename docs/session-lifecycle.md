@@ -16,8 +16,12 @@ Which clients expose running and terminal turns, what evidence each provider acc
 | Grok CLI | Yes | Yes | Session updates keyed by `promptId`; `turn_completed` with `stop_reason` `end_turn` completes, other outcomes end without a completion. Older unified logs carry usage only. |
 | Kimi | Yes | Yes | On the `main` agent the first `step.begin` starts the turn and loop events refresh it; `turn.ended` with `reason == completed` and no `error` completes it; child agents never finish the parent. Older status logs carry usage only. |
 | Pi | Yes, with the observer | Yes, with the observer | `agent_start`, `agent_settled` and `session_shutdown` from the Agent HUD extension; an assistant stop alone does not finish a run. |
+| OpenClaw | Yes | Yes | Gateway lifecycle status on a session's current window: `running` (turn `lifecycleRunId`) is running, `done` (turn `lastRunId`) completes, `failed`, `timeout` and `killed` end without a completion; a parent waiting on sub-agents stays running, and sub-agent sessions and legacy transcripts report none. |
+| GitHub Copilot CLI | Yes | Through the `agentStop` hook | A main-agent `user.message` or `assistant.turn_start` starts the turn and loop events, including sub-agent ones, refresh it; `abort` and `session.shutdown` end it. |
 | Antigravity | No | Through the `Stop` hook | Local records supply usage only. |
 | Cursor | No | Through the `stop` hook | Local records supply usage only. |
+| CodeBuddy | No | Through the `Stop` hook | Local records supply usage only. |
+| Hermes Agent, ZCode, WorkBuddy | No | No | Local records hold usage counters only. |
 | OpenCode | No | No | A persisted message end is not an agent end. |
 | GLM | n/a | n/a | Billing service; execution state belongs to the client using it. |
 
@@ -39,19 +43,21 @@ Which clients expose running and terminal turns, what evidence each provider acc
 
 ### Completion hooks
 
-Antigravity and Cursor do not expose turn lifecycle in local records, so their completions come from the clients' own stop hooks. `CompletionHooks` owns the configuration, the callback and the local record.
+Antigravity, Cursor, GitHub Copilot CLI and CodeBuddy do not record finished turns locally, so their completions come from the clients' own stop hooks. `CompletionHooks` owns the configuration, the callback and the local record.
 
 | Source | Configuration | Accepted as a completion when |
 | --- | --- | --- |
 | Antigravity | `agent-hud` entry (`Stop` array) of `~/.gemini/config/hooks.json`; `GEMINI_CLI_HOME` overrides `~/.gemini` | `terminationReason` is `model_stop`, `fullyIdle` is true, `error` is absent or empty, and `executionNum` and `conversationId` are present |
 | Cursor | Handler appended to `hooks.stop` of a version-1 `~/.cursor/hooks.json`; only commands ending in ` --completion-hook cursor` are Agent HUD's | `hook_event_name` is `stop`, `status` is `completed`, and `conversation_id` and `generation_id` are present |
+| GitHub Copilot CLI | `bash` handler in `hooks.agentStop` of the version-1 user hook file `~/.copilot/hooks/agent-hud.json`, `timeoutSec` 5 | `stopReason` is `end_turn` and `sessionId` is present; the turn is the callback time |
+| CodeBuddy | Group appended to `hooks.Stop` of `~/.codebuddy/settings.json`; only commands ending in ` --completion-hook codebuddy` are Agent HUD's | `hook_event_name` is `Stop` and `session_id` is present; the turn is the transcript's last completed assistant `messageId` after the last user message, else the callback time |
 
 - The handler command is `'<executable path>' --completion-hook <source>` with a 5-second timeout. Other hooks in the file are preserved, and a file that already contains the identical configuration is not rewritten.
-- Automatic setup never replaces a handler that points at a different executable: the existing installation keeps the hook and the conflict is logged. Moving or reinstalling the application does not update the path; `--install-completion-hook antigravity|cursor` takes ownership explicitly ([command line](command-line.md#adapter-commands)). Installing a hook never starts, restarts or interrupts the client and consumes no quota.
-- The handler reads the payload from standard input and writes one JSON record per completion to `turn-completions/<source>/<id>.json` in the data directory: id, `sessionID` (`antigravity:<conversationId>` or `cursor:<conversation_id>`), vendor, task (vendor plus workspace folder name), model when the payload names one, and receipt time. No prompt, tool argument, credential or e-mail address is stored.
+- Automatic setup never replaces a handler that points at a different executable: the existing installation keeps the hook and the conflict is logged. Moving or reinstalling the application does not update the path; `--install-completion-hook <source>` takes ownership explicitly ([command line](command-line.md#adapter-commands)). Installing a hook never starts, restarts or interrupts the client and consumes no quota.
+- The handler reads the payload from standard input and writes one JSON record per completion to `turn-completions/<source>/<id>.json` in the data directory: id, `sessionID` (`<source>:<conversation id>`), vendor, task (vendor plus workspace folder name), model when the payload names one, and receipt time. No prompt, tool argument, credential or e-mail address is stored.
 - An existing record for the same id is left untouched, so repeated callbacks create no duplicates; records older than 30 days are deleted on the next write.
-- The handler prints `{"decision":"stop"}` for Antigravity and `{}` for Cursor and exits 0 even when recording fails, so status tracking can never block the agent.
-- Providers read the inbox for the report's history window and merge those records with completions parsed from logs.
+- The handler prints `{"decision":"stop"}` for Antigravity and `{}` for the other clients and exits 0 even when recording fails, so status tracking can never block the agent.
+- Providers read the inbox for the report's history window and merge those records with completions parsed from logs; a hook completion received at or after a running turn's latest observation completes that turn.
 
 ## Code map
 
