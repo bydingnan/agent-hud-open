@@ -91,7 +91,7 @@ Files in the data directory ([architecture](architecture.md#storage)); quota his
 
 | File | Owner |
 | --- | --- |
-| `last-usage-report.json` | The retained report, restored at start |
+| `last-usage-report.json` | The retained report, restored at start; rewritten at most once a minute |
 | `transcripts-cache-v5.json`, `quota-history.json`, `engine/` | Claude Code transcript index, quota history and engine working directory |
 | `codex-transcripts-v5.json`, `codex-quota-history.json`; `deepseek-transcripts-v2.json` | Codex; DeepSeek Harness |
 | `antigravity-quota-history.json`, `cursor-quota-history.json`, `grok-quota-history.json`, `turn-completions/<source>/` | Antigravity, Cursor, Grok and the completion-hook inbox |

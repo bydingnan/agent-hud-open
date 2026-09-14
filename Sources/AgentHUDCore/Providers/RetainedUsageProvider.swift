@@ -5,11 +5,15 @@ public actor RetainedUsageProvider: UsageProvider {
     public nonisolated let initialReport: UsageReport?
     private let provider: any UsageProvider
     private let cacheURL: URL?
+    /// Local polls run every few seconds and the report spans weeks; the restart copy is rewritten at most this often.
+    private let saveInterval: TimeInterval
     private var latest: UsageReport?
+    private var savedAt: Date?
 
-    public init(provider: any UsageProvider, cacheURL: URL? = nil) {
+    public init(provider: any UsageProvider, cacheURL: URL? = nil, saveInterval: TimeInterval = 60) {
         self.provider = provider
         self.cacheURL = cacheURL
+        self.saveInterval = saveInterval
         let saved = cacheURL.flatMap { try? Data(contentsOf: $0) }
             .flatMap { try? JSONDecoder().decode(UsageReport.self, from: $0) }
         initialReport = saved
@@ -23,7 +27,8 @@ public actor RetainedUsageProvider: UsageProvider {
         try Task.checkCancellation()
         let report = latest.map { incoming.retainingReadings(from: $0) } ?? incoming
         latest = report
-        if let cacheURL {
+        if let cacheURL, savedAt.map({ report.generatedAt.timeIntervalSince($0) >= saveInterval }) ?? true {
+            savedAt = report.generatedAt
             do {
                 try FileManager.default.createDirectory(at: cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try JSONEncoder().encode(report).write(to: cacheURL, options: .atomic)
@@ -61,7 +66,9 @@ extension UsageReport {
             discoveredAgents: UsageAggregation.consumersUnion([discoveredAgents, previous.discoveredAgents.filter(isActive)]),
             subscriptionType: subscriptionType ?? previous.subscriptionType,
             consumers: UsageAggregation.consumersUnion([consumers, previous.consumers.filter(isActive)]),
-            consumption: UsageAggregation.usageUnion([consumption, previous.consumption.filter { failedIDs.contains($0.agentId) }]),
+            // Providers already deduplicate their own events; only vendors whose refresh failed merge in previous events.
+            consumption: consumption.filter { !failedIDs.contains($0.agentId) }
+                + UsageAggregation.usageUnion([consumption.filter { failedIDs.contains($0.agentId) }, previous.consumption.filter { failedIDs.contains($0.agentId) }]),
             indexing: indexing,
             insightsByAgent: previous.insightsByAgent.filter { !retiredWindowIDs.contains($0.key) }.merging(insightsByAgent, uniquingKeysWith: { _, new in new }),
             subscriptions: previous.subscriptions.filter { !retiredPoolIDs.contains($0.key) }.merging(subscriptions, uniquingKeysWith: { _, new in new }),

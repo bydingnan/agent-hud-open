@@ -47,6 +47,21 @@ final class RetainedUsageProviderTests: XCTestCase {
         XCTAssertEqual(restarted.initialReport, good)
     }
 
+    func testRestartCopyIsRewrittenAtMostOncePerInterval() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("report.json")
+        let reports = [0, 5, 61].map { report(at: now.addingTimeInterval($0), remaining: 64 - $0 / 10, balance: 12, credits: 2) }
+        let provider = RetainedUsageProvider(provider: SequenceProvider(reports), cacheURL: file, saveInterval: 60)
+        func saved() throws -> Date? { try JSONDecoder().decode(UsageReport.self, from: Data(contentsOf: file)).generatedAt }
+        _ = try await provider.fetchUsage(agents: [], historyHours: 24)
+        XCTAssertEqual(try saved(), now, "The first reading is saved at once")
+        _ = try await provider.fetchUsage(agents: [], historyHours: 24)
+        XCTAssertEqual(try saved(), now, "A poll inside the interval does not rewrite the copy")
+        _ = try await provider.fetchUsage(agents: [], historyHours: 24)
+        XCTAssertEqual(try saved(), now.addingTimeInterval(61))
+    }
+
     func testOfflineRestartPreservesCachedPlansAndTokenHistory() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
