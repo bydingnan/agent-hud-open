@@ -79,7 +79,11 @@ public struct CombinedUsageProvider: UsageProvider {
                            turns: reports.flatMap(\.turns), services: AgentService.merge(reports.map { $0.services ?? [] }),
                            activeQuotaPoolIDs: reports.compactMap(\.activeQuotaPoolIDs).reduce(into: [String: Set<String>]()) {
                                $0.merge($1, uniquingKeysWith: { $0.union($1) })
-                           })
+                           },
+                           accounts: reports.compactMap(\.accounts).reduce(into: [String: [AccountObservation]]()) {
+                               $0.merge($1, uniquingKeysWith: +)
+                           },
+                           forgottenAccountProviders: reports.compactMap(\.forgottenAccountProviders).reduce(nil) { ($0 ?? []).union($1) })
     }
     static func mergeBilling(_ values: [APIBilling]) -> [APIBilling] {
         Dictionary(grouping: values, by: \.id).values.compactMap { observations in

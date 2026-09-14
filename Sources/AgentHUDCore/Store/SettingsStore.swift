@@ -86,13 +86,29 @@ public final class SettingsStore {
     /// Adds rows a provider discovered (in the order given) and refreshes model names of known rows.
     /// New rows for a vendor go right after that vendor's last existing row, or at the top when the vendor is new,
     /// so the user's manual order is preserved.
-    public func mergeDiscovered(_ discovered: [AgentDescriptor], activeQuotaPoolIDs: [String: Set<String>]? = nil) {
-        guard !discovered.isEmpty || activeQuotaPoolIDs != nil else { return }
+    /// Account rows: the first identified account takes over an unscoped row's position and switch, a further account's
+    /// window inherits the switch of the same window on another account, and rows of accounts absent from a provider's
+    /// inventory are removed.
+    public func mergeDiscovered(_ discovered: [AgentDescriptor], activeQuotaPoolIDs: [String: Set<String>]? = nil,
+                                accounts: [String: [AccountObservation]]? = nil) {
+        guard !discovered.isEmpty || activeQuotaPoolIDs != nil || accounts != nil else { return }
         let merged: [AgentDescriptor] = {
             var list = agents.filter { agent in
+                if let account = agent.account, agent.billingPool == nil, let known = accounts?[account.provider] {
+                    return known.contains { $0.account.id == account.id }
+                }
                 guard let pool = agent.billingPool, pool.product == .plan,
                       let active = activeQuotaPoolIDs?[pool.provider] else { return true }
                 return active.contains(pool.id)
+            }
+            for found in discovered where found.account != nil && found.billingPool == nil && !list.contains(where: { $0.id == found.id }) {
+                if let index = list.firstIndex(where: { $0.account == nil && $0.billingPool == nil && $0.vendor == found.vendor && $0.id == found.windowKey }) {
+                    let unscoped = list.remove(at: index)
+                    list.insert(found.with(enabled: unscoped.enabled), at: index)
+                } else if let sibling = list.last(where: { $0.vendor == found.vendor && $0.account != nil && $0.windowKey == found.windowKey }) {
+                    let anchor = list.lastIndex { $0.vendor == found.vendor }
+                    list.insert(found.with(enabled: sibling.enabled), at: anchor.map { $0 + 1 } ?? 0)
+                }
             }
             if discovered.contains(where: { $0.vendor == "DeepSeek" && $0.id.hasPrefix("deepseek-model:") }),
                let index = list.firstIndex(where: { $0.id == "deepseek" }) {
@@ -102,7 +118,7 @@ public final class SettingsStore {
                 list.insert(contentsOf: replacements, at: index)
             }
             // Replace the old disconnected Antigravity placeholder when real quota buckets arrive.
-            if discovered.contains(where: { $0.vendor == "Antigravity" && $0.id.hasPrefix("antigravity:") }),
+            if discovered.contains(where: { $0.vendor == "Antigravity" && $0.windowKey.hasPrefix("antigravity:") }),
                let index = list.firstIndex(where: { $0.id == "antigravity" && $0.source == L10n.sourceNotConnected }) {
                 let placeholder = list.remove(at: index)
                 let replacements = discovered.filter { found in found.vendor == "Antigravity" && !list.contains(where: { $0.id == found.id }) }.map {
@@ -110,13 +126,19 @@ public final class SettingsStore {
                 }
                 list.insert(contentsOf: replacements, at: index)
             }
+            // Unscoped rows of a provider that now identifies accounts have been taken over or no longer exist.
+            list.removeAll { agent in
+                agent.account == nil && agent.billingPool == nil && accounts?[agent.vendor]?.isEmpty == false
+                    && !discovered.contains { $0.id == agent.id }
+            }
             for found in discovered {
                 if let index = list.firstIndex(where: { $0.id == found.id }) {
                     let existing = list[index]
-                    if existing.model != found.model || existing.source != found.source || existing.connected != found.connected || existing.billingPool != found.billingPool {
+                    if existing.model != found.model || existing.source != found.source || existing.connected != found.connected
+                        || existing.billingPool != found.billingPool || existing.account != found.account {
                         list[index] = AgentDescriptor(
                             id: existing.id, vendor: existing.vendor, model: found.model, source: found.source,
-                            enabled: existing.enabled, connected: found.connected, billingPool: found.billingPool
+                            enabled: existing.enabled, connected: found.connected, billingPool: found.billingPool, account: found.account
                         )
                     }
                     continue

@@ -268,7 +268,7 @@ final class AdditionalProviderTests: XCTestCase, @unchecked Sendable {
         XCTAssertEqual(count, 1)
         XCTAssertEqual(report.consumption.first?.eventID, "grok:e")
         XCTAssertEqual(report.consumers.first?.vendor, "Grok")
-        XCTAssertEqual(report.consumerIdsByQuota["grok"], ["grok-model:grok-test"])
+        XCTAssertEqual(report.consumerIdsByQuota[ProviderAccount.unresolved(provider: "Grok", home: "").windowID("grok")], ["grok-model:grok-test"])
         let unavailable = AdditionalUsageProvider(source: .grok, readQuota: { throw ProviderFailure.login("Grok") },
             readSessions: { _ in ProviderSessions(sessions: [.init(id: "s", title: "Fixture", client: "Grok CLI", events: [.init(id: "e", model: "x", timestamp: now, input: 1, output: 2)])]) },
             history: history, clock: { now })

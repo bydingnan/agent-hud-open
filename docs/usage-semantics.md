@@ -12,7 +12,7 @@ How Agent HUD Open counts tokens, names quota windows, colors readings, spaces a
 | Out | Output tokens; reasoning or thinking is already part of the output count and is never added a second time | — |
 | Cache | Cache reads only | — |
 
-The three dimensions (`TokenDimensions`) are additive and never overlap. Charts, the heat map, model shares and session rows follow the selected dimensions; the default is In + Out (`fresh`), and `all` adds Cache. Records written before the Cache dimension existed decode with zero cache reads. The panel's per-session token figure is In + Out of that session. A quota window is one row per window the service reports, with that window's own reset time and period; a reading is the last value of a window, balance or reset-credit count together with its observation time.
+The three dimensions (`TokenDimensions`) are additive and never overlap. Charts, the heat map, model shares and session rows follow the selected dimensions; the default is In + Out (`fresh`), and `all` adds Cache. Records written before the Cache dimension existed decode with zero cache reads. The panel's per-session token figure is In + Out of that session. A quota window is one row per window the service reports, with that window's own reset time and period; a reading is the last value of a window, balance or reset-credit count together with its observation time. An account is whose quota a window describes, identified by the provider's own user and workspace ids; a window's row id is the account id followed by the provider's window name (`account:<hash>/codex`).
 
 ## Rules
 
@@ -40,6 +40,16 @@ The three dimensions (`TokenDimensions`) are additive and never overlap. Charts,
 - The policy is fixed (`AlertPolicy`): nothing is stored, synchronized or configurable. A color describes the resource state of one reading; readings of different windows are never combined into one health score, and a color never indicates task progress.
 - The glow shows one segment per enabled window that has a reading; windows without a reading stay out of it, and a paused or hidden glow is grey.
 - Alerts (`QuotaAlertTracker`): the first reading of a window is a silent baseline; crossing 90% used, reaching zero, a forecast of exhaustion before the reset, and a confirmed reset each notify once. Readings older than 30 minutes stay visible but generate no alerts.
+
+### Accounts
+
+- Readings, quota history, alert baselines and display settings are keyed by the account's window rows, so two accounts of one client never share a history or a burn rate.
+- The account of a provider's latest successful reading is current; only current accounts join the glow, the menu-bar figure and alerts. A failed refresh keeps the current account, and a login without plan limits makes no account current.
+- Other accounts keep their last reading and its observation time, greyed under the account's name, until they have not been seen for 30 days; their readings, rows and display settings then retire.
+- Changing accounts is neither a reset nor an exhaustion: an account that becomes current again starts a new alert baseline.
+- The first identified account takes over an unidentified row's position and display switch; a window that appears on a further account inherits the switch of the same window on another account. Quota history recorded before accounts were identified belongs to no account and is not shown.
+- A login the provider does not identify is one account per client home directory, never merged with another home. A provider that must forget its accounts, for example after reading consent is withdrawn, retires their readings, rows and display settings at once.
+- Codex reset credits belong to the current Codex account. Billing-pool rows (Kimi, GLM, OpenCode Go) keep their pool ids as account ids.
 
 ### Account request intervals
 
@@ -71,6 +81,7 @@ Account requests run on their own task, so a slow account query never delays loc
 | Alert tracker, forecast, reading age | `Sources/AgentHUDCore/Logic/QuotaAlerts.swift`, `QuotaForecast.swift` |
 | Event union, analytics, history retention | `Sources/AgentHUDCore/Store/UsageAggregation.swift`, `QuotaHistoryStore.swift`, `Sources/AgentHUDCore/Logic/UsageAnalytics.swift` |
 | Session liveness, retained readings | `Sources/AgentHUDCore/Models/LiveSession.swift`, `Sources/AgentHUDCore/Providers/RetainedUsageProvider.swift` |
+| Accounts, current and previous readings, settings migration | `Sources/AgentHUDCore/Models/ProviderAccount.swift`, `Sources/AgentHUDCore/Providers/RetainedUsageProvider.swift`, `Sources/AgentHUDCore/Store/SettingsStore.swift` |
 
 ## Related
 

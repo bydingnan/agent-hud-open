@@ -5,6 +5,7 @@ import AgentHUDCore
 struct AgentOrderRow: View {
     let agent: AgentDescriptor
     let theme: Theme
+    var accountName: String? = nil
     let onToggle: (Bool) -> Void
 
     var body: some View {
@@ -13,6 +14,10 @@ struct AgentOrderRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(L10n.modelLabel(agent.model))
                     .fixedSize(horizontal: false, vertical: true)
+                if let accountName {
+                    Text(accountName).font(.ui(11)).foregroundStyle(theme.secondary)
+                        .lineLimit(1).truncationMode(.middle)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             Toggle(L10n.text("显示", "Show") + " " + agent.displayName, isOn: Binding(get: { agent.enabled }, set: onToggle))

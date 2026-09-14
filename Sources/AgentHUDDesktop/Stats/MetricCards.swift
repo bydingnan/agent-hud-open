@@ -39,7 +39,10 @@ private struct AgentQuotaTile: View {
                 Spacer(minLength: 4)
                 SelectionMenu(
                     title: vendor + " " + L10n.text("额度窗口", "quota window"),
-                    options: rows.map { SegmentOption(value: $0.id, label: L10n.modelLabel($0.agent.model)) },
+                    options: rows.map { row in
+                        let account = Set(rows.compactMap(\.agent.account?.id)).count > 1 ? row.account.map { $0.displayName + " · " } : nil
+                        return SegmentOption(value: row.id, label: (account ?? "") + L10n.modelLabel(row.agent.model))
+                    },
                     selection: Binding(get: { row?.id ?? "" }, set: { selectedRowID = $0 }),
                     theme: theme
                 )

@@ -11,6 +11,8 @@ public struct AgentDescriptor: Hashable, Codable, Sendable, Identifiable {
     /// Whether a local data source was detected for this agent.
     public let connected: Bool
     public let billingPool: BillingPool?
+    /// The account whose quota this row shows. Nil for token consumers, API rows and placeholders.
+    public let account: ProviderAccount?
 
     public init(
         id: String,
@@ -19,7 +21,8 @@ public struct AgentDescriptor: Hashable, Codable, Sendable, Identifiable {
         source: String,
         enabled: Bool,
         connected: Bool = true,
-        billingPool: BillingPool? = nil
+        billingPool: BillingPool? = nil,
+        account: ProviderAccount? = nil
     ) {
         self.id = id
         self.vendor = vendor
@@ -28,6 +31,14 @@ public struct AgentDescriptor: Hashable, Codable, Sendable, Identifiable {
         self.enabled = enabled
         self.connected = connected
         self.billingPool = billingPool
+        self.account = account
+    }
+
+    /// The provider's own window name inside the account-scoped id (`codex`, `claude-session`, `weekly`).
+    public var windowKey: String {
+        if let account, id.hasPrefix(account.id + "/") { return String(id.dropFirst(account.id.count + 1)) }
+        if let billingPool, id.hasPrefix(billingPool.id + ":") { return String(id.dropFirst(billingPool.id.count + 1)) }
+        return id
     }
 
     public var displayVendor: String { L10n.vendorLabel(billingPool?.product == .api ? billingPool!.provider : vendor) }
@@ -51,7 +62,8 @@ public struct AgentDescriptor: Hashable, Codable, Sendable, Identifiable {
             source: source,
             enabled: enabled ?? self.enabled,
             connected: connected ?? self.connected,
-            billingPool: billingPool
+            billingPool: billingPool,
+            account: account
         )
     }
 

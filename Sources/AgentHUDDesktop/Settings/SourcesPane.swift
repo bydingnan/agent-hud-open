@@ -52,7 +52,7 @@ struct AgentSettingsCard: View {
             if isExpanded && !group.agents.isEmpty {
                 SettingsDivider(theme: theme)
                 ForEach(group.agents) { agent in
-                    AgentOrderRow(agent: agent, theme: theme) { settings.setAgent(id: agent.id, enabled: $0) }
+                    AgentOrderRow(agent: agent, theme: theme, accountName: group.accountName(for: agent)) { settings.setAgent(id: agent.id, enabled: $0) }
                         .onDrag {
                             dragging = .model(agent.id)
                             return NSItemProvider(object: agent.id as NSString)
@@ -97,6 +97,9 @@ struct AgentSettingsCard: View {
                         ForEach(group.plans, id: \.self) { plan in
                             SubscriptionBadge(plan: plan, theme: theme)
                         }
+                        ForEach(group.accounts) { account in
+                            AccountSummary(account: account, theme: theme)
+                        }
                         if !group.apiProviders.isEmpty {
                             Text("API · " + group.apiProviders.joined(separator: ", "))
                                 .font(.ui(10)).foregroundStyle(theme.secondary)
@@ -130,6 +133,27 @@ struct AgentSettingsCard: View {
 
     private func dropDelegate(_ target: AgentOrderDrag) -> ReorderDropDelegate {
         ReorderDropDelegate(target: target, dragging: $dragging, settings: settings)
+    }
+}
+
+/// One signed-in or previously seen account: its plan badge, name and whether it is the current login.
+private struct AccountSummary: View {
+    let account: AccountObservation
+    let theme: Theme
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if let plan = account.planLabel {
+                SubscriptionBadge(plan: plan, theme: theme)
+            }
+            Text(account.displayName)
+                .font(.ui(11)).foregroundStyle(account.isCurrent ? theme.secondary : theme.tertiary)
+                .lineLimit(1).truncationMode(.middle)
+            Text(account.statusLabel(now: Date()))
+                .font(.ui(10)).foregroundStyle(theme.tertiary)
+                .fixedSize()
+        }
+        .accessibilityElement(children: .combine)
     }
 }
 

@@ -7,6 +7,8 @@ public struct AgentSettingsGroup: Identifiable, Equatable, Sendable {
     public let agents: [AgentDescriptor]
     public let plans: [String]
     public let apiProviders: [String]
+    /// Accounts the client has been signed in to, current first; pool accounts appear through `plans`.
+    public let accounts: [AccountObservation]
 
     public var displayedCount: Int { agents.filter(\.enabled).count }
     public var hasLiveStatus: Bool { SessionSource.agentVendors.contains(id) }
@@ -28,7 +30,9 @@ public struct AgentSettingsGroup: Identifiable, Equatable, Sendable {
             let source = sources.first { vendor($0) == id }
             let windows = existing.first { $0.id == id }?.agents ?? []
             let services = (report?.services ?? []).filter { $0.client == id }
-            var plans = source?.planLabel.map { [$0] } ?? []
+            let accounts = (report?.accounts?[id] ?? []).filter { !$0.account.id.hasPrefix("pool:") }
+                .sorted { ($0.isCurrent ? 1 : 0, $0.observedAt) > ($1.isCurrent ? 1 : 0, $1.observedAt) }
+            var plans = accounts.isEmpty ? source?.planLabel.map { [$0] } ?? [] : []
             for service in services where service.product == .plan {
                 guard let plan = report?.subscriptions[service.accountID ?? service.provider], !plan.isEmpty else { continue }
                 plans.append(service.provider == id ? plan.capitalized : service.provider + " · " + plan.capitalized)
@@ -45,7 +49,13 @@ public struct AgentSettingsGroup: Identifiable, Equatable, Sendable {
                 ($0.billingPool?.provider ?? $0.vendor) == id && (!$0.balances.isEmpty || !$0.costs.isEmpty)
             }.map { $0.billingPool?.provider ?? $0.vendor }
             return Self(id: id, source: source, agents: windows, plans: Array(Set(plans)).sorted(),
-                        apiProviders: Array(Set(api)).sorted())
+                        apiProviders: Array(Set(api)).sorted(), accounts: accounts)
         }
+    }
+
+    /// Rows name their account once a client has been signed in to more than one.
+    public func accountName(for agent: AgentDescriptor) -> String? {
+        guard accounts.count > 1, let id = agent.account?.id else { return nil }
+        return accounts.first { $0.account.id == id }?.displayName
     }
 }

@@ -10,6 +10,10 @@ public struct AgentRow: Hashable, Sendable, Identifiable {
     public let weeklyRemainingPct: Double?
     /// Index into `AgentPalette` (position among enabled agents).
     public let paletteIndex: Int
+    /// The account this window belongs to, when the provider identifies accounts.
+    public let account: AccountObservation?
+    /// Other accounts show their last reading without a status level, so they stay out of the glow and alerts.
+    public let isCurrentAccount: Bool
 
     public var id: String { agent.id }
 
@@ -19,6 +23,14 @@ public struct AgentRow: Hashable, Sendable, Identifiable {
     public var missingQuotaLabel: String {
         "—"
     }
+}
+
+/// Rows of one account inside a vendor group.
+public struct AccountSection: Identifiable, Sendable {
+    public let id: String
+    public let account: AccountObservation?
+    public let isCurrent: Bool
+    public let rows: [AgentRow]
 }
 
 /// Observable app state: polls the provider, exposes derived rows, glow appearance and stats selections.
@@ -101,7 +113,7 @@ public final class UsageStore {
         do {
             let fetched = try await provider.fetchUsage(agents: settings.agents, historyHours: Self.historyHours)
             guard isAccessAllowed, !Task.isCancelled else { return }
-            settings.mergeDiscovered(fetched.discoveredAgents, activeQuotaPoolIDs: fetched.activeQuotaPoolIDs)
+            settings.mergeDiscovered(fetched.discoveredAgents, activeQuotaPoolIDs: fetched.activeQuotaPoolIDs, accounts: fetched.accounts)
             report = fetched
             lastError = nil
         } catch {
@@ -152,13 +164,16 @@ public final class UsageStore {
     public var rows: [AgentRow] {
         enabledAgents.filter { !$0.isAPIBilled }.enumerated().map { index, agent in
             let snapshot = report?.snapshot(for: agent.id)
+            let isCurrent = report?.isCurrent(agent) ?? true
             return AgentRow(
                 agent: agent,
                 remainingPct: snapshot?.remainingPct,
-                level: snapshot.map { AlertPolicy.quotaLevel(remaining: $0.remainingPct) },
+                level: isCurrent ? snapshot.map { AlertPolicy.quotaLevel(remaining: $0.remainingPct) } : nil,
                 resetAt: snapshot?.resetAt,
                 weeklyRemainingPct: snapshot?.weeklyRemainingPct,
-                paletteIndex: index
+                paletteIndex: index,
+                account: agent.account.flatMap { report?.observation(accountID: $0.id) },
+                isCurrentAccount: isCurrent
             )
         }
     }
@@ -185,7 +200,8 @@ public final class UsageStore {
     }
 
     public var primaryRow: AgentRow? {
-        rows.first { $0.id == selectedQuotaId } ?? rows.first { $0.remainingPct != nil } ?? rows.first
+        rows.first { $0.id == selectedQuotaId } ?? rows.first { $0.isCurrentAccount && $0.remainingPct != nil }
+            ?? rows.first { $0.remainingPct != nil } ?? rows.first
     }
 
     public var primaryInsights: UsageInsights {
@@ -217,10 +233,10 @@ public final class UsageStore {
     /// Includes the brief interval before the first refresh starts; a failed fetch ends loading.
     public var isLoading: Bool { isAccessAllowed && report == nil && !isPaused && (isRefreshing || lastError == nil) }
 
-    public var minRemainingPct: Double? { rows.compactMap(\.remainingPct).min() }
+    public var minRemainingPct: Double? { rows.filter(\.isCurrentAccount).compactMap(\.remainingPct).min() }
 
-    /// The most consumed window, shown in the menu bar.
-    public var maxUsedPct: Double? { rows.compactMap(\.usedPct).max() }
+    /// The most consumed window of a signed-in account, shown in the menu bar.
+    public var maxUsedPct: Double? { rows.filter(\.isCurrentAccount).compactMap(\.usedPct).max() }
 
     public var sessions: [LiveSession] {
         let sessions = report?.sessions ?? []
@@ -351,6 +367,21 @@ public final class UsageStore {
             groups[vendor, default: []].append(row)
         }
         return order.map { ($0, groups[$0] ?? []) }
+    }
+
+    /// A vendor group's rows split by account, in row order. One section without an account when nothing is identified.
+    public func accountSections(_ rows: [AgentRow]) -> [AccountSection] {
+        var order: [String] = []
+        var sections: [String: [AgentRow]] = [:]
+        for row in rows {
+            let key = row.agent.account?.id ?? ""
+            if sections[key] == nil { order.append(key) }
+            sections[key, default: []].append(row)
+        }
+        return order.map { key in
+            let rows = sections[key] ?? []
+            return AccountSection(id: key, account: rows.first?.account, isCurrent: rows.first?.isCurrentAccount ?? true, rows: rows)
+        }
     }
 
     /// "周额度 · Claude 61% · ChatGPT 80%" source: first weekly reading per vendor.

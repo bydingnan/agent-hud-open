@@ -5,12 +5,14 @@ public actor CodexUsageProvider: UsageProvider {
     private let transcripts: CodexTranscriptStore
     private let history: QuotaHistoryStore
     private let clock: @Sendable () -> Date
+    /// `ClientHome.key` of the Codex home this provider reads.
+    private let home: String
     private var lastQuota: (at: Date, result: Result<CodexRateLimits, UsageProviderError>)?
 
     public init(readLimits: @escaping @Sendable () async throws -> CodexRateLimits,
-                transcripts: CodexTranscriptStore, history: QuotaHistoryStore,
+                transcripts: CodexTranscriptStore, history: QuotaHistoryStore, home: String = "",
                 clock: @escaping @Sendable () -> Date = { Date() }) {
-        self.readLimits = readLimits; self.transcripts = transcripts; self.history = history; self.clock = clock
+        self.readLimits = readLimits; self.transcripts = transcripts; self.history = history; self.home = home; self.clock = clock
     }
 
     public static func standard() -> CodexUsageProvider {
@@ -21,7 +23,8 @@ public actor CodexUsageProvider: UsageProvider {
             }
             return try await CodexAppServerClient(executable: executable, dataDirectory: directory).fetch()
         }, transcripts: .standard(directory: directory),
-           history: QuotaHistoryStore(fileURL: AppSupport.directory.appendingPathComponent("codex-quota-history.json")))
+           history: QuotaHistoryStore(fileURL: AppSupport.directory.appendingPathComponent("codex-quota-history.json")),
+           home: ClientHome.key(directory, defaultDirectory: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex", isDirectory: true)))
     }
 
     public func refreshAccountUsage(historyHours: Int) async {
@@ -30,7 +33,7 @@ public actor CodexUsageProvider: UsageProvider {
             do {
                 let limits = try await readLimits()
                 lastQuota = (now, .success(limits))
-                await history.append(limits.rows.map { QuotaSample(agentId: $0.id, timestamp: now, remainingPct: $0.window.remainingPct) }, now: now)
+                await history.append(limits.rows(home: home).map { QuotaSample(agentId: $0.id, timestamp: now, remainingPct: $0.window.remainingPct) }, now: now)
             }
             catch {
                 if Task.isCancelled { return }
@@ -50,7 +53,7 @@ public actor CodexUsageProvider: UsageProvider {
         case .failure(let error): (limits, failure) = (nil, error.message)
         case nil: (limits, failure) = (nil, nil)
         }
-        let windows = limits?.rows ?? []
+        let windows = limits?.rows(home: home) ?? []
         let events = indexed.sessions.flatMap { $0.transcript.usage.map(\.event) }
         let models = Set(indexed.sessions.flatMap { $0.transcript.usage.map(\.model) }).sorted()
         let consumers = models.map { AgentDescriptor(id: "codex-model:\($0)", vendor: "Codex", model: $0,
@@ -98,7 +101,7 @@ public actor CodexUsageProvider: UsageProvider {
         let cutoff = min(weekAgo, now.addingTimeInterval(-Double(historyHours) * 3600))
         let notice = failure ?? (limits != nil && windows.isEmpty ? L10n.text("当前账户暂无可用额度信息", "Usage limits are unavailable for this account") : nil)
         let consumerIds = Set(consumers.map(\.id) + sessions.map(\.agentId))
-        let quotaIds = Set(["codex"] + windows.map(\.id) + agents.filter { $0.vendor == "Codex" }.map(\.id))
+        let quotaIds = Set(windows.map(\.id) + agents.filter { $0.vendor == "Codex" }.map(\.id))
         let consumerIdsByQuota = Dictionary(uniqueKeysWithValues: quotaIds.map { ($0, consumerIds) })
         return UsageReport(generatedAt: now, snapshots: snapshots, sessions: sessions, history: quotaHistory,
                            activity: UsageAnalytics.activityGrid(usage: events, since: weekAgo, calendar: calendar),
@@ -112,6 +115,10 @@ public actor CodexUsageProvider: UsageProvider {
                            consumerIdsByQuota: consumerIdsByQuota, codexResetCredits: limits?.rateLimitResetCredits,
                            codexResetCreditsObservedAt: limits?.rateLimitResetCredits == nil ? nil : fetchedAt,
                            completions: indexed.sessions.flatMap { $0.transcript.completions ?? [] },
-                           turns: indexed.sessions.flatMap { $0.transcript.sessionTurns })
+                           turns: indexed.sessions.flatMap { $0.transcript.sessionTurns },
+                           accounts: limits.map { limits in
+                               ["Codex": [AccountObservation(account: limits.providerAccount(home: home), home: home,
+                                                             label: limits.account?.email, plan: limits.plan, observedAt: fetchedAt)]]
+                           })
     }
 }

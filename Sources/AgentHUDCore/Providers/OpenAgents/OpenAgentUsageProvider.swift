@@ -167,6 +167,7 @@ actor OpenAgentUsageProvider: UsageProvider {
         var snapshots: [UsageSnapshot] = [], descriptors: [AgentDescriptor] = [], samples: [HistorySample] = []
         var insights: [String: UsageInsights] = [:]
         var notices = local.notices, plans: [String: String] = [:], links: [String: Set<String>] = [:]
+        var accounts: [String: [AccountObservation]] = ["Kimi": [], "GLM": [], "OpenCode Go": []]
         var services = apiServices()
         for result in quotas {
             let pool = result.credential.pool
@@ -183,11 +184,15 @@ actor OpenAgentUsageProvider: UsageProvider {
             if let plan = quota.plan {
                 plans[pool.id] = plan
             }
+            if result.isActive {
+                accounts[pool.provider, default: []].append(AccountObservation(account: ProviderAccount(pool: pool), plan: quota.plan, observedAt: result.at))
+            }
             for window in quota.windows {
                 snapshots.append(.init(agentId: window.id, remainingPct: window.remaining, resetAt: window.reset,
                     windowDuration: window.duration, updatedAt: result.at))
                 descriptors.append(.init(id: window.id, vendor: pool.provider, model: window.label + (quota.plan.map { " · " + $0 } ?? ""),
-                    source: result.credential.clients.sorted().joined(separator: ", "), enabled: true, billingPool: pool))
+                    source: result.credential.clients.sorted().joined(separator: ", "), enabled: true, billingPool: pool,
+                    account: ProviderAccount(pool: pool)))
                 // Historical records lacking a pool must not inherit the current credential's quota.
                 links[window.id] = Set(events.filter { $0.attribution?.pool == pool }.map(\.agentId))
                 let readings = await history.samples(agentId: window.id, since: since)
@@ -211,6 +216,6 @@ actor OpenAgentUsageProvider: UsageProvider {
             discoveredAgents: descriptors, consumers: consumers.values.sorted { $0.id < $1.id }, consumption: events,
             indexing: local.indexing, insightsByAgent: insights, subscriptions: plans, sourceNotices: notices, consumerIdsByQuota: links,
             completions: local.sessions.flatMap(\.completions), turns: local.sessions.flatMap(\.turns), services: services,
-            activeQuotaPoolIDs: cached == nil ? nil : activePools)
+            activeQuotaPoolIDs: cached == nil ? nil : activePools, accounts: cached == nil ? nil : accounts)
     }
 }

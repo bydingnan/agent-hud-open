@@ -92,12 +92,21 @@ struct HoverPanelView: View {
                     .font(.ui(11))
                     .foregroundStyle(theme.secondary)
                     .padding(.vertical, IslandRowLayout.headingVerticalPadding)
-                    ForEach(group.rows) { row in
-                        ModelUsageRow(row: row, now: store.now, showReset: store.settings.settings.showResetCountdown,
-                                      showVendor: false, forecastHint: store.quotaForecastHint(for: row.id), isLoading: store.isLoading)
-                    }
-                    if group.rows.contains(where: { $0.agent.vendor == "Codex" }), let resets = store.report?.codexResetCredits {
-                        CodexResetCreditsView(resets: resets, showExpiry: store.settings.settings.showResetCountdown)
+                    let sections = store.accountSections(group.rows)
+                    ForEach(sections) { section in
+                        if sections.count > 1 || !section.isCurrent, let account = section.account {
+                            AccountSectionHeader(account: account, now: store.now)
+                        }
+                        ForEach(section.rows) { row in
+                            ModelUsageRow(row: row, now: store.now, showReset: store.settings.settings.showResetCountdown,
+                                          showVendor: false, forecastHint: section.isCurrent ? store.quotaForecastHint(for: row.id) : nil,
+                                          isLoading: store.isLoading)
+                                .opacity(section.isCurrent ? 1 : 0.55)
+                        }
+                        // Earned resets belong to the signed-in Codex account.
+                        if section.isCurrent, section.rows.contains(where: { $0.agent.vendor == "Codex" }), let resets = store.report?.codexResetCredits {
+                            CodexResetCreditsView(resets: resets, showExpiry: store.settings.settings.showResetCountdown)
+                        }
                     }
                 }
                 .padding(.top, index > 0 ? 8 : 0)
@@ -176,6 +185,33 @@ struct HoverPanelView: View {
         let words = task.split(separator: " ")
         if words.count > 3 { return words.prefix(3).joined(separator: " ") }
         return String(task.prefix(14))
+    }
+}
+
+/// Names the account above its windows once a client has more than one, or when it is no longer signed in.
+struct AccountSectionHeader: View {
+    let account: AccountObservation
+    let now: Date
+    private let theme = Theme.island
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(account.displayName)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .foregroundStyle(theme.text.opacity(account.isCurrent ? 0.85 : 0.6))
+            if let plan = account.planLabel {
+                Text(plan).foregroundStyle(theme.secondary)
+            }
+            Spacer(minLength: 8)
+            Text(account.statusLabel(now: now))
+                .foregroundStyle(theme.tertiary)
+                .lineLimit(1)
+        }
+        .font(.ui(11))
+        .padding(.horizontal, IslandRowLayout.inset)
+        .padding(.top, 2)
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -280,7 +316,7 @@ struct ModelUsageRow: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .frame(width: IslandRowLayout.nameWidth, alignment: .leading)
-            ProgressTrack(fraction: (row.usedPct ?? 0) / 100, fill: isLoading ? theme.secondary : color,
+            ProgressTrack(fraction: (row.usedPct ?? 0) / 100, fill: isLoading || !row.isCurrentAccount ? theme.secondary : color,
                           track: theme.track, isLoading: isLoading)
                 .frame(height: 4)
             Text(row.usedPct.map(TokenFormat.percent) ?? "—")

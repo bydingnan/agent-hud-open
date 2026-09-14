@@ -44,6 +44,23 @@ struct ProviderQuota: Sendable {
     var windows: [Window] = []
     var plan: String? = nil
     var notice: String? = nil
+    /// The signed-in account the quota belongs to; nil when the service answered without naming it.
+    var account: ProviderAccount? = nil
+    /// An email or name from the same response or login record, shown to this Mac's user.
+    var label: String? = nil
+
+    /// Whether the service answered for a signed-in account, as opposed to finding no client.
+    var isSignedIn: Bool { account != nil || !windows.isEmpty }
+
+    func resolvedAccount(_ source: AdditionalSource) -> ProviderAccount {
+        account ?? .unresolved(provider: source.vendor, home: "")
+    }
+
+    /// Window ids scoped to the account: `account:<hash>/cursor:team`.
+    func scopedWindows(_ source: AdditionalSource) -> [Window] {
+        let account = resolvedAccount(source)
+        return windows.map { Window(id: account.windowID($0.id), label: $0.label, remaining: $0.remaining, reset: $0.reset, duration: $0.duration) }
+    }
 }
 
 struct ProviderSession: Sendable {

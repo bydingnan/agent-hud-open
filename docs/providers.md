@@ -2,31 +2,33 @@
 
 ## Overview
 
-A provider is the `AgentHUDCore` component that turns one client's local records and account queries into a `UsageReport`: sessions, usage events, quota windows, balances, turns and completions. Common rules: a provider reads only what the client already stores on this Mac; it uses the client's existing sign-in or configured key for metadata requests only, never sending a model message or consuming a reset credit; credentials never enter reports or caches; network requests follow no redirects and share no cookies; SQLite databases are opened read-only in one read transaction, which sees committed WAL pages; a missing, signed-out or failing client never hides another. Counting conventions and request intervals: [usage semantics](usage-semantics.md); running and terminal turns: [session lifecycle](session-lifecycle.md); boundaries: [data access](data-access.md); probes: [command line](command-line.md).
+A provider is the `AgentHUDCore` component that turns one client's local records and account queries into a `UsageReport`: sessions, usage events, quota windows with the account they belong to, balances, turns and completions. Common rules: a provider reads only what the client already stores on this Mac; it uses the client's existing sign-in or configured key for metadata requests only, never sending a model message or consuming a reset credit; credentials never enter reports or caches; network requests follow no redirects and share no cookies; SQLite databases are opened read-only in one read transaction, which sees committed WAL pages; a missing, signed-out or failing client never hides another. Counting conventions and request intervals: [usage semantics](usage-semantics.md); running and terminal turns: [session lifecycle](session-lifecycle.md); boundaries: [data access](data-access.md); probes: [command line](command-line.md).
 
-| Client | Reads | Quota source | Balance or cost | Running / terminal turns |
-| --- | --- | --- | --- | --- |
-| Claude Code | Transcripts, account profile | Claude Code engine `get_usage` | — | Yes / Yes |
-| Codex Desktop / CLI | Rollouts, session index | Codex app-server `account/rateLimits/read` | — | Yes / Yes |
-| DeepSeek Harness | Session logs, profile lock evidence, settings, credentials | — | Account balance, per-request cost estimate | Yes / Yes |
-| Antigravity | Conversation databases | Running local language server | — | No / `Stop` hook |
-| Cursor | Session token | Cursor usage summary and usage events | — | No / `stop` hook |
-| Grok CLI | Credentials, session updates, unified log | Grok CLI credits proxy | — | Yes / Yes |
-| OpenCode (+ Go) | Database, message store, credentials, config | OpenCode Go usage | Per-request cost from the log | No / No |
-| Kimi | Wire logs, OAuth slots, device id | Kimi coding usages | — | Yes / Yes |
-| GLM | None | GLM monitor quota | — | n/a |
-| Pi | Session logs, observer turn files, credentials, model config | Kimi, GLM and Go pools | Per-request cost from the log | Yes / Yes, with the observer |
+| Client | Reads | Quota source | Account (user · workspace) | Balance or cost | Running / terminal turns |
+| --- | --- | --- | --- | --- | --- |
+| Claude Code | Transcripts, account profile | Claude Code engine `get_usage` | `accountUuid` · `organizationUuid` | — | Yes / Yes |
+| Codex Desktop / CLI | Rollouts, session index | Codex app-server `account/rateLimits/read` | `account/read` email · `accountId` | — | Yes / Yes |
+| DeepSeek Harness | Session logs, profile lock evidence, settings, credentials | — | — | Account balance, per-request cost estimate | Yes / Yes |
+| Antigravity | Conversation databases | Running local language server | `GetUserStatus` email · `teamId` | — | No / `Stop` hook |
+| Cursor | Session token | Cursor usage summary and usage events | JWT user | — | No / `stop` hook |
+| Grok CLI | Credentials, session updates, unified log | Grok CLI credits proxy | Login record `user_id` · `team_id` | — | Yes / Yes |
+| OpenCode (+ Go) | Database, message store, credentials, config | OpenCode Go usage | Billing pool | Per-request cost from the log | No / No |
+| Kimi | Wire logs, OAuth slots, device id | Kimi coding usages | Billing pool | — | Yes / Yes |
+| GLM | None | GLM monitor quota | Billing pool | — | n/a |
+| Pi | Session logs, observer turn files, credentials, model config | Kimi, GLM and Go pools | Billing pool | Per-request cost from the log | Yes / Yes, with the observer |
+
+Account ids hash the listed user and workspace values; a quota row is `account:<hash>/<window>`, and the window names below are the part after the slash. Account rules are in [usage semantics](usage-semantics.md#accounts).
 
 ## Claude Code
-- **Reads** — `~/.claude/projects/**/*.jsonl` and `~/.config/claude/projects/**/*.jsonl`; `~/.claude.json` (`CLAUDE_CONFIG_DIR` honored) for the Max tier.
-- **Credentials & env** — The installed engine's existing sign-in; nothing is read from the keychain. `rate_limits_available == false` (API key or third-party login) keeps local data and shows a notice instead of rows.
+- **Reads** — `~/.claude/projects/**/*.jsonl` and `~/.config/claude/projects/**/*.jsonl`; `~/.claude.json` (`CLAUDE_CONFIG_DIR` honored) for the Max tier, the account ids and the email label, read before and after each engine query — a login change in between discards that reading.
+- **Credentials & env** — The installed engine's existing sign-in; nothing is read from the keychain. `rate_limits_available == false` (API key or third-party login) keeps local data, makes no account current and shows a notice instead of rows.
 - **Endpoints** — A headless `claude -p` with hooks disabled and `CLAUDE_CODE_ENTRYPOINT=agent-hud` answers one `get_usage` control request; no prompt is sent, nothing is billed. `five_hour`, `seven_day` and per-family weekly windows become rows `claude-session`, `claude-weekly` and `claude-weekly-<family>`; `subscription_type` `max` is refined to `max_5x` / `max_20x` from the profile's rate-limit tier.
 - **Counting & dedup** — One event per `message.id` (fallback `requestId`); In = `input_tokens` + `cache_creation_input_tokens`, Cache = `cache_read_input_tokens`; consumers are exact model ids, `<synthetic>` messages are ignored, and sub-agent transcripts (`agent-*.jsonl`, `subagents/`) and `isSidechain` lines never start or finish a turn. The session share is the session's share of the current 5 h window times its utilization; `entrypoint` labels CLI, Desktop, IDE or SDK.
 
 ## Codex Desktop / CLI
 - **Reads** — `rollout-*.jsonl` under `$CODEX_HOME/sessions` and `archived_sessions` (default `~/.codex`), decoding only `session_meta`, `turn_context` and `event_msg` lines; `session_index.jsonl` for thread names.
 - **Credentials & env** — The engine's own sign-in; `auth.json` is never read. Desktop and CLI on one `CODEX_HOME` share one set of windows; separate homes are not merged.
-- **Endpoints** — `codex app-server --listen stdio://` (the Desktop-bundled engine or an installed CLI): `initialize`, `initialized`, `account/rateLimits/read`, never a thread or turn. `rateLimitsByLimitId` is authoritative even when empty; each bucket's `primary` / `secondary` window is a row labelled by `windowDurationMins` (10080 → Weekly, multiples of 60 → "Nh", else "Nm", unknown → Primary / Secondary), the shared primary row keeps the id `codex`, `planType` is the plan badge and `rateLimitResetCredits.availableCount` the reset-credit count.
+- **Endpoints** — `codex app-server --listen stdio://` (the Desktop-bundled engine or an installed CLI): `initialize`, `initialized`, `account/rateLimits/read`, `account/read`, never a thread or turn. Members of one workspace share `accountId`, so the email separates their quota; an engine without `account/read` reports the workspace alone. `rateLimitsByLimitId` is authoritative even when empty; each bucket's `primary` / `secondary` window is a row labelled by `windowDurationMins` (10080 → Weekly, multiples of 60 → "Nh", else "Nm", unknown → Primary / Secondary), the shared primary row keeps the window name `codex`, `planType` (else the `account/read` plan) is the plan badge and `rateLimitResetCredits.availableCount` the reset-credit count.
 - **Counting & dedup** — `token_count` totals are differenced (`total_token_usage`, `last_token_usage` after a reset); cached input is subtracted from input, reasoning is already in output, and events older than the session start are inherited fork history that only sets the baseline. `source` (`cli` / `exec` / `vscode`) decides the client, `originator == "Codex Desktop"` counts only when `source` is silent, `subagent` and `guardian` sessions are excluded, and one session id counts once even after archiving.
 
 ## DeepSeek Harness
@@ -38,18 +40,18 @@ A provider is the `AgentHUDCore` component that turns one client's local records
 ## Antigravity
 - **Reads** — SQLite `gen_metadata` (and `steps`) in `$GEMINI_CLI_HOME/antigravity-cli/conversations/*.db`, `antigravity/*.db` and `antigravity/conversations/*.db` (default `~/.gemini`); same-named databases in different roots are one conversation.
 - **Credentials & env** — None read. The running language server's CSRF token is taken from its command line; no login is attempted, and a self-signed certificate is accepted only for 127.0.0.1.
-- **Endpoints** — `POST https://127.0.0.1:<port>/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary` (Connect protocol) on the user's `antigravity-cli` / `agy` or application `language_server` process, falling back to `GetUserStatus`. Buckets (`bucketId`, `remainingFraction`, `resetTime`) become rows `antigravity:<bucketId>` with the period inferred from "weekly" / "five_hour" in the id; the legacy status yields one row per model family, and the plan is `userTier.name` or `planStatus.planInfo.planName`.
+- **Endpoints** — `POST https://127.0.0.1:<port>/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary` (Connect protocol) on the user's `antigravity-cli` / `agy` or application `language_server` process, falling back to `GetUserStatus`. `GetUserStatus` on the same server supplies `email` and `teamId` for the account, since the IDE and `agy` can be signed in separately. Buckets (`bucketId`, `remainingFraction`, `resetTime`) become rows `antigravity:<bucketId>` with the period inferred from "weekly" / "five_hour" in the id; the legacy status yields one row per model family, and the plan is `userTier.name` or `planStatus.planInfo.planName`.
 - **Counting & dedup** — The recorded protobuf layout is decoded; a usage row counts only with a recorded timestamp or a unique join to a `steps` row via `botID` / `stepUUID`; file times are never usage times, and unverifiable rows are excluded with a notice. In = system prompt + new input, Out = output + thinking, Cache = cache read; identity is the response id or the row index.
 
 ## Cursor
-- **Reads** — `ItemTable` key `cursorAuth/accessToken` in `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`; nothing else local.
+- **Reads** — `ItemTable` keys `cursorAuth/accessToken` and `cursorAuth/cachedEmail` (the account label) in `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`; nothing else local.
 - **Credentials & env** — The JWT must stay valid for at least 60 s; `sub` supplies the user id and the `WorkosCursorSessionToken` cookie is built in memory. Nothing is refreshed or written; an expired token is a sign-in notice until Cursor renews it.
 - **Endpoints** — `GET https://cursor.com/api/usage-summary` → rows `cursor`, `cursor:models`, `cursor:third-party`, `cursor:personal`, `cursor:team` and `cursor:extra` with the period from `billingCycleStart` / `billingCycleEnd` and `membershipType` as the plan. `POST https://cursor.com/api/dashboard/get-filtered-usage-events` from the start of the day at least 7 days back, paged, with `totalUsageEventsCount` required to agree between pages.
 - **Counting & dedup** — Rows without `tokenUsage` are skipped; In = `inputTokens` + `cacheWriteTokens`; identity = hash(account, `conversationId`, timestamp, model, counts) plus an occurrence ordinal, so true duplicates survive and rows seen from another Mac merge. Events group into `cursor-account:<account>:<conversationId>` sessions that are account-wide, never running and not attributed to this Mac.
 
 ## Grok CLI
 - **Reads** — `$GROK_HOME/auth.json` (default `~/.grok`), `sessions/**/updates.jsonl` with `summary.json` / `signals.json`, and `logs/unified.jsonl`.
-- **Credentials & env** — An `auth.json` entry keyed `https://auth.x.ai::…` (preferred) or `https://accounts.x.ai/sign-in` with a non-empty `key` and an unexpired `expires_at`; `principal_type` `team` is rejected with a notice. Browser cookies are never imported.
+- **Credentials & env** — An `auth.json` entry keyed `https://auth.x.ai::…` (preferred) or `https://accounts.x.ai/sign-in` with a non-empty `key` and an unexpired `expires_at`; `principal_type` `team` is rejected with a notice; the entry's `user_id` (else `principal_id`), `team_id` (else `organization_id`) and `email` name the account, with credential evidence. Browser cookies are never imported.
 - **Endpoints** — `GET https://cli-chat-proxy.grok.com/v1/billing?format=credits` (Bearer token, `x-xai-token-auth: xai-grok-cli`): `creditUsagePercent` and `currentPeriod` (weekly / monthly) make the `grok` row, `onDemandCap` / `onDemandUsed` the separate `grok:extra` row; `/v1/settings` supplies `subscription_tier_display`.
 - **Counting & dedup** — `updates.jsonl`: `session/update` events whose `sessionId` matches the directory, deduplicated by `_meta.eventId`, turn from `_meta.promptId`, usage from `turn_completed` (cached reads subtracted from input). `unified.jsonl`: `shell.turn.inference_done` with `prompt_tokens`, `completion_tokens` and `cached_prompt_tokens`, model scoped to session and process, identity `event_id` or a line hash; it owns usage for sessions it covers, the legacy log keeps titles, turns and completions, and legacy `totalTokens` context counters are not consumption.
 
@@ -79,7 +81,7 @@ A provider is the `AgentHUDCore` component that turns one client's local records
 
 ## Billing pools
 
-`BillingPool` identifies who pays, independently of the program that made the request: `provider` (Kimi, GLM, OpenCode Go), `realm` (CN, International), `product` (plan, api, unknown), `scope` (account id from Kimi `/me` or a credential hash, never the credential), `evidence` (account, credential, unresolved), `organization` / `project` (GLM team) and `entitlement` (`kimi-code`, `glm-coding-plan`, `opencode-go`). `id` is `pool:` plus a hash of all fields; a window row is `<pool id>:<window>`, and windows of one pool are never added together.
+`BillingPool` identifies who pays, independently of the program that made the request: `provider` (Kimi, GLM, OpenCode Go), `realm` (CN, International), `product` (plan, api, unknown), `scope` (account id from Kimi `/me` or a credential hash, never the credential), `evidence` (account, credential, unresolved), `organization` / `project` (GLM team) and `entitlement` (`kimi-code`, `glm-coding-plan`, `opencode-go`). `id` is `pool:` plus a hash of all fields and doubles as the account id; a window row is `<pool id>:<window>`, and windows of one pool are never added together.
 
 - Identical credentials found in Kimi, OpenCode, Pi or Claude configuration merge into one pool with several clients; a different key stays a different pool until the provider's own identity protocol proves otherwise, and only Kimi has one. Same plan name, reset time or percentage never merge pools.
 - Each pool's quota is fetched once per interval with any of its credentials; when every credential is rejected the pool is inactive and `UsageReport.activeQuotaPoolIDs` retires its rows, readings and display settings, while a temporary failure keeps the last reading.
@@ -105,7 +107,7 @@ Files in the data directory ([architecture](architecture.md#storage)); quota his
 | Codex, DeepSeek | `Sources/AgentHUDCore/Providers/Codex/`, `DeepSeek/` | `CodexProviderTests`, `DeepSeekProviderTests` |
 | Antigravity, Cursor, Grok | `Sources/AgentHUDCore/Providers/Antigravity/`, `Cursor/`, `Grok/`; shared HTTP, SQLite and hooks in `Additional/` | `AdditionalProviderTests`, `CompletionHooksTests` |
 | OpenCode, Kimi, GLM, Pi | `Sources/AgentHUDCore/Providers/OpenAgents/` | `OpenAgentProviderTests`, `KimiQuotaIdentityTests`, `PiSessionObserverTests` |
-| Cross-provider | `Sources/AgentHUDCore/Providers/CombinedUsageProvider.swift`, `RetainedUsageProvider.swift`, `Sources/AgentHUDCore/Models/BillingPool.swift` | `CombinedProviderTests`, `RetainedUsageProviderTests`, `UsageRefreshTests`, `LiveStatusTests`, `SessionSourceTests`, `QuotaHistoryStoreTests`, `UsageAnalyticsTests` |
+| Cross-provider | `Sources/AgentHUDCore/Providers/CombinedUsageProvider.swift`, `RetainedUsageProvider.swift`, `Sources/AgentHUDCore/Models/BillingPool.swift`, `ProviderAccount.swift` | `ProviderAccountTests`, `CombinedProviderTests`, `RetainedUsageProviderTests`, `UsageRefreshTests`, `LiveStatusTests`, `SessionSourceTests`, `QuotaHistoryStoreTests`, `UsageAnalyticsTests` |
 
 ## Upstream references
 

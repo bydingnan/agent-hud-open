@@ -131,6 +131,8 @@ final class CodexProviderTests: XCTestCase {
                 print(json.dumps({'method':'account/rateLimits/updated','params':{}}),flush=True)
                 print(json.dumps({'id':999,'result':{}}),flush=True)
                 print('{"id":2,"result":\(Self.limitsWithResets)}',flush=True)
+            elif request['method']=='account/read':
+                print(json.dumps({'id':3,'result':{'account':{'type':'chatgpt','email':'Dev@Example.com','planType':'prolite'},'requiresOpenaiAuth':True}}),flush=True)
         """
         let exe = dir.appendingPathComponent("codex")
         try script.write(to: exe, atomically: true, encoding: .utf8)
@@ -138,7 +140,9 @@ final class CodexProviderTests: XCTestCase {
         let result = try await CodexAppServerClient(executable: exe, dataDirectory: dir, timeout: 5).fetch()
         XCTAssertEqual(result.rows.count, 3)
         XCTAssertEqual(result.rateLimitResetCredits?.availableCount, 3)
-        XCTAssertEqual(try String(contentsOf: dir.appendingPathComponent("methods"), encoding: .utf8), "initialize\ninitialized\naccount/rateLimits/read\n")
+        XCTAssertEqual(result.account?.email, "Dev@Example.com")
+        XCTAssertEqual(try String(contentsOf: dir.appendingPathComponent("methods"), encoding: .utf8),
+                       "initialize\ninitialized\naccount/rateLimits/read\naccount/read\n")
     }
 
     func testLocatorWorksWithoutDesktopOrWithoutCLI() throws {
@@ -164,7 +168,7 @@ final class CodexProviderTests: XCTestCase {
         let contents = line(type: "session_meta", payload: ["id":"cli", "source":"cli", "cwd":"/project"]) + "\n" + line(payload: ["type":"task_started"]) + "\n"
         try contents.write(to: dir.appendingPathComponent("rollout-cli.jsonl"), atomically: true, encoding: .utf8)
         let provider = CodexUsageProvider(readLimits: { throw UsageProviderError("signed out") }, transcripts: CodexTranscriptStore(roots: [dir]), history: QuotaHistoryStore(fileURL: nil))
-        let report = try await provider.fetchAccountAndLocalUsage(agents: [], historyHours: 48)
+        let report = try await provider.fetchAccountAndLocalUsage(agents: DefaultAgents.list, historyHours: 48)
         XCTAssertEqual(report.sessions.first?.client, "CLI")
         let session = try XCTUnwrap(report.sessions.first)
         XCTAssertTrue(report.consumerIdsByQuota["codex"]?.contains(session.agentId) == true)
@@ -187,28 +191,29 @@ final class CodexProviderTests: XCTestCase {
           "unknown": {"primary": {"usedPercent": 50, "resetsAt": \(sessionReset)}}
         }}
         """)
+        let account = ProviderAccount.unresolved(provider: "Codex", home: "")
         let history = QuotaHistoryStore(fileURL: nil)
         await history.append([
-            QuotaSample(agentId: "codex", timestamp: now.addingTimeInterval(-5 * 86400), remainingPct: 100),
-            QuotaSample(agentId: "codex", timestamp: now.addingTimeInterval(-86400), remainingPct: 70),
-            QuotaSample(agentId: "codex:spark:primary", timestamp: now.addingTimeInterval(-3 * 3600), remainingPct: 100),
-            QuotaSample(agentId: "codex:spark:primary", timestamp: now.addingTimeInterval(-3600), remainingPct: 40),
-            QuotaSample(agentId: "codex:unknown:primary", timestamp: now.addingTimeInterval(-3600), remainingPct: 80)
+            QuotaSample(agentId: account.windowID("codex"), timestamp: now.addingTimeInterval(-5 * 86400), remainingPct: 100),
+            QuotaSample(agentId: account.windowID("codex"), timestamp: now.addingTimeInterval(-86400), remainingPct: 70),
+            QuotaSample(agentId: account.windowID("codex:spark:primary"), timestamp: now.addingTimeInterval(-3 * 3600), remainingPct: 100),
+            QuotaSample(agentId: account.windowID("codex:spark:primary"), timestamp: now.addingTimeInterval(-3600), remainingPct: 40),
+            QuotaSample(agentId: account.windowID("codex:unknown:primary"), timestamp: now.addingTimeInterval(-3600), remainingPct: 80)
         ], now: now)
         let provider = CodexUsageProvider(readLimits: { limits }, transcripts: CodexTranscriptStore(roots: [dir]),
                                           history: history, clock: { now })
         let report = try await provider.fetchAccountAndLocalUsage(agents: [], historyHours: 24)
-        XCTAssertEqual(report.snapshot(for: "codex")?.windowDuration, 7 * 86400)
-        XCTAssertEqual(report.snapshot(for: "codex:spark:primary")?.windowDuration, 5 * 3600)
-        let weekly = try XCTUnwrap(report.insightsByAgent["codex"])
+        XCTAssertEqual(report.snapshot(for: account.windowID("codex"))?.windowDuration, 7 * 86400)
+        XCTAssertEqual(report.snapshot(for: account.windowID("codex:spark:primary"))?.windowDuration, 5 * 3600)
+        let weekly = try XCTUnwrap(report.insightsByAgent[account.windowID("codex")])
         XCTAssertEqual(try XCTUnwrap(weekly.burnRatePctPerHour), 40.0 / 120, accuracy: 1e-9,
                        "the statistics range must not truncate the quota cycle")
         XCTAssertEqual(try XCTUnwrap(weekly.timeToExhaust), 180 * 3600, accuracy: 1e-6)
-        let session = try XCTUnwrap(report.insightsByAgent["codex:spark:primary"])
+        let session = try XCTUnwrap(report.insightsByAgent[account.windowID("codex:spark:primary")])
         XCTAssertEqual(try XCTUnwrap(session.burnRatePctPerHour), 20, accuracy: 1e-9,
                        "an idle last hour still includes earlier consumption in this cycle")
         XCTAssertEqual(try XCTUnwrap(session.timeToExhaust), 2 * 3600, accuracy: 1e-6)
-        XCTAssertNil(report.insightsByAgent["codex:unknown:primary"]?.burnRatePctPerHour)
+        XCTAssertNil(report.insightsByAgent[account.windowID("codex:unknown:primary")]?.burnRatePctPerHour)
     }
 
     private var now: Date { Date(timeIntervalSince1970: 1788771600) }

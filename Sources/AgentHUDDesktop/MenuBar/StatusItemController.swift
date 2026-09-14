@@ -75,8 +75,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                 )
                 menu.addItem(header)
             }
+            let accountCount = Set(group.rows.compactMap(\.agent.account?.id)).count
             for row in group.rows {
-                menu.addItem(rowItem(row, showVendor: groups.count == 1 && group.rows.count == 1))
+                menu.addItem(rowItem(row, showVendor: groups.count == 1 && group.rows.count == 1,
+                                     accountName: accountCount > 1 ? row.account?.displayName : nil))
             }
         }
         for (index, billing) in store.enabledBilling.enumerated() {
@@ -120,11 +122,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
 
-    private func rowItem(_ row: AgentRow, showVendor: Bool) -> NSMenuItem {
+    private func rowItem(_ row: AgentRow, showVendor: Bool, accountName: String? = nil) -> NSMenuItem {
         let level = row.level ?? .ok
         let light = SystemAppearance.isLight
         let color = NSColor(StatusPalette.color(for: level, light: light))
-        let label = L10n.modelLabel(row.agent.model)
+        let label = (accountName.map { $0 + " · " } ?? "") + L10n.modelLabel(row.agent.model)
         let name = showVendor ? "\(row.agent.displayVendor) · \(L10n.shortModelLabel(row.agent.model))" : label
         let value: String
         if let used = row.usedPct {

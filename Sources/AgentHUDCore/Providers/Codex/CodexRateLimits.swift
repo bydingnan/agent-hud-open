@@ -25,15 +25,30 @@ public struct CodexRateLimits: Decodable, Sendable {
         public let label: String
         public let window: Window
         public let weekly: Window?
+        public var account: ProviderAccount? = nil
 
         public var descriptor: AgentDescriptor {
-            AgentDescriptor(id: id, vendor: "Codex", model: label, source: L10n.sourceCodexAppServer, enabled: true)
+            AgentDescriptor(id: id, vendor: "Codex", model: label, source: L10n.sourceCodexAppServer, enabled: true, account: account)
         }
+
+        func scoped(to account: ProviderAccount) -> Row {
+            Row(id: account.windowID(id), label: label, window: window, weekly: weekly, account: account)
+        }
+    }
+
+    /// The `account/read` result from the same engine process.
+    public struct SignedInAccount: Decodable, Sendable {
+        public let type: String?
+        public let email: String?
+        public let planType: String?
     }
 
     public let rateLimits: Bucket?
     public let rateLimitsByLimitId: [String: Bucket]?
     public let rateLimitResetCredits: CodexResetCredits?
+    /// The ChatGPT workspace of this snapshot. Members of one workspace share it, so the email separates users.
+    public let accountId: String?
+    public var account: SignedInAccount?
 
     /// A present multi-bucket map is authoritative, including an empty map.
     public var buckets: [(id: String, bucket: Bucket)] {
@@ -47,7 +62,18 @@ public struct CodexRateLimits: Decodable, Sendable {
         return rateLimits.map { [($0.limitId ?? "codex", $0)] } ?? []
     }
 
-    public var plan: String? { buckets.compactMap { $0.bucket.planType }.first }
+    public var plan: String? { buckets.compactMap { $0.bucket.planType }.first ?? account?.planType }
+
+    public func providerAccount(home: String) -> ProviderAccount {
+        ProviderAccount.identified(provider: "Codex", user: account?.email?.lowercased(), workspace: accountId)
+            ?? .unresolved(provider: "Codex", home: home)
+    }
+
+    /// Window rows keyed by their own window id (`codex`, `codex:<limit>:<slot>`); providers scope them to the account.
+    public func rows(home: String) -> [Row] {
+        let account = providerAccount(home: home)
+        return rows.map { $0.scoped(to: account) }
+    }
 
     public var rows: [Row] {
         buckets.flatMap { id, bucket in
@@ -63,7 +89,7 @@ public struct CodexRateLimits: Decodable, Sendable {
                 default: period = L10n.text(slot == "primary" ? "主额度" : "次额度", slot.capitalized)
                 }
                 let name = id == "codex" ? nil : (bucket.limitName ?? id)
-                // Keep the old Codex placeholder's id for the shared primary window, preserving preferences.
+                // The shared primary window keeps the old placeholder's id as its window key, preserving preferences.
                 let rowId = id == "codex" && slot == "primary" ? "codex" : "codex:\(id):\(slot)"
                 return Row(id: rowId, label: name.map { "\($0) · \(period)" } ?? period, window: window, weekly: weekly)
             }

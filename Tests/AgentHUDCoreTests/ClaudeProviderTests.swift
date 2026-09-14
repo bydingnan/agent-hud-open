@@ -439,11 +439,12 @@ final class ClaudeCodeProviderTests: XCTestCase {
         let resets = now.addingTimeInterval(2 * 3600 + 14 * 60)
         let weeklyResets = now.addingTimeInterval(2 * 86400)
         let body = #"{"five_hour":{"utilization":28,"resets_at":"\#(iso.format(resets))"},"seven_day":{"utilization":39,"resets_at":"\#(iso.format(weeklyResets))"},"seven_day_opus":{"utilization":61,"resets_at":"\#(iso.format(weeklyResets))"}}"#
+        let account = ProviderAccount.unresolved(provider: "Claude", home: "")
         let history = QuotaHistoryStore(fileURL: nil)
         await history.append([
-            QuotaSample(agentId: ClaudeUsage.sessionRowId, timestamp: now.addingTimeInterval(-2 * 3600), remainingPct: 80),
-            QuotaSample(agentId: ClaudeUsage.weeklyRowId, timestamp: now.addingTimeInterval(-5 * 86400), remainingPct: 100),
-            QuotaSample(agentId: "claude-weekly-opus", timestamp: now.addingTimeInterval(-2 * 86400), remainingPct: 90)
+            QuotaSample(agentId: account.windowID(ClaudeUsage.sessionRowId), timestamp: now.addingTimeInterval(-2 * 3600), remainingPct: 80),
+            QuotaSample(agentId: account.windowID(ClaudeUsage.weeklyRowId), timestamp: now.addingTimeInterval(-5 * 86400), remainingPct: 100),
+            QuotaSample(agentId: account.windowID("claude-weekly-opus"), timestamp: now.addingTimeInterval(-2 * 86400), remainingPct: 90)
         ], now: now)
         let provider = ClaudeCodeProvider(
             engine: try fakeEngine(rateLimits: body),
@@ -455,16 +456,16 @@ final class ClaudeCodeProviderTests: XCTestCase {
         XCTAssertNil(report.notice)
         XCTAssertEqual(report.subscriptionType, "max")
 
-        XCTAssertEqual(report.snapshots.map(\.agentId), ["claude-session", "claude-weekly", "claude-weekly-opus"], "one row per quota window")
+        XCTAssertEqual(report.snapshots.map(\.agentId), ["claude-session", "claude-weekly", "claude-weekly-opus"].map(account.windowID), "one row per quota window")
         XCTAssertEqual(report.discoveredAgents.map(\.model), ["window.session", "window.weekly", "window.weekly.Opus"])
         XCTAssertEqual(report.discoveredAgents.map { L10n.modelLabel($0.model) }, ["当前会话 · 5h", "本周 · 全部模型", "本周 · Opus"])
-        XCTAssertEqual(report.snapshot(for: "claude-session")?.remainingPct, 72)
-        XCTAssertEqual(report.snapshot(for: "claude-session")?.windowDuration, 5 * 3600)
-        XCTAssertEqual(report.snapshot(for: "claude-weekly")?.windowDuration, 7 * 86400)
-        XCTAssertEqual(report.snapshot(for: "claude-weekly-opus")?.windowDuration, 7 * 86400)
-        XCTAssertEqual(report.snapshot(for: "claude-weekly")?.remainingPct, 61)
-        XCTAssertEqual(report.snapshot(for: "claude-weekly-opus")?.remainingPct, 39)
-        XCTAssertEqual(report.snapshot(for: "claude-session")?.resetAt?.timeIntervalSince1970 ?? 0, resets.timeIntervalSince1970, accuracy: 0.01)
+        XCTAssertEqual(report.snapshot(for: account.windowID("claude-session"))?.remainingPct, 72)
+        XCTAssertEqual(report.snapshot(for: account.windowID("claude-session"))?.windowDuration, 5 * 3600)
+        XCTAssertEqual(report.snapshot(for: account.windowID("claude-weekly"))?.windowDuration, 7 * 86400)
+        XCTAssertEqual(report.snapshot(for: account.windowID("claude-weekly-opus"))?.windowDuration, 7 * 86400)
+        XCTAssertEqual(report.snapshot(for: account.windowID("claude-weekly"))?.remainingPct, 61)
+        XCTAssertEqual(report.snapshot(for: account.windowID("claude-weekly-opus"))?.remainingPct, 39)
+        XCTAssertEqual(report.snapshot(for: account.windowID("claude-session"))?.resetAt?.timeIntervalSince1970 ?? 0, resets.timeIntervalSince1970, accuracy: 0.01)
         XCTAssertEqual(report.consumers.map(\.id), ["claude-model:claude-opus-4-5", "claude-model:claude-sonnet-4-5"], "models seen in transcripts, most recent first")
 
         XCTAssertEqual(report.sessions.count, 2)
@@ -482,15 +483,15 @@ final class ClaudeCodeProviderTests: XCTestCase {
         XCTAssertEqual(report.sessions[0].agentId, "claude-model:claude-opus-4-5")
         XCTAssertEqual(report.sessions[0].terminal, "proj")
         XCTAssertEqual(report.sessions[0].tokensOut, 1000)
-        XCTAssertEqual(report.consumerIdsByQuota["claude-session"], ["claude-model:claude-opus-4-5", "claude-model:claude-sonnet-4-5"])
-        XCTAssertEqual(report.consumerIdsByQuota["claude-weekly-opus"], ["claude-model:claude-opus-4-5"])
+        XCTAssertEqual(report.consumerIdsByQuota[account.windowID("claude-session")], ["claude-model:claude-opus-4-5", "claude-model:claude-sonnet-4-5"])
+        XCTAssertEqual(report.consumerIdsByQuota[account.windowID("claude-weekly-opus")], ["claude-model:claude-opus-4-5"])
         XCTAssertFalse(report.sessions[1].isLive)
         XCTAssertEqual(report.sessions[1].agentId, "claude-model:claude-sonnet-4-5")
         // Both sessions fall inside the 5h window: live has 1200 of 1600 tokens → 75 % of the 28 % used.
         XCTAssertEqual(try XCTUnwrap(report.sessions[0].pctOfWindow), 21, accuracy: 1e-6)
 
         XCTAssertEqual(report.history.count, 48 * 3)
-        XCTAssertEqual(report.history(for: "claude-session").last?.remainingEnd, 72)
+        XCTAssertEqual(report.history(for: account.windowID("claude-session")).last?.remainingEnd, 72)
         XCTAssertEqual(report.consumption.filter { $0.agentId == "claude-model:claude-opus-4-5" }.map(\.total).reduce(0, +), 1200)
         let eventTimes = report.consumption.filter { $0.agentId == "claude-model:claude-opus-4-5" }.map(\.timestamp)
         let expectedTimes = [-1400.0, -30.0].map { DateParsing.iso8601(iso.format(now.addingTimeInterval($0)))! }
@@ -502,12 +503,12 @@ final class ClaudeCodeProviderTests: XCTestCase {
         XCTAssertEqual(report.insights.windowSessionCount, 2)
         XCTAssertEqual(report.insights.weeklyShare["claude-model:claude-opus-4-5"] ?? 0, 0.75, accuracy: 1e-9)
         XCTAssertEqual(try XCTUnwrap(report.insights.burnRatePctPerHour), 4, accuracy: 1e-6)
-        XCTAssertEqual(try XCTUnwrap(report.insightsByAgent["claude-weekly"]?.burnRatePctPerHour), 39.0 / 120, accuracy: 1e-6,
+        XCTAssertEqual(try XCTUnwrap(report.insightsByAgent[account.windowID("claude-weekly")]?.burnRatePctPerHour), 39.0 / 120, accuracy: 1e-6,
                        "the weekly forecast includes readings older than the selected 48-hour statistics range")
-        XCTAssertEqual(try XCTUnwrap(report.insightsByAgent["claude-weekly-opus"]?.burnRatePctPerHour), 51.0 / 48, accuracy: 1e-6)
+        XCTAssertEqual(try XCTUnwrap(report.insightsByAgent[account.windowID("claude-weekly-opus")]?.burnRatePctPerHour), 51.0 / 48, accuracy: 1e-6)
         XCTAssertEqual(report.activity.rows.count, 7)
         _ = try await provider.fetchAccountAndLocalUsage(agents: DefaultAgents.list, historyHours: 48)
-        let stored = await history.samples(agentId: ClaudeUsage.sessionRowId, since: .distantPast)
+        let stored = await history.samples(agentId: account.windowID(ClaudeUsage.sessionRowId), since: .distantPast)
         XCTAssertEqual(stored.count, 2, "each engine observation appends one sample; a poll served from the cache does not")
     }
 
@@ -529,11 +530,12 @@ final class ClaudeCodeProviderTests: XCTestCase {
         let report = try await provider.fetchAccountAndLocalUsage(agents: DefaultAgents.list, historyHours: 48)
         XCTAssertNil(report.notice)
         XCTAssertEqual(report.subscriptionType, "max")
-        XCTAssertEqual(report.discoveredAgents.map(\.id), ["claude-session", "claude-weekly"])
+        let account = ProviderAccount.unresolved(provider: "Claude", home: "")
+        XCTAssertEqual(report.discoveredAgents.map(\.id), ["claude-session", "claude-weekly"].map(account.windowID))
         XCTAssertEqual(report.consumers.map(\.id), ["claude-model:claude-fable-5-1"])
         XCTAssertEqual(report.consumers.first?.model, "Fable 5.1")
-        XCTAssertEqual(report.snapshot(for: "claude-session")?.remainingPct, 79)
-        XCTAssertEqual(report.snapshot(for: "claude-weekly")?.remainingPct, 30)
+        XCTAssertEqual(report.snapshot(for: account.windowID("claude-session"))?.remainingPct, 79)
+        XCTAssertEqual(report.snapshot(for: account.windowID("claude-weekly"))?.remainingPct, 30)
         XCTAssertEqual(report.sessions.first?.agentId, "claude-model:claude-fable-5-1")
     }
 

@@ -6,6 +6,7 @@ public enum ClaudeDataError: Error, Hashable, Sendable, LocalizedError {
     case engineFailed(String)
     case planLimitsUnavailable
     case malformedUsage
+    case accountChanged
 
     public var errorDescription: String? {
         switch self {
@@ -17,6 +18,8 @@ public enum ClaudeDataError: Error, Hashable, Sendable, LocalizedError {
             return L10n.text("当前登录方式没有订阅额度（API key 或第三方平台）", "No plan limits for this login (API key or third-party platform)")
         case .malformedUsage:
             return L10n.text("Claude Code 引擎返回了无法识别的额度数据", "The Claude Code engine returned unrecognised usage data")
+        case .accountChanged:
+            return L10n.text("读取额度时 Claude 登录账户发生了变化，稍后自动重试", "The Claude account changed during the quota query; retrying shortly")
         }
     }
 }

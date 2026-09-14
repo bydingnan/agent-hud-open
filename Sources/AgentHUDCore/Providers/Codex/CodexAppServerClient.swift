@@ -1,6 +1,6 @@
 import Foundation
 
-/// One short-lived stdio connection. Only initialize + account/rateLimits/read; never starts a turn.
+/// One short-lived stdio connection. Only initialize, account/rateLimits/read and account/read; never starts a turn.
 public struct CodexAppServerClient: Sendable {
     public let executable: URL
     public let dataDirectory: URL
@@ -53,22 +53,40 @@ public struct CodexAppServerClient: Sendable {
         }
         try send(["id": 1, "method": "initialize", "params": ["clientInfo": ["name": "agent_hud", "title": "Agent HUD", "version": "0.1.0"]]])
         let deadline = Date().addingTimeInterval(timeout)
+        var limits: CodexRateLimits?
+        var account: CodexRateLimits.SignedInAccount?
+        var accountAnswered = false
+        var graceUntil = Date.distantFuture
         while Date() < deadline {
             try Task.checkCancellation()
             for line in collector.drainLines() {
                 guard let bytes = line.data(using: .utf8),
                       let message = try JSONSerialization.jsonObject(with: bytes) as? [String: Any],
-                      let id = message["id"] as? Int, id == 1 || id == 2 else { continue }
+                      let id = message["id"] as? Int, (1...3).contains(id) else { continue }
                 if let error = message["error"] as? [String: Any] {
-                    throw UsageProviderError("Codex: " + (error["message"] as? String ?? "app-server error"))
+                    // An engine without account/read still reports limits, only without the signed-in email.
+                    guard id == 3 else { throw UsageProviderError("Codex: " + (error["message"] as? String ?? "app-server error")) }
+                    accountAnswered = true
+                    continue
                 }
                 guard let result = message["result"] else { continue }
-                if id == 1 {
+                let data = try JSONSerialization.data(withJSONObject: result)
+                switch id {
+                case 1:
                     try send(["method": "initialized"])
                     try send(["id": 2, "method": "account/rateLimits/read"])
-                } else {
-                    return try JSONDecoder().decode(CodexRateLimits.self, from: JSONSerialization.data(withJSONObject: result))
+                    try send(["id": 3, "method": "account/read", "params": [String: Any]()])
+                case 2:
+                    limits = try JSONDecoder().decode(CodexRateLimits.self, from: data)
+                    graceUntil = Date().addingTimeInterval(2)
+                default:
+                    account = try? JSONDecoder().decode(AccountResponse.self, from: data).account
+                    accountAnswered = true
                 }
+            }
+            if var reading = limits, accountAnswered || Date() >= graceUntil || !process.isRunning {
+                reading.account = account
+                return reading
             }
             if !process.isRunning {
                 throw UsageProviderError(L10n.text("Codex 引擎提前退出，请检查本机登录状态", "Codex exited before reporting limits; check local sign-in"))
@@ -77,4 +95,8 @@ public struct CodexAppServerClient: Sendable {
         }
         throw UsageProviderError(L10n.text("Codex 额度查询超时", "Codex quota query timed out"))
     }
+}
+
+private struct AccountResponse: Decodable {
+    let account: CodexRateLimits.SignedInAccount?
 }

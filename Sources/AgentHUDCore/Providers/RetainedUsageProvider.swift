@@ -46,9 +46,20 @@ extension UsageReport {
                   let active = activeQuotaPoolIDs?[pool.provider] else { return true }
             return active.contains(pool.id)
         }
-        let retired = previous.discoveredAgents.filter { !isActive($0) }
+        let retiredPools = previous.discoveredAgents.filter { !isActive($0) }
+        let retiredPoolIDs = Set(retiredPools.compactMap { $0.billingPool?.id })
+        let cutoff = generatedAt.addingTimeInterval(-QuotaHistoryStore.retention)
+        let accounts = mergedAccounts(from: previous, retiredPoolIDs: retiredPoolIDs, cutoff: cutoff)
+        let knownAccountIDs = Set(accounts?.values.flatMap { $0.map(\.account.id) } ?? [])
+        // Rows of an account unseen for the retention period retire with its readings and settings.
+        // Rows without an account belong to a provider version that could not identify accounts; they are dropped.
+        let retiredRows = previous.discoveredAgents.filter { agent in
+            if let account = agent.account, agent.billingPool == nil { return accounts != nil && !knownAccountIDs.contains(account.id) }
+            return agent.account == nil && agent.billingPool == nil && accounts?[agent.vendor]?.isEmpty == false
+        }
+        let retired = retiredPools + retiredRows
         let retiredWindowIDs = Set(retired.map(\.id))
-        let retiredPoolIDs = Set(retired.compactMap { $0.billingPool?.id })
+        func isRetained(_ agent: AgentDescriptor) -> Bool { isActive(agent) && !retiredWindowIDs.contains(agent.id) }
         let currentIDs = Set(snapshots.map(\.agentId))
         let billingIDs = Set(billing.map(\.id))
         let retainedBilling = billing.map { value -> APIBilling in
@@ -61,9 +72,9 @@ extension UsageReport {
         let retainedSessions = UsageAggregation.sessionsUnion([sessions, previous.sessions.filter { failedIDs.contains($0.agentId) }])
         return UsageReport(generatedAt: generatedAt,
             snapshots: snapshots + previous.snapshots.filter { !currentIDs.contains($0.agentId) && !retiredWindowIDs.contains($0.agentId) },
-            sessions: retainedSessions, history: UsageAggregation.historyUnion([history, previous.history]).filter { $0.hourStart >= generatedAt.addingTimeInterval(-QuotaHistoryStore.retention) },
+            sessions: retainedSessions, history: UsageAggregation.historyUnion([history, previous.history.filter { !retiredWindowIDs.contains($0.agentId) }]).filter { $0.hourStart >= cutoff },
             activity: activity, insights: insights, notice: notice,
-            discoveredAgents: UsageAggregation.consumersUnion([discoveredAgents, previous.discoveredAgents.filter(isActive)]),
+            discoveredAgents: UsageAggregation.consumersUnion([discoveredAgents, previous.discoveredAgents.filter(isRetained)]),
             subscriptionType: subscriptionType ?? previous.subscriptionType,
             consumers: UsageAggregation.consumersUnion([consumers, previous.consumers.filter(isActive)]),
             // Providers already deduplicate their own events; only vendors whose refresh failed merge in previous events.
@@ -74,13 +85,37 @@ extension UsageReport {
             subscriptions: previous.subscriptions.filter { !retiredPoolIDs.contains($0.key) }.merging(subscriptions, uniquingKeysWith: { _, new in new }),
             sourceNotices: sourceNotices,
             consumerIdsByQuota: previous.consumerIdsByQuota.filter { !retiredWindowIDs.contains($0.key) }.merging(consumerIdsByQuota, uniquingKeysWith: { _, new in new }),
-            billing: retainedBilling, codexResetCredits: codexResetCredits ?? previous.codexResetCredits,
-            codexResetCreditsObservedAt: codexResetCredits != nil ? codexResetCreditsObservedAt : previous.codexResetCreditsObservedAt,
+            billing: retainedBilling, codexResetCredits: codexResetCredits ?? (sameCurrentAccount(as: previous, provider: "Codex") ? previous.codexResetCredits : nil),
+            codexResetCreditsObservedAt: codexResetCredits != nil ? codexResetCreditsObservedAt
+                : sameCurrentAccount(as: previous, provider: "Codex") ? previous.codexResetCreditsObservedAt : nil,
             completions: completions, claudeConsumptionSince: claudeConsumptionSince, turns: turns,
             services: AgentService.merge([(previous.services ?? []).filter { service in
                 // The provider reports all currently usable clients, including during temporary quota failures.
                 service.product != .plan || activeQuotaPoolIDs?[service.provider] == nil
             }, services ?? []]),
-            activeQuotaPoolIDs: (previous.activeQuotaPoolIDs ?? [:]).merging(activeQuotaPoolIDs ?? [:], uniquingKeysWith: { _, new in new }))
+            activeQuotaPoolIDs: (previous.activeQuotaPoolIDs ?? [:]).merging(activeQuotaPoolIDs ?? [:], uniquingKeysWith: { _, new in new }),
+            accounts: accounts)
+    }
+
+    /// A provider's reported list replaces its current accounts; accounts it no longer reports become last readings.
+    /// A provider that did not report this poll keeps its previous inventory unchanged, and a forgotten provider has none.
+    private func mergedAccounts(from previous: UsageReport, retiredPoolIDs: Set<String>, cutoff: Date) -> [String: [AccountObservation]]? {
+        guard accounts != nil || previous.accounts != nil || forgottenAccountProviders != nil else { return nil }
+        var merged = previous.accounts ?? [:]
+        for (provider, current) in accounts ?? [:] {
+            let ids = Set(current.map(\.id))
+            merged[provider] = current + (previous.accounts?[provider] ?? []).filter { !ids.contains($0.id) }.map { $0.with(isCurrent: false) }
+        }
+        for provider in forgottenAccountProviders ?? [] {
+            merged[provider] = []
+        }
+        return merged.mapValues { observations in
+            observations.filter { $0.observedAt >= cutoff && !retiredPoolIDs.contains($0.account.id) }
+        }
+    }
+
+    private func sameCurrentAccount(as previous: UsageReport, provider: String) -> Bool {
+        guard let current = accounts?[provider] else { return true }
+        return Set(current.filter(\.isCurrent).map(\.account.id)) == Set((previous.accounts?[provider] ?? []).filter(\.isCurrent).map(\.account.id))
     }
 }

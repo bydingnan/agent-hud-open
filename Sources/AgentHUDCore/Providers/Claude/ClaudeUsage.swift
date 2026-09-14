@@ -41,16 +41,22 @@ public struct ClaudeQuotaWindowRow: Hashable, Sendable, Identifiable {
     public let label: String
     public let window: ClaudeUsageWindow
     public let duration: TimeInterval
+    public let account: ProviderAccount?
 
-    public init(id: String, label: String, window: ClaudeUsageWindow, duration: TimeInterval) {
+    public init(id: String, label: String, window: ClaudeUsageWindow, duration: TimeInterval, account: ProviderAccount? = nil) {
         self.id = id
         self.label = label
         self.window = window
         self.duration = duration
+        self.account = account
     }
 
     public var descriptor: AgentDescriptor {
-        AgentDescriptor(id: id, vendor: "Claude", model: label, source: L10n.sourceClaudeCode, enabled: true)
+        AgentDescriptor(id: id, vendor: "Claude", model: label, source: L10n.sourceClaudeCode, enabled: true, account: account)
+    }
+
+    func scoped(to account: ProviderAccount) -> ClaudeQuotaWindowRow {
+        ClaudeQuotaWindowRow(id: account.windowID(id), label: label, window: window, duration: duration, account: account)
     }
 }
 

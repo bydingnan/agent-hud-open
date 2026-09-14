@@ -14,6 +14,8 @@ struct GrokClient: Sendable {
         let headers = ["Authorization": "Bearer \(token)", "x-xai-token-auth": "xai-grok-cli"]
         let response = try await http.json(URL(string: "https://cli-chat-proxy.grok.com/v1/billing?format=credits")!, headers: headers)
         var quota = try Self.parse(response)
+        quota.account = Self.account(entry)
+        quota.label = entry["email"].stringValue
         if let settings = try? await http.json(URL(string: "https://cli-chat-proxy.grok.com/v1/settings")!, headers: headers, timeout: 2) {
             quota.plan = settings["subscription_tier_display"].stringValue ?? quota.plan
         }
@@ -35,6 +37,12 @@ struct GrokClient: Sendable {
             throw UsageProviderError(L10n.text("Grok 团队账户尚未提供可读取的额度", "Grok team quota is not available through this interface"))
         }
         return selected
+    }
+
+    /// The login record names the user and team; the billing service does not confirm them.
+    static func account(_ entry: ProviderJSON) -> ProviderAccount? {
+        ProviderAccount.identified(provider: "Grok", user: entry["user_id"].stringValue ?? entry["principal_id"].stringValue,
+                                   workspace: entry["team_id"].stringValue ?? entry["organization_id"].stringValue, evidence: .credential)
     }
 
     static func parse(_ response: ProviderJSON) throws -> ProviderQuota {

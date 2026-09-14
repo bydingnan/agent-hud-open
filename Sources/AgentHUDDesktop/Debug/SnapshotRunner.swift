@@ -255,6 +255,33 @@ public enum SnapshotRunner {
         settings.updateAgents { _ in [deepseek] }
         save("island-deepseek-only-dark", IslandScene(store: store, settings: settings, open: true, light: false), folder: folder, scheme: .dark)
 
+        // Two Codex sign-ins: the current account's windows, then the last reading of the previous one.
+        let currentAccount = ProviderAccount.identified(provider: "Codex", user: "work@example.com", workspace: "team")!
+        let previousAccount = ProviderAccount.identified(provider: "Codex", user: "me@example.com", workspace: "personal")!
+        let accountRows = [currentAccount, previousAccount].flatMap { account in
+            [("codex", L10n.windowWeekly), ("codex:spark:primary", "GPT-5.3-Codex-Spark · 5h")].map { key, label in
+                AgentDescriptor(id: account.windowID(key), vendor: "Codex", model: label, source: L10n.sourceCodexAppServer, enabled: true, account: account)
+            }
+        }
+        let accountReadings: [(ProviderAccount, String, Double, Date)] = [
+            (currentAccount, "codex", 58, resetNow), (currentAccount, "codex:spark:primary", 0, resetNow),
+            (previousAccount, "codex", 100, resetNow.addingTimeInterval(-3 * 3600)),
+            (previousAccount, "codex:spark:primary", 36, resetNow.addingTimeInterval(-3 * 3600)),
+        ]
+        settings.updateAgents { _ in [quotaAgents[0]] + accountRows }
+        store.replace(report: UsageReport(generatedAt: resetNow, snapshots: [quotaSnapshots[0]] + accountReadings.map { account, key, remaining, observed in
+                UsageSnapshot(agentId: account.windowID(key), remainingPct: remaining, resetAt: resetNow.addingTimeInterval(key == "codex" ? 4 * 86400 : 3 * 3600),
+                              windowDuration: key == "codex" ? 7 * 86400 : 5 * 3600, updatedAt: observed)
+            }, sessions: [], history: [], activity: .empty, insights: .empty, subscriptions: ["Codex": "pro"],
+            codexResetCredits: DemoData.codexResetCredits(now: resetNow), accounts: ["Codex": [
+                AccountObservation(account: currentAccount, label: "work@example.com", plan: "pro", observedAt: resetNow),
+                AccountObservation(account: previousAccount, label: "me@example.com", plan: "prolite", observedAt: resetNow.addingTimeInterval(-3 * 3600), isCurrent: false),
+            ]]))
+        save("island-provider-accounts-dark", IslandScene(store: store, settings: settings, open: true, light: false), folder: folder, scheme: .dark)
+        save("settings-agents-provider-accounts-dark", SettingsView(settings: settings, store: store, initialTab: .sources,
+            sourceStatuses: [.init(id: "codex-cli", name: "Codex", detail: "", state: .ready(plan: "pro"))], initiallyExpandedAgents: ["Codex"])
+            .frame(width: 760, height: 800), folder: folder, scheme: .dark)
+
         await IslandAnimationChecks.run(store: store, settings: settings, folder: folder)
         IslandHoverChecks.run(store: store, settings: settings, folder: folder)
     }

@@ -59,6 +59,8 @@ public struct QuotaAlertTracker: Sendable {
         previous = previous.filter { ids.contains($0.key) }
         var result = Update()
         for agent in quotaAgents {
+            // Signing back in to an account is a new baseline, not a reset observed while it was away.
+            guard report.isCurrent(agent) else { previous[agent.id] = nil; continue }
             guard let snapshot = report.snapshot(for: agent.id),
                   report.sourceNotices[agent.vendor] == nil,
                   snapshot.updatedAt <= now,
@@ -88,7 +90,7 @@ public struct QuotaAlertTracker: Sendable {
             let restoredEarly = snapshot.remainingPct == 100 && old.snapshot.remainingPct < 100
             if cycleAdvanced || restoredEarly {
                 let otherExhausted = quotaAgents.filter {
-                    $0.vendor == agent.vendor && $0.id != agent.id &&
+                    $0.vendor == agent.vendor && $0.account?.id == agent.account?.id && $0.id != agent.id &&
                     report.snapshot(for: $0.id).map { $0.remainingPct <= 0 && ($0.resetAt ?? .distantPast) > now } == true
                 }.map(\.model)
                 result.alerts.append(QuotaAlert(kind: .reset, agent: agent, snapshot: snapshot, otherExhaustedWindows: otherExhausted))

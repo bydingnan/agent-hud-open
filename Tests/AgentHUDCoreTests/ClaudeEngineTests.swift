@@ -111,11 +111,12 @@ final class ClaudeEngineTests: XCTestCase {
         let provider = ClaudeCodeProvider(engine: .init(executable: fake, workingDirectory: dir),
                                          transcripts: .init(roots: []), history: .init(fileURL: nil), clock: { now })
         let report = try await provider.fetchAccountAndLocalUsage(agents: [], historyHours: 2)
-        let quota = try XCTUnwrap(report.snapshot(for: ClaudeUsage.sessionRowId))
+        let sessionRowId = ProviderAccount.unresolved(provider: "Claude", home: "").windowID(ClaudeUsage.sessionRowId)
+        let quota = try XCTUnwrap(report.snapshot(for: sessionRowId))
         XCTAssertEqual(quota.remainingPct, 79, "A passed deadline must not fabricate full quota")
         XCTAssertLessThan(try XCTUnwrap(quota.resetAt), now)
         let cached = try await provider.fetchAccountAndLocalUsage(agents: [], historyHours: 2)
-        XCTAssertEqual(cached.snapshot(for: ClaudeUsage.sessionRowId), quota)
+        XCTAssertEqual(cached.snapshot(for: sessionRowId), quota)
     }
 }
 

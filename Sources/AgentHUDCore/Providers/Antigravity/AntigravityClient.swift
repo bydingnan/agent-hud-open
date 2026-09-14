@@ -40,9 +40,18 @@ struct AntigravityClient: Sendable {
                     "ideName": .string("antigravity"), "extensionName": .string("antigravity"), "locale": .string("en"), "ideVersion": .string("unknown")
                 ])])
                 if let json = try? await http.json(URL(string: base + "RetrieveUserQuotaSummary")!, headers: headers, body: body, timeout: 2),
-                   let result = try? Self.summary(json), !result.windows.isEmpty { return result }
+                   var result = try? Self.summary(json), !result.windows.isEmpty {
+                    // The IDE and agy can be signed in to different accounts, so identity comes from the same server.
+                    if let status = try? await http.json(URL(string: base + "GetUserStatus")!, headers: headers, body: body, timeout: 2) {
+                        (result.account, result.label) = Self.identity(status)
+                    }
+                    return result
+                }
                 if let json = try? await http.json(URL(string: base + "GetUserStatus")!, headers: headers, body: body, timeout: 2),
-                   let result = try? Self.userStatus(json), !result.windows.isEmpty { fallback = fallback ?? result; break }
+                   var result = try? Self.userStatus(json), !result.windows.isEmpty {
+                    (result.account, result.label) = Self.identity(json)
+                    fallback = fallback ?? result; break
+                }
             }
         }
         if let fallback { return fallback }
@@ -108,6 +117,11 @@ struct AntigravityClient: Sendable {
             }
         }
         return result
+    }
+
+    static func identity(_ json: ProviderJSON) -> (ProviderAccount?, String?) {
+        let status = json["userStatus"], email = status["email"].stringValue
+        return (ProviderAccount.identified(provider: "Antigravity", user: email?.lowercased(), workspace: status["teamId"].stringValue), email)
     }
 
     static func userStatus(_ json: ProviderJSON) throws -> ProviderQuota {

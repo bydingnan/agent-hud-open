@@ -3,7 +3,7 @@ import Foundation
 
 // Protocol/SQLite auth derived from CodexBar; event session identity follows Tokscale. See THIRD_PARTY_NOTICES.txt.
 actor CursorClient {
-    struct Session: Sendable { let account: String; let cookie: String }
+    struct Session: Sendable { let account: String; let cookie: String; var email: String? = nil }
     let database: URL
     let http: ProviderHTTP
     private var cached: (at: Date, account: String, since: Date, result: ProviderSessions)?
@@ -18,12 +18,17 @@ actor CursorClient {
     func session(now: Date = Date()) throws -> Session {
         let reader = try ReadOnlySQLite(database)
         try reader.requireTable("ItemTable")
-        var token: String?
+        var token: String?, email: String?
         try reader.rows("SELECT value FROM ItemTable WHERE key = ?", strings: ["cursorAuth/accessToken"]) { row in
             token = ReadOnlySQLite.text(row, 0)
         }
+        try reader.rows("SELECT value FROM ItemTable WHERE key = ?", strings: ["cursorAuth/cachedEmail"]) { row in
+            email = ReadOnlySQLite.text(row, 0)
+        }
         guard let token else { throw ProviderFailure.login("Cursor") }
-        return try Self.session(token: token, now: now)
+        var session = try Self.session(token: token, now: now)
+        session.email = email
+        return session
     }
 
     static func session(token: String, now: Date) throws -> Session {
@@ -44,7 +49,11 @@ actor CursorClient {
         guard FileManager.default.fileExists(atPath: database.path) else { return ProviderQuota() }
         let auth = try session()
         let json = try await http.json(URL(string: "https://cursor.com/api/usage-summary")!, headers: ["Cookie": auth.cookie])
-        return try Self.parseQuota(json)
+        var quota = try Self.parseQuota(json)
+        // The session's user id is confirmed by the dashboard accepting it.
+        quota.account = ProviderAccount(provider: "Cursor", user: auth.account, workspace: "", evidence: .account)
+        quota.label = auth.email
+        return quota
     }
 
     static func parseQuota(_ json: ProviderJSON) throws -> ProviderQuota {

@@ -90,6 +90,12 @@ public struct UsageReport: Hashable, Codable, Sendable {
     /// Authoritative pool inventory for each reporting provider. An empty set means no usable credentials.
     /// Nil keeps older cached reports decodable; it does not assert that their credentials are still valid.
     public let activeQuotaPoolIDs: [String: Set<String>]?
+    /// Account inventory by provider name. A present key is that provider's authoritative list, an empty list included.
+    /// Nil keeps older cached reports decodable.
+    public let accounts: [String: [AccountObservation]]?
+    /// Providers whose accounts must be forgotten now, for example after the user withdrew consent to read them.
+    /// Unlike an empty inventory, which keeps earlier accounts as last readings, their readings, rows and settings retire at once.
+    public let forgottenAccountProviders: Set<String>?
     public let sourceNotices: [String: String]
     /// Consumer ids covered by each quota row. Providers own the relationship between model and quota ids.
     public let consumerIdsByQuota: [String: Set<String>]
@@ -123,8 +129,12 @@ public struct UsageReport: Hashable, Codable, Sendable {
         claudeConsumptionSince: Date? = nil,
         turns: [SessionTurn] = [],
         services: [AgentService]? = nil,
-        activeQuotaPoolIDs: [String: Set<String>]? = nil
+        activeQuotaPoolIDs: [String: Set<String>]? = nil,
+        accounts: [String: [AccountObservation]]? = nil,
+        forgottenAccountProviders: Set<String>? = nil
     ) {
+        self.accounts = accounts
+        self.forgottenAccountProviders = forgottenAccountProviders
         self.services = services
         self.activeQuotaPoolIDs = activeQuotaPoolIDs
         self.claudeConsumptionSince = claudeConsumptionSince

@@ -14,6 +14,8 @@ public struct ClaudeCodeProvider: UsageProvider {
     private let transcripts: ClaudeTranscriptStore
     private let history: QuotaHistoryStore
     private let accountProfileURL: URL?
+    /// `ClientHome.key` of the configuration directory, separating unidentified logins of different homes.
+    private let home: String
     private let calendar: Calendar
     private let clock: @Sendable () -> Date
 
@@ -22,6 +24,7 @@ public struct ClaudeCodeProvider: UsageProvider {
         transcripts: ClaudeTranscriptStore,
         history: QuotaHistoryStore,
         accountProfileURL: URL? = nil,
+        home: String = "",
         calendar: Calendar = .current,
         clock: @escaping @Sendable () -> Date = { Date() }
     ) {
@@ -29,6 +32,7 @@ public struct ClaudeCodeProvider: UsageProvider {
         self.transcripts = transcripts
         self.history = history
         self.accountProfileURL = accountProfileURL
+        self.home = home
         self.calendar = calendar
         self.clock = clock
     }
@@ -41,16 +45,25 @@ public struct ClaudeCodeProvider: UsageProvider {
             },
             transcripts: ClaudeTranscriptStore(cacheURL: ClaudeTranscriptStore.defaultCacheURL),
             history: QuotaHistoryStore(fileURL: QuotaHistoryStore.defaultFileURL),
-            accountProfileURL: ClaudeSubscription.accountProfileURL
+            accountProfileURL: ClaudeSubscription.accountProfileURL,
+            home: ClaudeSubscription.home
         )
+    }
+
+    private func account(for reading: EngineUsageCache.Reading) -> ProviderAccount {
+        reading.identity?.account ?? .unresolved(provider: "Claude", home: home)
     }
 
     public func refreshAccountUsage(historyHours: Int) async {
         let now = clock()
         do {
-            let (result, fetchedAt, fresh) = try await engineCache.fetch(client: engine, now: now, minimumInterval: Self.engineMinimumInterval)
+            let profileURL = accountProfileURL
+            let (result, fetchedAt, fresh) = try await engineCache.fetch(client: engine, now: now, minimumInterval: Self.engineMinimumInterval) {
+                profileURL.flatMap { try? Data(contentsOf: $0) }
+            }
             if fresh {
-                await history.append(result.usage.rows.map {
+                let account = account(for: result)
+                await history.append(result.usage.usage.rows.map { $0.scoped(to: account) }.map {
                     QuotaSample(agentId: $0.id, timestamp: fetchedAt, remainingPct: $0.window.remainingPct)
                 }, now: now)
             }
@@ -78,13 +91,15 @@ public struct ClaudeCodeProvider: UsageProvider {
         var usage: ClaudeUsage?
         var notice: String?
         var updatedAt = now
+        var reading: EngineUsageCache.Reading?
         do {
             if let (result, fetchedAt) = try await engineCache.reading() {
-                subscription = result.subscriptionType
+                reading = result
+                subscription = result.usage.subscriptionType
                 updatedAt = fetchedAt
-                if result.rateLimitsAvailable {
+                if result.usage.rateLimitsAvailable {
                     // Keep the engine's observation intact. A deadline passing is not a confirmed reset.
-                    usage = result.usage
+                    usage = result.usage.usage
                 } else {
                     notice = ClaudeDataError.planLimitsUnavailable.errorDescription
                 }
@@ -96,10 +111,12 @@ public struct ClaudeCodeProvider: UsageProvider {
             guard !sessions.isEmpty else { throw error }
             notice = error.localizedDescription
         }
-        let plan = ClaudeSubscription.plan(type: subscription, profileData: accountProfileURL.flatMap { try? Data(contentsOf: $0) })
+        let plan = ClaudeSubscription.plan(type: subscription, profileData: reading?.profileData)
+        let account = reading.map(account(for:))
+        let sessionRowId = account?.windowID(ClaudeUsage.sessionRowId) ?? ClaudeUsage.sessionRowId
 
         // Quota rows: one per window (session / weekly / weekly per family), each with its own reset cadence.
-        let windowRows = usage?.rows ?? []
+        let windowRows = account.map { account in (usage?.rows ?? []).map { $0.scoped(to: account) } } ?? []
         let discovered = windowRows.map(\.descriptor)
         var snapshots: [UsageSnapshot] = []
         for row in windowRows {
@@ -125,7 +142,8 @@ public struct ClaudeCodeProvider: UsageProvider {
             )
         }
         // Rows the user still has enabled but the plan no longer reports keep their stored history.
-        for agent in agents where agent.enabled && agent.id.hasPrefix("claude-") && !windowRows.contains(where: { $0.id == agent.id }) {
+        for agent in agents where agent.enabled && agent.account != nil && agent.account == account
+            && agent.windowKey.hasPrefix("claude-") && !windowRows.contains(where: { $0.id == agent.id }) {
             let quota = await history.samples(agentId: agent.id, since: quotaSince)
             guard !quota.isEmpty else { continue }
             historySamples += UsageAnalytics.hourlyHistory(
@@ -163,8 +181,8 @@ public struct ClaudeCodeProvider: UsageProvider {
         }
 
         // 5. Insights from the session window's samples.
-        let weekSamples = await history.samples(agentId: ClaudeUsage.sessionRowId, since: weekAgo)
-        let sessionCycle = snapshots.first { $0.agentId == ClaudeUsage.sessionRowId }?.cycle
+        let weekSamples = await history.samples(agentId: sessionRowId, since: weekAgo)
+        let sessionCycle = snapshots.first { $0.agentId == sessionRowId }?.cycle
         let burn = UsageAnalytics.burnRate(samples: weekSamples, cycle: sessionCycle, now: now)
         let cap = UsageAnalytics.capStats(samples: weekSamples, now: now)
         let insights = UsageInsights(
@@ -179,8 +197,8 @@ public struct ClaudeCodeProvider: UsageProvider {
             windowUsedPct: utilization
         )
 
-        var insightsByAgent = [ClaudeUsage.sessionRowId: insights]
-        for row in windowRows where row.id != ClaudeUsage.sessionRowId {
+        var insightsByAgent: [String: UsageInsights] = account == nil ? [:] : [sessionRowId: insights]
+        for row in windowRows where row.id != sessionRowId {
             let samples = await history.samples(agentId: row.id, since: weekAgo)
             let cycle = snapshots.first { $0.agentId == row.id }?.cycle
             let rowBurn = UsageAnalytics.burnRate(samples: samples, cycle: cycle, now: now)
@@ -195,10 +213,14 @@ public struct ClaudeCodeProvider: UsageProvider {
             )
         }
         let consumerIds = Set(consumers.map(\.id) + listed.map(\.agentId))
-        var consumerIdsByQuota = [ClaudeUsage.sessionRowId: consumerIds, ClaudeUsage.weeklyRowId: consumerIds]
-        for id in consumerIds {
-            if let info = ClaudeModelInfo.parse(String(id.dropFirst("claude-model:".count))) {
-                consumerIdsByQuota["\(ClaudeUsage.weeklyRowId)-\(info.family.lowercased())", default: []].insert(id)
+        var consumerIdsByQuota: [String: Set<String>] = [:]
+        if let account {
+            consumerIdsByQuota[sessionRowId] = consumerIds
+            consumerIdsByQuota[account.windowID(ClaudeUsage.weeklyRowId)] = consumerIds
+            for id in consumerIds {
+                if let info = ClaudeModelInfo.parse(String(id.dropFirst("claude-model:".count))) {
+                    consumerIdsByQuota[account.windowID("\(ClaudeUsage.weeklyRowId)-\(info.family.lowercased())"), default: []].insert(id)
+                }
             }
         }
         return UsageReport(
@@ -220,29 +242,49 @@ public struct ClaudeCodeProvider: UsageProvider {
             consumerIdsByQuota: consumerIdsByQuota,
             completions: sessions.flatMap(\.completions),
             claudeConsumptionSince: indexing == nil ? cutoff : nil,
-            turns: sessions.compactMap(\.turn)
+            turns: sessions.compactMap(\.turn),
+            // A login without plan limits has no current subscription account; earlier accounts keep their last readings.
+            accounts: reading.map { reading in
+                ["Claude": usage == nil ? [] : [AccountObservation(account: self.account(for: reading), home: home,
+                    label: reading.identity?.email, plan: plan, observedAt: updatedAt)]]
+            }
         )
     }
 }
 
 /// Serialises engine queries and throttles them, since each one spawns a full engine process.
 actor EngineUsageCache {
-    private var last: (at: Date, result: Result<ClaudeEngineUsage, any Error>)?
+    /// One engine reading with the account profile read around it.
+    struct Reading: Sendable {
+        let usage: ClaudeEngineUsage
+        let identity: ClaudeSubscription.Identity?
+        let profileData: Data?
+    }
 
-    func reading() throws -> (ClaudeEngineUsage, Date)? {
+    private var last: (at: Date, result: Result<Reading, any Error>)?
+
+    func reading() throws -> (Reading, Date)? {
         guard let last else { return nil }
         return (try last.result.get(), last.at)
     }
 
     /// `fresh` is false when the reading comes from the cache rather than a new engine query.
-    func fetch(client: ClaudeEngineUsageClient?, now: Date, minimumInterval: TimeInterval) async throws -> (ClaudeEngineUsage, Date, fresh: Bool) {
+    /// The profile is read before and after the query; a login change in between discards the reading.
+    func fetch(client: ClaudeEngineUsageClient?, now: Date, minimumInterval: TimeInterval,
+               profile: @Sendable () -> Data? = { nil }) async throws -> (Reading, Date, fresh: Bool) {
         if let last, now.timeIntervalSince(last.at) < minimumInterval {
             return (try last.result.get(), last.at, false)
         }
-        let result: Result<ClaudeEngineUsage, any Error>
+        let result: Result<Reading, any Error>
         do {
             guard let client else { throw ClaudeDataError.engineNotFound }
-            result = .success(try await client.fetch())
+            let before = profile()
+            let usage = try await client.fetch()
+            let after = profile()
+            let identity = ClaudeSubscription.identity(profileData: after)
+            // An API-key or third-party login can leave an old profile behind; only plan limits make it the reading's account.
+            guard ClaudeSubscription.identity(profileData: before) == identity else { throw ClaudeDataError.accountChanged }
+            result = .success(Reading(usage: usage, identity: usage.rateLimitsAvailable ? identity : nil, profileData: after))
         }
         catch {
             try Task.checkCancellation()

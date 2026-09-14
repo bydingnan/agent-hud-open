@@ -55,7 +55,7 @@ final class SubscriptionTests: XCTestCase {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let profileURL = directory.appendingPathComponent(".claude.json")
-        try profile(tier: "default_claude_max_20x").write(to: profileURL)
+        try profile(tier: "default_claude_max_20x", accountUuid: "user-1", organizationUuid: "org-1", email: "dev@example.com").write(to: profileURL)
         let executable = directory.appendingPathComponent("claude")
         let response = #"{"type":"control_response","response":{"subtype":"success","response":{"subscription_type":"max","rate_limits_available":true,"rate_limits":{"five_hour":{"utilization":21,"resets_at":null}}}}}"#
         try "#!/bin/sh\nread -r request\necho '\(response)'\n".write(to: executable, atomically: true, encoding: .utf8)
@@ -67,12 +67,21 @@ final class SubscriptionTests: XCTestCase {
         let report = try await provider.fetchAccountAndLocalUsage(agents: [], historyHours: 1)
         XCTAssertEqual(report.subscriptionType, "max")
         XCTAssertEqual(report.subscriptions["Claude"], "max_20x")
-        XCTAssertEqual(report.snapshot(for: ClaudeUsage.sessionRowId)?.remainingPct, 79)
+        let account = try XCTUnwrap(ProviderAccount.identified(provider: "Claude", user: "user-1", workspace: "org-1"))
+        XCTAssertEqual(report.snapshot(for: account.windowID(ClaudeUsage.sessionRowId))?.remainingPct, 79)
+        let observation = try XCTUnwrap(report.accounts?["Claude"]?.first)
+        XCTAssertEqual(observation.account, account)
+        XCTAssertEqual(observation.label, "dev@example.com")
+        XCTAssertEqual(observation.plan, "max_20x")
     }
 
-    private func profile(tier: String, organization: String = "claude_max", userTier: String? = nil) throws -> Data {
+    private func profile(tier: String, organization: String = "claude_max", userTier: String? = nil,
+                         accountUuid: String? = nil, organizationUuid: String? = nil, email: String? = nil) throws -> Data {
         var account = ["organizationType": organization, "organizationRateLimitTier": tier]
         account["userRateLimitTier"] = userTier
+        account["accountUuid"] = accountUuid
+        account["organizationUuid"] = organizationUuid
+        account["emailAddress"] = email
         return try JSONSerialization.data(withJSONObject: ["oauthAccount": account])
     }
 }

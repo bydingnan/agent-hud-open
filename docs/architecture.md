@@ -13,7 +13,7 @@ Agent HUD Open is a Swift package with three libraries and one executable. `Agen
 | `AgentHUDDesktop` | Menu bar item, notch glow and panel, alerts, onboarding, settings and statistics windows; its resource bundle holds every logo and notice | Core |
 | `AgentHUDOpenApp` (product `AgentHUDOpen`) | Launch options, live or sample data, adapter setup, process lifetime | Desktop, Core |
 
-`CombinedUsageProvider` runs one provider per client and merges their reports; `RetainedUsageProvider` restores the saved report at start and fills readings a partial refresh could not supply; `UsageStore` polls local activity, runs account refreshes on their own task, and publishes the report the desktop observes. A report carries quota windows, sessions, turns, completions, usage events, history, services and billing.
+`CombinedUsageProvider` runs one provider per client and merges their reports; `RetainedUsageProvider` restores the saved report at start and fills readings a partial refresh could not supply; `UsageStore` polls local activity, runs account refreshes on their own task, and publishes the report the desktop observes. A report carries quota windows, sessions, turns, completions, usage events, history, services, billing and the account inventory (`ProviderAccount`, `AccountObservation`); every quota row belongs to one account.
 
 ## Rules
 
@@ -33,7 +33,7 @@ Agent HUD Open is a Swift package with three libraries and one executable. `Agen
 ### Storage
 
 - The standalone bundle identifier is `app.agenthud.open`; preferences live in its UserDefaults domain, with separate domains for demo and snapshot runs.
-- Cached reports, transcript indexes, quota histories, hashed Kimi identities and completion records live in the data directory ([caches](providers.md#caches)); quota histories keep 30 days. No file contains conversation text or credentials.
+- Cached reports (including account labels), transcript indexes, quota histories, hashed Kimi identities and completion records live in the data directory ([caches](providers.md#caches)); quota histories keep 30 days. No file contains conversation text or credentials.
 - SwiftPM resources are located through `AppResources`; the app bundle carries `AgentHUDOpen_AgentHUDDesktop.bundle` under `Contents/Resources`.
 
 ### Design invariants
