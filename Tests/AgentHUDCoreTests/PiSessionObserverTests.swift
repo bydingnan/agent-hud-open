@@ -109,7 +109,7 @@ final class PiSessionObserverTests: XCTestCase, @unchecked Sendable {
         XCTAssertThrowsError(try PiSessionObserver.read(Data("{}".utf8)))
     }
 
-    func testNativeExtensionLifecycleRetriesHeartbeatAndPrivacy() throws {
+    func testNativeExtensionLifecycleRetriesHeartbeatAndPrivacy() async throws {
         let home = try temporaryHome()
         let script = home.appendingPathComponent("observer.mjs"), test = home.appendingPathComponent("test.mjs")
         try write(Data(PiSessionObserver.script.utf8), to: script)
@@ -171,7 +171,7 @@ final class PiSessionObserverTests: XCTestCase, @unchecked Sendable {
         emit('agent_start'); emit('agent_settled');
         console.log('Pi native lifecycle checks passed');
         """#.utf8), to: test)
-        let output = try ProviderCommand.run("/usr/bin/env", ["node", test.path, home.path])
+        let output = try await ProviderCommand.run("/usr/bin/env", ["node", test.path, home.path])
         XCTAssertTrue(output.contains("Pi native lifecycle checks passed"), output)
     }
 }

@@ -191,14 +191,15 @@ final class DeepSeekProviderTests: XCTestCase {
                      event("turn/end", seq: 3, data: ["turn": 1, "reason": ["kind": "completed"]])]
         let plain = dir.appendingPathComponent("fixture.txt")
         try (lines.joined(separator: "\n") + "\n").write(to: plain, atomically: true, encoding: .utf8)
-        let frames = try DeepSeekNode.run(script: """
+        let frames = try await DeepSeekNode.run(script: """
         const fs = require('node:fs'), z = require('node:zlib');
         for (const line of fs.readFileSync(process.argv[1], 'utf8').trimEnd().split('\\n'))
           process.stdout.write(z.zstdCompressSync(Buffer.from(line + '\\n')));
         """, arguments: [plain.path])
         let file = dir.appendingPathComponent("session.jsonl.zstd")
         try frames.write(to: file)
-        XCTAssertEqual(try DeepSeekLogReader.read(file), try Data(contentsOf: plain), "all frames, not just the session header")
+        let decoded = try await DeepSeekLogReader.read(file)
+        XCTAssertEqual(decoded, try Data(contentsOf: plain), "all frames, not just the session header")
         let store = DeepSeekTranscriptStore(root: dir)
         let full = await store.index(since: .distantPast, timeBudget: 5)
         XCTAssertNil(full.notice)
@@ -214,18 +215,18 @@ final class DeepSeekProviderTests: XCTestCase {
         XCTAssertFalse(complete.sessions[0].transcript.isLive(now: now, modifiedAt: now))
     }
 
-    func testLargeCompressedLogDrainsPipeAndSkipsPackedConversationContent() throws {
+    func testLargeCompressedLogDrainsPipeAndSkipsPackedConversationContent() async throws {
         guard DeepSeekLocator.nodeExecutable() != nil else { throw XCTSkip("Harness requires Node.js") }
         let dir = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
         let file = dir.appendingPathComponent("session.jsonl.zstd")
-        let frames = try DeepSeekNode.run(script: """
+        let frames = try await DeepSeekNode.run(script: """
         const z = require('node:zlib');
         process.stdout.write(z.zstdCompressSync(Buffer.from('x'.repeat(300000))));
         process.stdout.write(z.zstdCompressSync(Buffer.from('end')));
         """, arguments: [])
         try frames.write(to: file)
-        let decoded = try DeepSeekLogReader.read(file)
+        let decoded = try await DeepSeekLogReader.read(file)
         XCTAssertEqual(decoded.count, 300003)
         XCTAssertTrue(String(decoding: decoded.suffix(3), as: UTF8.self) == "end")
         var transcript = DeepSeekTranscript()

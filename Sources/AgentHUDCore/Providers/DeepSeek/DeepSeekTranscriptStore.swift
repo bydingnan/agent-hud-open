@@ -71,7 +71,7 @@ public actor DeepSeekTranscriptStore {
             if Date() >= deadline { pending += 1; continue }
             do {
                 // Compressed streams replay on change; the summary resumes at its decoded byte offset.
-                let data = try DeepSeekLogReader.read(candidate.url)
+                let data = try await DeepSeekLogReader.read(candidate.url)
                 var entry = old ?? Entry(modifiedAt: candidate.modified, size: candidate.size, offset: 0, committedSize: 0, transcript: DeepSeekTranscript())
                 var reset = false
                 if candidate.size < entry.size || data.count < entry.offset || (old?.size == candidate.size && !LedgerCopies.same(old!.modifiedAt, candidate.modified)) {

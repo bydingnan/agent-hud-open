@@ -10,7 +10,7 @@ enum DeepSeekRuntime {
                 .map { $0.appendingPathComponent("cordis.yml") }
                 .filter { FileManager.default.fileExists(atPath: $0.path) }
             guard !files.isEmpty,
-                  let output = try? ProviderCommand.run("/usr/sbin/lsof",
+                  let output = try? await ProviderCommand.run("/usr/sbin/lsof",
                     ["-nP", "-a", "-u", String(getuid()), "-Fp", "--"] + files.map(\.path)) else { return [] }
             return processIDs(output).compactMap { pid in
                 var info = proc_bsdinfo()

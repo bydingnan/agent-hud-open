@@ -105,99 +105,23 @@ public struct ClaudeEngineUsageClient: Sendable {
     public static let request = #"{"type":"control_request","request_id":"agent-hud-usage","request":{"subtype":"get_usage"}}"#
 
     public func fetch() async throws -> ClaudeEngineUsage {
-        let executable = executable
-        let cwd = workingDirectory
-        let timeout = timeout
-        let worker = Task.detached(priority: .utility) {
-            try Self.run(executable: executable, cwd: cwd, timeout: timeout)
-        }
-        return try await withTaskCancellationHandler {
-            try await worker.value
-        } onCancel: {
-            worker.cancel()
-        }
-    }
-
-    private static func run(executable: URL, cwd: URL, timeout: TimeInterval) throws -> ClaudeEngineUsage {
-        try? FileManager.default.createDirectory(at: cwd, withIntermediateDirectories: true)
-        let process = Process()
-        process.executableURL = executable
-        process.arguments = [
-            "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
-            "--settings", #"{"disableAllHooks":true}"#,
-        ]
-        process.currentDirectoryURL = cwd
+        try? FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
         var environment = ProcessInfo.processInfo.environment
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         environment["PATH"] = "\(home)/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
         environment["CLAUDE_CODE_ENTRYPOINT"] = "agent-hud"
-        process.environment = environment
-
-        let input = Pipe(), output = Pipe(), error = Pipe()
-        process.standardInput = input
-        process.standardOutput = output
-        process.standardError = error
-
-        let collector = LineCollector()
-        output.fileHandleForReading.readabilityHandler = { handle in
-            let data = handle.availableData
-            if data.isEmpty { return }
-            collector.append(data)
-        }
-        try process.run()
-        input.fileHandleForWriting.write(Data((request + "\n").utf8))
+        let engine = try ChildProcess(executable, [
+            "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
+            "--settings", #"{"disableAllHooks":true}"#,
+        ], environment: environment, directory: workingDirectory, input: true, stdoutLimit: 8 * 1024 * 1024)
+        defer { engine.stop() }
+        try? engine.write(Data((Self.request + "\n").utf8))
 
         let deadline = Date().addingTimeInterval(timeout)
-        var result: ClaudeEngineUsage?
-        var failure: Error?
-        while Date() < deadline {
-            for line in collector.drainLines() {
-                do {
-                    if let parsed = try ClaudeEngineUsage.parse(line: line) {
-                        result = parsed
-                        break
-                    }
-                } catch {
-                    failure = error
-                    break
-                }
-            }
-            if result != nil || failure != nil || !process.isRunning { break }
-            Thread.sleep(forTimeInterval: 0.05)
+        while let line = try await engine.line(before: deadline) {
+            if let usage = try ClaudeEngineUsage.parse(line: line) { return usage }
         }
-        output.fileHandleForReading.readabilityHandler = nil
-        try? input.fileHandleForWriting.close()
-        if process.isRunning { process.terminate() }
-
-        if let failure { throw failure }
-        if let result { return result }
-        let stderr = String(decoding: error.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        let stderr = String(decoding: engine.output.stderr, as: UTF8.self)
         throw ClaudeDataError.engineFailed(stderr.isEmpty ? L10n.text("引擎没有在 \(Int(timeout)) 秒内返回用量", "The engine returned no usage within \(Int(timeout)) s") : String(stderr.prefix(200)))
-    }
-}
-
-/// Thread-safe accumulator turning pipe chunks into complete lines.
-final class LineCollector: @unchecked Sendable {
-    private let lock = NSLock()
-    private var buffer = Data()
-    private var lines: [String] = []
-
-    func append(_ data: Data) {
-        lock.withLock {
-            buffer.append(data)
-            while let newline = buffer.firstIndex(of: 0x0A) {
-                let lineData = buffer[buffer.startIndex..<newline]
-                lines.append(String(decoding: lineData, as: UTF8.self))
-                buffer.removeSubrange(buffer.startIndex...newline)
-            }
-        }
-    }
-
-    func drainLines() -> [String] {
-        lock.withLock {
-            let drained = lines
-            lines.removeAll()
-            return drained
-        }
     }
 }

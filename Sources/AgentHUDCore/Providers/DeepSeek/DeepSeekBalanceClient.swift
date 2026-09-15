@@ -8,9 +8,9 @@ public struct DeepSeekBalanceClient: Sendable {
         let directory = directory
         return try await Task.detached(priority: .utility) {
             // Reuse Harness's actual YAML parser. Secrets stay inside the short-lived helper process.
-            let data = try DeepSeekNode.run(script: Self.script,
-                                           arguments: [directory.path, DeepSeekCredentialLocator.module()?.path ?? ""],
-                                           environment: ProcessInfo.processInfo.environment.filter { !["NODE_OPTIONS", "NODE_PATH"].contains($0.key) })
+            let data = try await DeepSeekNode.run(script: Self.script,
+                                                 arguments: [directory.path, DeepSeekCredentialLocator.module()?.path ?? ""],
+                                                 environment: ProcessInfo.processInfo.environment.filter { !["NODE_OPTIONS", "NODE_PATH"].contains($0.key) })
             if let reply = try JSONSerialization.jsonObject(with: data) as? [String: Any], let error = reply["error"] as? String {
                 let message: String
                 switch error {

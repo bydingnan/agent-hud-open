@@ -29,10 +29,10 @@ public enum DeepSeekLocator {
 }
 
 enum DeepSeekLogReader {
-    static func read(_ url: URL) throws -> Data {
+    static func read(_ url: URL) async throws -> Data {
         guard url.pathExtension == "zstd" else { return try Data(contentsOf: url, options: .mappedIfSafe) }
         // Node's decoder stops at one frame. Harness appends a frame per write batch.
-        return try DeepSeekNode.run(script: """
+        return try await DeepSeekNode.run(script: """
         const {readFileSync} = require('node:fs');
         const {zstdDecompressSync, constants} = require('node:zlib');
         const input = readFileSync(process.argv[1]);
@@ -44,29 +44,22 @@ enum DeepSeekLogReader {
           process.stdout.write(buffer);
           offset += engine.bytesWritten;
         }
-        """, arguments: [url.path])
+        """, arguments: [url.path], timeout: 10)
     }
 }
 
 public enum DeepSeekNode {
-    public static func run(script: String, arguments: [String], environment: [String: String] = [:]) throws -> Data {
+    public static func run(script: String, arguments: [String], environment: [String: String] = [:],
+                           timeout: TimeInterval = 30) async throws -> Data {
         guard let node = DeepSeekLocator.nodeExecutable() else {
             throw UsageProviderError(L10n.text("读取 Harness 数据需要 Node.js", "Node.js is required to read Harness data"))
         }
-        let process = Process(), output = Pipe()
-        process.executableURL = node
-        process.arguments = ["-e", script] + arguments
-        process.environment = environment
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = output
-        process.standardError = FileHandle.nullDevice
-        try process.run()
-        // Drain before waiting: a session can be much larger than the pipe buffer.
-        let data = output.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
+        // A truncated log would parse as a different one, so output beyond the cap fails the read.
+        let output = try await ChildProcess.run(node, ["-e", script] + arguments, environment: environment,
+                                                timeout: timeout, stdoutLimit: 256 * 1024 * 1024)
+        guard output.status == 0, !output.truncated else {
             throw UsageProviderError(L10n.text("Harness 数据读取失败，请检查本机安装和 Node.js 版本", "Cannot read Harness data; check the local install and Node.js version"))
         }
-        return data
+        return output.stdout
     }
 }

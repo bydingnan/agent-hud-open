@@ -13,9 +13,7 @@ struct AntigravityClient: Sendable {
     var http = ProviderHTTP()
 
     func fetch() async throws -> ProviderQuota {
-        let candidates = try await Task.detached(priority: .utility) {
-            Self.candidates(try ProviderCommand.run("/bin/ps", ["-U", String(getuid()), "-o", "pid=,command="]))
-        }.value
+        let candidates = Self.candidates(try await ProviderCommand.run("/bin/ps", ["-U", String(getuid()), "-o", "pid=,command="]))
         guard !candidates.isEmpty else {
             return ProviderQuota(notice: AdditionalSource.antigravity.isInstalled()
                 ? L10n.text("启动并登录 Antigravity 或 agy 后读取额度", "Start and sign in to Antigravity or agy to load quota") : nil)
@@ -25,9 +23,8 @@ struct AntigravityClient: Sendable {
         for candidate in candidates.prefix(6) {
             try Task.checkCancellation()
             guard Date() < deadline else { break }
-            let ports = (try? await Task.detached(priority: .utility) {
-                Self.ports(try ProviderCommand.run("/usr/sbin/lsof", ["-nP", "-a", "-p", String(candidate.pid), "-iTCP", "-sTCP:LISTEN", "-Fn"]))
-            }.value) ?? []
+            let ports = (try? await ProviderCommand.run("/usr/sbin/lsof", ["-nP", "-a", "-p", String(candidate.pid), "-iTCP", "-sTCP:LISTEN", "-Fn"]))
+                .map(Self.ports) ?? []
             var endpoints = ports.map { ("https", $0, candidate.token) }
             if let port = candidate.extensionPort { endpoints.append(("http", port, candidate.extensionToken ?? candidate.token)) }
             for (scheme, port, token) in endpoints.prefix(8) {
@@ -147,33 +144,9 @@ struct AntigravityClient: Sendable {
 
 /// Runs only fixed system inspection tools. Output (including CSRF tokens) stays in memory and is never logged.
 enum ProviderCommand {
-    static func run(_ executable: String, _ arguments: [String]) throws -> String {
-        let process = Process(), pipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: executable); process.arguments = arguments
-        process.standardOutput = pipe; process.standardError = FileHandle.nullDevice
-        process.standardInput = FileHandle.nullDevice
-        try process.run()
-        try? pipe.fileHandleForWriting.close()
-        defer {
-            try? pipe.fileHandleForReading.close()
-            if process.isRunning { process.terminate() }
-            if process.isRunning { kill(process.processIdentifier, SIGKILL) }
-            process.waitUntilExit()
-        }
-        let fd = pipe.fileHandleForReading.fileDescriptor
-        _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
-        var data = Data(), buffer = [UInt8](repeating: 0, count: 16384)
-        let deadline = Date().addingTimeInterval(3)
-        while Date() < deadline {
-            try Task.checkCancellation()
-            let count = Darwin.read(fd, &buffer, buffer.count)
-            if count > 0 {
-                guard data.count + count <= 2 * 1024 * 1024 else { throw ProviderFailure.limit }
-                data.append(contentsOf: buffer.prefix(count))
-            } else if count == 0 { return String(decoding: data, as: UTF8.self) }
-            else if errno != EAGAIN && errno != EWOULDBLOCK { throw ProviderFailure.local }
-            else { Thread.sleep(forTimeInterval: 0.01) }
-        }
-        throw ProviderFailure.limit
+    static func run(_ executable: String, _ arguments: [String]) async throws -> String {
+        let output = try await ChildProcess.run(URL(fileURLWithPath: executable), arguments, timeout: 3, stdoutLimit: 2 * 1024 * 1024)
+        guard output.status != nil, !output.truncated else { throw ProviderFailure.limit }
+        return String(decoding: output.stdout, as: UTF8.self)
     }
 }
