@@ -69,12 +69,9 @@ final class LocalizationTests: XCTestCase {
     }
 
     func testLocalizedFormattersSwitchLanguage() {
-        let now = Date(timeIntervalSince1970: 1_800_000_000)
         L10n.setLanguage(.en)
-        XCTAssertEqual(Countdown.updatedLabel(since: nil, now: now), "Not updated yet")
         XCTAssertEqual(StatsRange.allCases.map(\.label), ["5 h", "24 h", "7 days"])
         L10n.setLanguage(.zhHans)
-        XCTAssertEqual(Countdown.updatedLabel(since: nil, now: now), "尚未更新")
         XCTAssertEqual(StatsRange.allCases.map(\.label), ["5 小时", "24 小时", "7 天"])
     }
 

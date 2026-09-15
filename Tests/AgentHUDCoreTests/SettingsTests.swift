@@ -381,15 +381,6 @@ final class UsageStoreTests: XCTestCase {
         }
     }
 
-    func testSelectedWindowFallsBackWhenDisabled() {
-        let store = makeStore()
-        store.replace(report: UsageReport(generatedAt: Date(), snapshots: [], sessions: []))
-        store.selectedQuotaId = "codex"
-        XCTAssertEqual(store.primaryRow?.id, "codex")
-        store.settings.setAgent(id: "codex", enabled: false)
-        XCTAssertEqual(store.primaryRow?.id, "claude-opus")
-    }
-
     func testQuotaForecastUsesOnlyTheHoveredWindowsInsights() throws {
         let store = makeStore()
         let now = Date()
@@ -457,7 +448,6 @@ final class UsageStoreTests: XCTestCase {
         XCTAssertEqual(store.sessions.count, 3)
         XCTAssertEqual(store.consumers.count, 3)
         XCTAssertTrue(store.subscriptions.isEmpty)
-        XCTAssertNil(store.primaryRow)
     }
 
     func testActiveSessionsFollowSelectedRangeIncludingLongRunningSessions() {

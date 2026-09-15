@@ -39,14 +39,6 @@ final class CountdownTests: XCTestCase {
         XCTAssertEqual(Countdown.until(now.addingTimeInterval(3600), now: now), "1h 00m")
     }
 
-    func testUpdatedLabel() {
-        let now = Date(timeIntervalSince1970: 1_000_000)
-        XCTAssertEqual(Countdown.updatedLabel(since: now.addingTimeInterval(-10), now: now), "刚刚更新")
-        XCTAssertEqual(Countdown.updatedLabel(since: now.addingTimeInterval(-120), now: now), "2 分钟前更新")
-        XCTAssertEqual(Countdown.updatedLabel(since: now.addingTimeInterval(-7200), now: now), "2 小时前更新")
-        XCTAssertEqual(Countdown.updatedLabel(since: nil, now: now), "尚未更新")
-    }
-
     func testSessionLabels() {
         let now = Date(timeIntervalSince1970: 1_000_000)
         let live = LiveSession(id: "a", agentId: "x", task: "t", terminal: nil, startedAt: now.addingTimeInterval(-27 * 60), pctOfWindow: 1, tokensIn: 0, tokensOut: 0)

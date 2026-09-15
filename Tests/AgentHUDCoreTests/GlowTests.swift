@@ -72,7 +72,6 @@ final class GlowGeometryTests: XCTestCase {
         XCTAssertEqual(g.topOffset, -24)
         XCTAssertEqual(g.cornerRadius, 36)
         XCTAssertEqual(g.sideInset, 14)
-        XCTAssertEqual(g.visibleHeight, 58)
     }
 }
 

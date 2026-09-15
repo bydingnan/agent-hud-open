@@ -156,11 +156,6 @@ public final class SettingsStore {
         defaults.set(true, forKey: Keys.onboarding)
     }
 
-    public func resetOnboarding() {
-        hasCompletedOnboarding = false
-        defaults.set(false, forKey: Keys.onboarding)
-    }
-
     private func persist<T: Encodable>(_ value: T, key: String) {
         guard let data = try? encoder.encode(value) else { return }
         defaults.set(data, forKey: key)

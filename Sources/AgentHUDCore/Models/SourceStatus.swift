@@ -22,11 +22,6 @@ public struct SourceStatus: Hashable, Sendable, Identifiable {
         self.state = state
     }
 
-    public var isReady: Bool {
-        if case .ready = state { return true }
-        return false
-    }
-
     /// Subscription badge beside the source name; provider-specific plan codes stay out of the UI.
     public var planLabel: String? {
         guard case .ready(let plan?) = state, !plan.isEmpty else { return nil }

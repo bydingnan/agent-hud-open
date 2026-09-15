@@ -19,8 +19,6 @@ public struct ClaudeModelInfo: Hashable, Sendable {
     /// "Opus 4.5", "Fable 5.1", "Sonnet 5".
     public var displayName: String { version.isEmpty ? family : "\(family) \(version)" }
 
-    public var isSubagentModel: Bool { family.lowercased() == "haiku" }
-
     /// Handles `claude-opus-4-5-20251101`, `claude-fable-5-1`, `claude-opus-5`, `claude-3-5-haiku-20241022`,
     /// `us.anthropic.claude-3-5-sonnet-20241022-v2:0`. Returns nil for `<synthetic>` and non-Claude ids.
     public static func parse(_ modelId: String) -> ClaudeModelInfo? {

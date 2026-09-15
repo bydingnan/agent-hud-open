@@ -193,11 +193,6 @@ public final class UsageStore {
         return AlertPolicy.balanceLevel(remaining: balance.total, currency: balance.currency)
     }
 
-    public var primaryRow: AgentRow? {
-        rows.first { $0.id == selectedQuotaId } ?? rows.first { $0.isCurrentAccount && $0.remainingPct != nil }
-            ?? rows.first { $0.remainingPct != nil } ?? rows.first
-    }
-
     /// Status per enabled agent that has data, in glow order. Agents without a reading stay out of the glow.
     public var levels: [StatusLevel] {
         let quota = Dictionary(uniqueKeysWithValues: rows.compactMap { row in row.level.map { (row.id, $0) } })
@@ -212,9 +207,6 @@ public final class UsageStore {
             }
         }
     }
-
-    /// When the quota numbers were last reported (engine fetch time), falling back to the poll time.
-    public var quotaUpdatedAt: Date? { report?.snapshots.first?.updatedAt ?? report?.generatedAt }
 
     public var isIndexing: Bool { report?.indexing != nil }
 

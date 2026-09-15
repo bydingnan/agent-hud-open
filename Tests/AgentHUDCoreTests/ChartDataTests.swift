@@ -17,14 +17,6 @@ final class ChartDataTests: XCTestCase {
         .init(start: Date(timeIntervalSince1970: (seconds / 900).rounded(.down) * 900), agentId: agent, tokensIn: tokens, tokensOut: 0)
     }
 
-    func testBucketedSumsEvenly() {
-        XCTAssertEqual(ChartData.bucketed([1, 2, 3, 4], buckets: 2), [3, 7])
-        XCTAssertEqual(ChartData.bucketed([1, 2, 3], buckets: 3), [1, 2, 3])
-        XCTAssertEqual(ChartData.bucketed([1, 2], buckets: 5), [1, 2], "never more buckets than values")
-        XCTAssertEqual(ChartData.bucketed([], buckets: 3), [])
-        XCTAssertEqual(ChartData.bucketed(Array(repeating: 1, count: 168), buckets: 48).reduce(0, +), 168)
-    }
-
     func testTokenBarsAlignAgentsByHour() {
         let usage = [
             event("a", seconds: 0, tokens: 10), event("b", seconds: 0, tokens: 1),

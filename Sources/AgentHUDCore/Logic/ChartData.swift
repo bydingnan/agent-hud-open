@@ -70,18 +70,6 @@ public struct TokenColumn: Hashable, Sendable, Identifiable {
 
 /// Pure transforms from usage buckets to drawable series.
 public enum ChartData {
-    /// Sums `values` into `buckets` groups of (nearly) equal size, preserving order.
-    public static func bucketed(_ values: [Int], buckets: Int) -> [Int] {
-        guard buckets > 0, !values.isEmpty else { return [] }
-        var result = Array(repeating: 0, count: min(buckets, values.count))
-        let count = values.count
-        for (i, value) in values.enumerated() {
-            let bucket = min(result.count - 1, i * result.count / count)
-            result[bucket] += value
-        }
-        return result
-    }
-
     /// Sums 15-minute buckets into local quarter-hour, hour or day columns. A bucket counts when it overlaps the range,
     /// so the period holding the range's start or the current moment counts whole.
     /// Empty periods retain their position, and integer token counts are never rounded or interpolated.

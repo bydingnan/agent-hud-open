@@ -38,19 +38,6 @@ public enum Countdown {
         return ChartData.weekdayTime(date, calendar: calendar)
     }
 
-    /// "刚刚更新", "2 分钟前更新", "3 小时前更新" / "Updated just now", "Updated 2 min ago", "Updated 3 h ago".
-    public static func updatedLabel(since updatedAt: Date?, now: Date) -> String {
-        guard let updatedAt else { return L10n.text("尚未更新", "Not updated yet") }
-        let seconds = max(0, now.timeIntervalSince(updatedAt))
-        if seconds < 60 { return L10n.text("刚刚更新", "Updated just now") }
-        if seconds < 3600 {
-            let minutes = Int(seconds / 60)
-            return L10n.text("\(minutes) 分钟前更新", "Updated \(minutes) min ago")
-        }
-        let hours = Int(seconds / 3600)
-        return L10n.text("\(hours) 小时前更新", "Updated \(hours) h ago")
-    }
-
     /// Like `format` but drops a zero minute part: "2h" instead of "2h 00m".
     public static func formatRough(_ interval: TimeInterval) -> String {
         let total = max(0, Int(interval.rounded()))

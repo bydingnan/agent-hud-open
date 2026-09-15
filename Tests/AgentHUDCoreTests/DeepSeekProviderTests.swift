@@ -387,7 +387,6 @@ final class DeepSeekProviderTests: XCTestCase {
         XCTAssertFalse(DeepSeekLocator.isInstalled(directory: home))
         try FileManager.default.createDirectory(at: home.appendingPathComponent("profiles"), withIntermediateDirectories: true)
         XCTAssertTrue(DeepSeekLocator.isInstalled(directory: home))
-        XCTAssertTrue(SourceStatus(id: "deepseek", name: "DeepSeek", detail: "", state: .ready(plan: nil)).isReady)
     }
 
     private func temporaryDirectory() throws -> URL {

@@ -23,14 +23,6 @@ final class DemoSeriesTests: XCTestCase {
         XCTAssertLessThanOrEqual(t.flatMap { $0 }.max() ?? 0, 40)
         XCTAssertGreaterThan(t.flatMap { $0 }.reduce(0, +), 0)
     }
-
-    func testActivityGridIsSevenByTwentyFour() {
-        let grid = DemoSeries.activity()
-        XCTAssertEqual(grid.rows.count, 7)
-        XCTAssertTrue(grid.rows.allSatisfy { $0.count == 24 })
-        XCTAssertTrue(grid.rows.flatMap { $0 }.allSatisfy { $0 >= 0 && $0 <= 1 })
-        XCTAssertEqual(grid.rows.flatMap { $0 }.max() ?? 0, 1, accuracy: 1e-9)
-    }
 }
 
 final class DemoUsageProviderTests: XCTestCase {

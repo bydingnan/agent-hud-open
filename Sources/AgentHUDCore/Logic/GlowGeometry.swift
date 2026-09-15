@@ -39,7 +39,4 @@ public struct GlowGeometry: Hashable, Sendable {
             sideInset: range
         )
     }
-
-    /// Height of the part that is actually on screen (below the island's top edge).
-    public var visibleHeight: Double { height + topOffset }
 }

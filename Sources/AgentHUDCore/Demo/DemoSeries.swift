@@ -13,23 +13,4 @@ public enum DemoSeries {
             }
         }
     }
-
-    /// 7 × 24 demo token totals (Mon → Sun).
-    public static func activity(seed: Int = 7) -> ActivityGrid {
-        var random = SeededRandom(seed: seed)
-        let tokensByModel: [[[String: Int]]] = (0..<7).map { day in
-            (0..<24).map { hour in
-                let work: Double
-                if hour >= 9 && hour <= 23 && day < 5 {
-                    work = 1
-                } else if hour >= 13 && hour <= 22 {
-                    work = 0.7
-                } else {
-                    work = 0.1
-                }
-                return ["demo": Int(min(1, random.next() * work * 1.3) * 1_000_000)]
-            }
-        }
-        return ActivityGrid(tokensByModel: tokensByModel)
-    }
 }

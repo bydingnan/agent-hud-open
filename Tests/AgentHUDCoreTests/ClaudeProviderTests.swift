@@ -190,7 +190,6 @@ final class ClaudeTranscriptTests: XCTestCase {
         XCTAssertEqual(name("us.anthropic.claude-3-5-sonnet-20241022-v2:0"), "Sonnet 3.5")
         XCTAssertNil(ClaudeModelInfo.parse("gpt-4o"))
         XCTAssertNil(ClaudeModelInfo.parse("<synthetic>"))
-        XCTAssertTrue(ClaudeModelInfo.parse("claude-haiku-4-5")!.isSubagentModel)
     }
 
     func testDiscoveryIncludesEveryVersionAndSubagentModel() {
