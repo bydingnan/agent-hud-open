@@ -83,7 +83,7 @@ public actor DeepSeekUsageProvider: UsageProvider, LedgerRecording {
         }
         let billing = APIBilling(vendor: "DeepSeek", balances: balance?.balances ?? [], isAvailable: balance?.isAvailable,
                                  updatedAt: balanceAt, costs: costs.buckets, sessionCosts: sessionCosts, notice: balanceNotice)
-        return UsageReport(generatedAt: now, snapshots: [], sessions: sessions, history: [],
+        return UsageReport(generatedAt: now, snapshots: [], sessions: sessions,
                            activity: UsageAnalytics.activityGrid(usage: week, since: weekAgo, calendar: .current),
                            insights: UsageInsights(burnRatePctPerHour: nil, timeToExhaust: nil, weeklyCapHits: 0,
                                                   weeklyWaitTotal: 0, weeklyWaitLongest: 0, weeklyWaitLongestAt: nil,

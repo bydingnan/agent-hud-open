@@ -2,7 +2,7 @@ import Foundation
 
 /// Real data for the Claude rows.
 /// Quota: the Claude Code engine's SDK control protocol (`get_usage`). Sessions/tokens/heatmap: local transcripts.
-/// Trends: persisted quota samples.
+/// Burn rate and caps: persisted quota samples.
 public struct ClaudeCodeProvider: UsageProvider, LedgerRecording {
     public static let liveThreshold: TimeInterval = 120
 
@@ -133,26 +133,7 @@ public struct ClaudeCodeProvider: UsageProvider, LedgerRecording {
             ))
         }
 
-        // 3. Hourly history: remaining % per window row, tokens per consumer.
-        let quotaSince = now.addingTimeInterval(-TimeInterval(historyHours + 1) * 3600)
-        var historySamples: [HistorySample] = []
-        for row in windowRows {
-            let quota = await history.samples(agentId: row.id, since: quotaSince)
-            historySamples += UsageAnalytics.hourlyHistory(
-                agentId: row.id, quota: quota, usage: [], hours: historyHours, now: now, calendar: calendar,
-                fallbackRemaining: row.window.remainingPct
-            )
-        }
-        // Rows the user still has enabled but the plan no longer reports keep their stored history.
-        for agent in agents where agent.enabled && agent.account != nil && agent.account == account
-            && agent.windowKey.hasPrefix("claude-") && !windowRows.contains(where: { $0.id == agent.id }) {
-            let quota = await history.samples(agentId: agent.id, since: quotaSince)
-            guard !quota.isEmpty else { continue }
-            historySamples += UsageAnalytics.hourlyHistory(
-                agentId: agent.id, quota: quota, usage: [], hours: historyHours, now: now, calendar: calendar, fallbackRemaining: nil
-            )
-        }
-        // 4. Session list: running first, then most recent.
+        // 2. Session list: running first, then most recent.
         let windowStart = usage?.fiveHour?.resetsAt.map { $0.addingTimeInterval(-5 * 3600) } ?? now.addingTimeInterval(-5 * 3600)
         let candidates = sessions.filter { !$0.isSubagent }.sorted { lhs, rhs in
             let lhsLive = lhs.isLive(now: now, threshold: Self.liveThreshold)
@@ -183,7 +164,7 @@ public struct ClaudeCodeProvider: UsageProvider, LedgerRecording {
             )
         }
 
-        // 5. Insights from the session window's samples.
+        // 3. Insights from the session window's samples.
         let weekSamples = await history.samples(agentId: sessionRowId, since: weekAgo)
         let sessionCycle = snapshots.first { $0.agentId == sessionRowId }?.cycle
         let burn = UsageAnalytics.burnRate(samples: weekSamples, cycle: sessionCycle, now: now)
@@ -230,7 +211,6 @@ public struct ClaudeCodeProvider: UsageProvider, LedgerRecording {
             generatedAt: now,
             snapshots: snapshots,
             sessions: listed,
-            history: historySamples,
             activity: UsageAnalytics.activityGrid(usage: weekUsage, since: weekAgo, calendar: calendar),
             insights: insights,
             notice: notice,

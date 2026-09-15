@@ -2,50 +2,6 @@ import Foundation
 
 /// Pure transforms from quota samples + transcript usage to the report's derived series.
 public enum UsageAnalytics {
-    public static func hourStart(_ date: Date, calendar: Calendar) -> Date {
-        calendar.dateInterval(of: .hour, for: date)?.start ?? date
-    }
-
-    /// Hourly buckets for one agent over the last `hours` hours (ending in the current hour).
-    /// Remaining % carries forward between samples; hours before the first sample take the first known value
-    /// (or `fallbackRemaining`) so the line stays continuous.
-    public static func hourlyHistory(
-        agentId: String,
-        quota: [QuotaSample],
-        usage: [UsageEvent],
-        hours: Int,
-        now: Date,
-        calendar: Calendar,
-        fallbackRemaining: Double?
-    ) -> [HistorySample] {
-        guard hours > 0 else { return [] }
-        let currentHour = hourStart(now, calendar: calendar)
-        let sorted = quota.sorted { $0.timestamp < $1.timestamp }
-        var carried = sorted.first?.remainingPct ?? fallbackRemaining ?? 100
-        var tokensByHour: [Date: Int] = [:]
-        for event in usage where event.agentId == agentId {
-            tokensByHour[hourStart(event.timestamp, calendar: calendar), default: 0] += event.total
-        }
-        var samplesByHour: [Date: [QuotaSample]] = [:]
-        for sample in sorted {
-            samplesByHour[hourStart(sample.timestamp, calendar: calendar), default: []].append(sample)
-        }
-        return (0..<hours).map { index in
-            let start = currentHour.addingTimeInterval(TimeInterval(index - hours + 1) * 3600)
-            let inHour = samplesByHour[start] ?? []
-            let remainingStart = inHour.first?.remainingPct ?? carried
-            let remainingEnd = inHour.last?.remainingPct ?? carried
-            carried = remainingEnd
-            return HistorySample(
-                agentId: agentId,
-                hourStart: start,
-                remainingStart: remainingStart,
-                remainingEnd: remainingEnd,
-                tokens: tokensByHour[start] ?? 0
-            )
-        }
-    }
-
     /// Time-weighted average over the observed part of this reset cycle, including idle time.
     public static func burnRate(samples: [QuotaSample], cycle: QuotaCycle?, now: Date) -> BurnRate? {
         guard let cycle, now >= cycle.start, now < cycle.resetAt else { return nil }

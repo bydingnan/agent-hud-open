@@ -57,16 +57,6 @@ public enum UsageAggregation {
         return result
     }
 
-    private struct HistoryKey: Hashable { let agent: String; let hour: Date }
-
-    public static func historyUnion(_ sources: [[HistorySample]]) -> [HistorySample] {
-        var seen: Set<HistoryKey> = []
-        return sources.flatMap { $0 }.map { HistorySample(agentId: $0.agentId, hourStart: RecordCoding.date(RecordCoding.milliseconds($0.hourStart)),
-            remainingStart: $0.remainingStart, remainingEnd: $0.remainingEnd, tokens: $0.tokens)
-        }.filter { seen.insert(HistoryKey(agent: $0.agentId, hour: $0.hourStart)).inserted }
-            .sorted { $0.hourStart < $1.hourStart }
-    }
-
     public static func sessionsUnion(_ sources: [[LiveSession]]) -> [LiveSession] {
         var seen: Set<String> = []
         return sources.flatMap { $0 }.filter { seen.insert($0.id).inserted }.sorted {

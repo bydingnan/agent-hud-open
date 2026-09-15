@@ -48,7 +48,7 @@ The three dimensions (`TokenDimensions`) are additive and never overlap. Charts,
 - The account of a provider's latest successful reading is current; only current accounts join the glow, the menu-bar figure and alerts. A failed refresh keeps the current account, and a login without plan limits makes no account current.
 - Other accounts keep their last reading and its observation time, greyed under the account's name, until they have not been seen for 30 days; their readings, rows and display settings then retire.
 - Changing accounts is neither a reset nor an exhaustion: an account that becomes current again starts a new alert baseline.
-- The first identified account takes over an unidentified row's position and display switch; a window that appears on a further account inherits the switch of the same window on another account. Quota history recorded before accounts were identified belongs to no account and is not shown.
+- The first identified account takes over an unidentified row's position and display switch; a window that appears on a further account inherits the switch of the same window on another account. Quota history recorded before accounts were identified belongs to no account and feeds no burn rate.
 - A login the provider does not identify is one account per client home directory, never merged with another home. A provider that must forget its accounts, for example after reading consent is withdrawn, retires their readings, rows and display settings at once.
 - Codex reset credits belong to the current Codex account. Billing-pool rows (Kimi, GLM, OpenCode Go) keep their pool ids as account ids.
 
@@ -70,8 +70,8 @@ Reads never run in parallel: the usage store runs one local poll or one account 
 
 - The last successful reading is kept with its observation time; a failed refresh keeps it and exposes the failure, and a restart restores it before the first poll.
 - When a window's reset time has passed, the row keeps the last reading and its time. A reset is confirmed only by a new reading whose reset time moved forward or that shows the window full again; until then alert evaluation treats the deadline as pending.
-- A window the service stops reporting keeps its stored history while it is enabled. Kimi, GLM and OpenCode Go rows are retired — readings, cached rows and display settings — once a completed credential scan finds their credentials expired, removed or rejected; a temporary network failure retires nothing.
-- Quota histories keep 30 days. History for a newly connected window starts at its first observation; earlier hours are never back-filled, and a few minutes of data are never stretched into a full day.
+- Kimi, GLM and OpenCode Go rows are retired — readings, cached rows and display settings — once a completed credential scan finds their credentials expired, removed or rejected; a temporary network failure retires nothing.
+- Quota histories keep 30 days.
 - A running session leaves the running indicator 120 s after its last source observation and stays in history without an invented end time.
 
 ## Code map

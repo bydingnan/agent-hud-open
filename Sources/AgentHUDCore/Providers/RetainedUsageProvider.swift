@@ -43,7 +43,7 @@ public actor RetainedUsageProvider: UsageProvider {
 extension UsageReport {
     /// Turns and completions only matter as they happen, and a restart never reports earlier ones, so the copy leaves them out.
     var restartCopy: UsageReport {
-        UsageReport(generatedAt: generatedAt, snapshots: snapshots, sessions: sessions, history: history, activity: activity, insights: insights,
+        UsageReport(generatedAt: generatedAt, snapshots: snapshots, sessions: sessions, activity: activity, insights: insights,
                     notice: notice, discoveredAgents: discoveredAgents, subscriptionType: subscriptionType, consumers: consumers, usage: usage,
                     indexing: indexing, insightsByAgent: insightsByAgent, subscriptions: subscriptions, sourceNotices: sourceNotices,
                     consumerIdsByQuota: consumerIdsByQuota, billing: billing, codexResetCredits: codexResetCredits,
@@ -84,7 +84,7 @@ extension UsageReport {
         let retainedSessions = UsageAggregation.sessionsUnion([sessions, previous.sessions.filter { failedIDs.contains($0.agentId) }])
         return UsageReport(generatedAt: generatedAt,
             snapshots: snapshots + previous.snapshots.filter { !currentIDs.contains($0.agentId) && !retiredWindowIDs.contains($0.agentId) },
-            sessions: retainedSessions, history: UsageAggregation.historyUnion([history, previous.history.filter { !retiredWindowIDs.contains($0.agentId) }]).filter { $0.hourStart >= cutoff },
+            sessions: retainedSessions,
             activity: activity, insights: insights, notice: notice,
             discoveredAgents: UsageAggregation.consumersUnion([discoveredAgents, previous.discoveredAgents.filter(isRetained)]),
             subscriptionType: subscriptionType ?? previous.subscriptionType,

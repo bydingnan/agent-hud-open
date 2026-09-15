@@ -1,6 +1,6 @@
 import Foundation
 
-/// Serves the design's demo data with deterministic seeded history.
+/// Serves the design's demo data with deterministic seeded usage.
 public struct DemoUsageProvider: UsageProvider {
     public init() {}
 
@@ -15,21 +15,10 @@ public struct DemoUsageProvider: UsageProvider {
             Calendar.current.date(bySetting: .second, value: 0, of: $0) ?? $0
         } ?? now
         let tokens = DemoSeries.hourlyTokens(agentCount: max(1, consumers.count), hours: historyHours)
-        var history: [HistorySample] = []
         var usage: [UsageBucket] = []
         for (index, agent) in consumers.enumerated() {
-            let candles = DemoSeries.series(count: historyHours, seed: DemoSeries.lineSeed(index: index))
-            for (hour, candle) in candles.enumerated() {
+            for hour in 0..<historyHours {
                 let start = hourStart.addingTimeInterval(TimeInterval(hour - historyHours + 1) * 3600)
-                if agent.enabled {
-                    history.append(HistorySample(
-                        agentId: agent.id,
-                        hourStart: start,
-                        remainingStart: candle.open,
-                        remainingEnd: candle.close,
-                        tokens: tokens[hour][index] * 1000
-                    ))
-                }
                 // Demo usage fills every quarter hour so every chart granularity is populated.
                 for quarter in 0..<4 {
                     let bucket = start.addingTimeInterval(Double(quarter) * 900)
@@ -44,7 +33,6 @@ public struct DemoUsageProvider: UsageProvider {
             generatedAt: now,
             snapshots: DemoData.snapshots(now: now),
             sessions: DemoData.sessions(now: now),
-            history: history,
             activity: UsageAnalytics.activityGrid(usage: usage, since: now.addingTimeInterval(-7 * 86400), calendar: .current),
             insights: DemoData.insights(now: now),
             consumers: consumers,

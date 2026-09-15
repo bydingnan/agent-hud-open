@@ -108,7 +108,7 @@ final class AgentSettingsTests: XCTestCase {
         let now = Date()
         let sources = [SourceStatus(id: "cursor", name: "Cursor", detail: "technical details", state: .installed),
                        SourceStatus(id: "deepseek", name: "DeepSeek", detail: "", state: .notDetected)]
-        let report = UsageReport(generatedAt: now, snapshots: [], sessions: [], history: [], activity: .empty,
+        let report = UsageReport(generatedAt: now, snapshots: [], sessions: [], activity: .empty,
             insights: .empty, subscriptions: ["kimi-plan": "Allegretto"], services: [
                 .init(client: "OpenCode", provider: "Anthropic", product: .api),
                 .init(client: "OpenCode", provider: "OpenAI", product: .api),
@@ -152,7 +152,7 @@ final class AgentSettingsTests: XCTestCase {
     }
 
     func testServiceDetailsSurviveOldCacheAndFailedReadings() throws {
-        let report = UsageReport(generatedAt: Date(), snapshots: [], sessions: [], history: [], activity: .empty,
+        let report = UsageReport(generatedAt: Date(), snapshots: [], sessions: [], activity: .empty,
             insights: .empty, services: [.init(client: "Pi", provider: "OpenAI", product: .api)])
         var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(report)) as? [String: Any])
         legacy.removeValue(forKey: "services")
@@ -329,7 +329,7 @@ final class UsageStoreTests: XCTestCase {
         XCTAssertNil(store.rows[0].remainingPct, "subscription agents retain their pending quota row")
 
         let billing = DemoData.deepSeekBilling(now: Date())
-        store.replace(report: UsageReport(generatedAt: Date(), snapshots: [], sessions: [], history: [],
+        store.replace(report: UsageReport(generatedAt: Date(), snapshots: [], sessions: [],
                                          activity: .empty, insights: .empty, billing: [billing]))
         XCTAssertEqual(store.rowGroups.map(\.vendor), ["Claude"])
         XCTAssertEqual(store.enabledBilling, [billing])
@@ -342,7 +342,7 @@ final class UsageStoreTests: XCTestCase {
         XCTAssertEqual(store.rows.map(\.id), [claude.id])
 
         let unavailable = APIBilling(vendor: "DeepSeek", balances: [], isAvailable: nil, updatedAt: nil, costs: [], notice: "offline")
-        store.replace(report: UsageReport(generatedAt: Date(), snapshots: [], sessions: [], history: [],
+        store.replace(report: UsageReport(generatedAt: Date(), snapshots: [], sessions: [],
                                          activity: .empty, insights: .empty, billing: [unavailable]))
         XCTAssertEqual(store.enabledBilling, [unavailable], "a balance error stays in the cost card")
         XCTAssertEqual(store.rows.map(\.id), [claude.id])
@@ -367,7 +367,7 @@ final class UsageStoreTests: XCTestCase {
         let usage = [("claude-opus", 100), ("codex", 200), ("antigravity", 900)].map { id, tokens in
             UsageBucket(start: hour, agentId: id, tokensIn: tokens, tokensOut: 0)
         }
-        store.replace(report: UsageReport(generatedAt: Date(), snapshots: [], sessions: [], history: [],
+        store.replace(report: UsageReport(generatedAt: Date(), snapshots: [], sessions: [],
             activity: .empty, insights: .empty, consumers: DemoData.agents, usage: usage))
 
         func total() -> Int { store.tokenColumns.reduce(0) { $0 + $1.total } }
@@ -385,7 +385,7 @@ final class UsageStoreTests: XCTestCase {
 
     func testSelectedWindowFallsBackWhenDisabled() {
         let store = makeStore()
-        store.replace(report: UsageReport(generatedAt: Date(), snapshots: [], sessions: [], history: [], activity: .empty, insights: .empty))
+        store.replace(report: UsageReport(generatedAt: Date(), snapshots: [], sessions: [], activity: .empty, insights: .empty))
         store.selectedQuotaId = "codex"
         XCTAssertEqual(store.primaryRow?.id, "codex")
         store.settings.setAgent(id: "codex", enabled: false)
@@ -403,7 +403,7 @@ final class UsageStoreTests: XCTestCase {
                           weeklyWaitTotal: 0, weeklyWaitLongest: 0, weeklyWaitLongestAt: nil,
                           weeklyShare: [:], windowSessionCount: 0, windowUsedPct: 80)
         }
-        store.replace(report: UsageReport(generatedAt: now, snapshots: snapshots, sessions: [], history: [], activity: .empty,
+        store.replace(report: UsageReport(generatedAt: now, snapshots: snapshots, sessions: [], activity: .empty,
             insights: insights(hours: 4), insightsByAgent: ["claude-opus": insights(hours: 1), "codex": insights(hours: 2.5)]))
         store.selectedQuotaId = "codex"
         XCTAssertEqual(try XCTUnwrap(store.quotaForecastHint(for: "claude-opus")), "耗尽 ~1小时")
@@ -439,7 +439,7 @@ final class UsageStoreTests: XCTestCase {
             LiveSession(id: $0.id, agentId: $0.id, task: $0.model, terminal: nil,
                         startedAt: now.addingTimeInterval(-60), pctOfWindow: nil, tokensIn: 10, tokensOut: 20)
         }
-        store.replace(report: UsageReport(generatedAt: now, snapshots: [], sessions: sessions, history: [],
+        store.replace(report: UsageReport(generatedAt: now, snapshots: [], sessions: sessions,
             activity: .empty, insights: .empty, consumers: consumers,
             subscriptions: ["Claude": "max", "Codex": "pro"], consumerIdsByQuota: [
                 "claude-session": [opus.id, sonnet.id], "claude-weekly-opus": [opus.id], "codex-weekly": [codex.id],
@@ -479,7 +479,7 @@ final class UsageStoreTests: XCTestCase {
             session("week", startedHoursAgo: 96, endedHoursAgo: 72),
             session("older", startedHoursAgo: 240, endedHoursAgo: 200),
             session("future", startedHoursAgo: -24),
-        ], history: [], activity: .empty, insights: .empty))
+        ], activity: .empty, insights: .empty))
         XCTAssertEqual(store.statsRange, .hours24)
         XCTAssertEqual(store.statsSessions.map(\.id), ["running", "recent", "today"])
         store.setStatsRange(.hours5)

@@ -182,7 +182,7 @@ actor OpenAgentUsageProvider: UsageProvider, LedgerRecording {
                 pctOfWindow: nil, tokensIn: unique.reduce(0) { $0 + $1.tokensIn }, tokensOut: unique.reduce(0) { $0 + $1.tokensOut },
                 client: item.client.name, transcriptPath: item.path.isEmpty ? nil : item.path, cacheReadTokens: unique.reduce(0) { $0 + $1.cacheReadTokens }, observedAt: now)
         }
-        var snapshots: [UsageSnapshot] = [], descriptors: [AgentDescriptor] = [], samples: [HistorySample] = []
+        var snapshots: [UsageSnapshot] = [], descriptors: [AgentDescriptor] = []
         var insights: [String: UsageInsights] = [:]
         var notices = local.notices, plans: [String: String] = [:], links: [String: Set<String>] = [:]
         var accounts: [String: [AccountObservation]] = ["Kimi": [], "GLM": [], "OpenCode Go": []]
@@ -221,14 +221,9 @@ actor OpenAgentUsageProvider: UsageProvider, LedgerRecording {
                     timeToExhaust: burn?.timeToExhaust(remainingPct: window.remaining), weeklyCapHits: caps.hits,
                     weeklyWaitTotal: caps.totalWait, weeklyWaitLongest: caps.longestWait, weeklyWaitLongestAt: caps.longestAt,
                     weeklyShare: [:], windowSessionCount: 0, windowUsedPct: 100 - window.remaining)
-                if let first = readings.first {
-                    samples += UsageAnalytics.hourlyHistory(agentId: window.id, quota: readings, usage: [],
-                        hours: min(historyHours, max(1, Int(now.timeIntervalSince(first.timestamp) / 3600) + 1)), now: now,
-                        calendar: .current, fallbackRemaining: nil)
-                }
             }
         }
-        return UsageReport(generatedAt: now, snapshots: snapshots, sessions: live, history: samples,
+        return UsageReport(generatedAt: now, snapshots: snapshots, sessions: live,
             activity: UsageAnalytics.activityGrid(usage: week, since: now.addingTimeInterval(-7 * 86400), calendar: .current),
             insights: .empty, notice: notices.isEmpty ? nil : notices.keys.sorted().map { "\($0): \(notices[$0]!)" }.joined(separator: " · "),
             discoveredAgents: descriptors, consumers: consumers.values.sorted { $0.id < $1.id },

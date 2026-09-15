@@ -12,41 +12,9 @@ final class ChartDataTests: XCTestCase {
         super.tearDown()
     }
 
-    private func sample(_ agent: String, hour: Int, start: Double, end: Double, tokens: Int = 0) -> HistorySample {
-        HistorySample(agentId: agent, hourStart: Date(timeIntervalSince1970: Double(hour) * 3600), remainingStart: start, remainingEnd: end, tokens: tokens)
-    }
-
     /// Observations summed into the 15-minute period that holds them, as the ledger records them.
     private func event(_ agent: String, seconds: Double, tokens: Int) -> UsageBucket {
         .init(start: Date(timeIntervalSince1970: (seconds / 900).rounded(.down) * 900), agentId: agent, tokensIn: tokens, tokensOut: 0)
-    }
-
-    func testRemainingPathStartsAtOpenAndEndsAtClose() {
-        let path = ChartData.remainingPath([
-            sample("a", hour: 0, start: 100, end: 80),
-            sample("a", hour: 1, start: 80, end: 60),
-        ])
-        XCTAssertEqual(path, [CGPoint(x: 0, y: 100), CGPoint(x: 0.5, y: 80), CGPoint(x: 1, y: 60)])
-    }
-
-    func testRemainingPathDrawsVerticalJumpOnReset() {
-        let path = ChartData.remainingPath([
-            sample("a", hour: 0, start: 100, end: 40),
-            sample("a", hour: 1, start: 100, end: 90),
-        ])
-        XCTAssertEqual(path, [CGPoint(x: 0, y: 100), CGPoint(x: 0.5, y: 40), CGPoint(x: 0.5, y: 100), CGPoint(x: 1, y: 90)])
-    }
-
-    func testEmptyPath() {
-        XCTAssertEqual(ChartData.remainingPath([]), [])
-    }
-
-    func testNewSourceStartsAtItsActualHourOnSharedTimeAxis() {
-        let interval = StatsRange.hours24.interval(endingAt: Date(timeIntervalSince1970: 23.5 * 3600))
-        let path = ChartData.usedPath([sample("codex", hour: 23, start: 93, end: 92)],
-                                     interval: interval)
-        XCTAssertEqual(path, [CGPoint(x: 23.5 / 24, y: 7), CGPoint(x: 1, y: 8)])
-        XCTAssertTrue(ChartData.usedPath([sample("codex", hour: -2, start: 99, end: 90)], interval: interval).isEmpty)
     }
 
     func testBucketedSumsEvenly() {
@@ -216,21 +184,8 @@ final class ChartDataTests: XCTestCase {
 }
 
 final class BurnRateTests: XCTestCase {
-    func testAveragesConsumptionIgnoringResets() {
-        let base = Date(timeIntervalSince1970: 0)
-        let samples = [
-            HistorySample(agentId: "a", hourStart: base, remainingStart: 100, remainingEnd: 90, tokens: 0),
-            HistorySample(agentId: "a", hourStart: base.addingTimeInterval(3600), remainingStart: 90, remainingEnd: 84, tokens: 0),
-            HistorySample(agentId: "a", hourStart: base.addingTimeInterval(7200), remainingStart: 84, remainingEnd: 100, tokens: 0),
-        ]
-        let rate = BurnRate.estimate(samples)
-        XCTAssertEqual(rate?.pctPerHour ?? 0, 8, accuracy: 1e-9)
-        XCTAssertEqual(rate?.timeToExhaust(remainingPct: 24) ?? 0, 3 * 3600, accuracy: 1e-6)
-    }
-
-    func testNeedsTwoSamples() {
-        XCTAssertNil(BurnRate.estimate([]))
-        XCTAssertNil(BurnRate.estimate([HistorySample(agentId: "a", hourStart: Date(), remainingStart: 100, remainingEnd: 90, tokens: 0)]))
+    func testExhaustTimeAtRate() {
+        XCTAssertEqual(BurnRate(pctPerHour: 8).timeToExhaust(remainingPct: 24) ?? 0, 3 * 3600, accuracy: 1e-6)
     }
 
     func testZeroRateHasNoExhaustTime() {

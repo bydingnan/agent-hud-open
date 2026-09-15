@@ -2,37 +2,6 @@ import Foundation
 
 /// Port of the prototype's random series so the demo charts look exactly like the design.
 public enum DemoSeries {
-    public struct Candle: Hashable, Sendable {
-        public let open: Double
-        public let close: Double
-        public let high: Double
-        public let low: Double
-    }
-
-    /// Hourly remaining %, starting at 100, dropping randomly, resetting to 100 every 5th bucket.
-    public static func series(count: Int, seed: Int) -> [Candle] {
-        var random = SeededRandom(seed: seed)
-        var value = 100.0
-        var out: [Candle] = []
-        for i in 0..<count {
-            let open = value
-            var high = value, low = value
-            if i % 5 == 4 {
-                value = 100
-                high = 100
-            } else {
-                for _ in 0..<3 {
-                    let magnitude = random.next()
-                    let spike = random.next() < 0.25 ? 2.2 : 1.0
-                    value = max(2, value - magnitude * 9 * spike)
-                    low = min(low, value)
-                }
-            }
-            out.append(Candle(open: open, close: value, high: max(high, open, value), low: min(low, open, value)))
-        }
-        return out
-    }
-
     /// Hourly token consumption (in thousands) per agent: `[hour][agent]`. Working hours 9–23 are busy.
     public static func hourlyTokens(agentCount: Int, hours: Int, seed: Int = 3) -> [[Int]] {
         var random = SeededRandom(seed: seed)
@@ -62,11 +31,5 @@ public enum DemoSeries {
             }
         }
         return ActivityGrid(tokensByModel: tokensByModel)
-    }
-
-    /// Seeds used for the four enabled agents in the design; extra agents get derived seeds.
-    public static func lineSeed(index: Int) -> Int {
-        let seeds = [5, 17, 29, 41]
-        return index < seeds.count ? seeds[index] : 53 + index * 12
     }
 }

@@ -52,7 +52,7 @@ final class ProviderAccountTests: XCTestCase {
 
     func testFailedPollKeepsTheCurrentAccountAndUnseenAccountsRetire() async throws {
         let old = report(account: accountA, remaining: 40, at: now, credits: 1)
-        let failed = UsageReport(generatedAt: now.addingTimeInterval(60), snapshots: [], sessions: [], history: [], activity: .empty,
+        let failed = UsageReport(generatedAt: now.addingTimeInterval(60), snapshots: [], sessions: [], activity: .empty,
                                  insights: .empty, sourceNotices: ["Codex": "offline"])
         let provider = RetainedUsageProvider(provider: Sequence([old, failed, report(account: accountB, remaining: 90, at: now.addingTimeInterval(31 * 86400), credits: nil)]))
         _ = try await provider.fetchUsage(agents: [], historyHours: 24)
@@ -67,9 +67,9 @@ final class ProviderAccountTests: XCTestCase {
 
     @MainActor
     func testForgottenProviderRetiresReadingsAndSettingsAtOnce() async throws {
-        let signedOut = UsageReport(generatedAt: now.addingTimeInterval(60), snapshots: [], sessions: [], history: [], activity: .empty,
+        let signedOut = UsageReport(generatedAt: now.addingTimeInterval(60), snapshots: [], sessions: [], activity: .empty,
                                     insights: .empty, accounts: ["Codex": []])
-        let forgotten = UsageReport(generatedAt: now.addingTimeInterval(120), snapshots: [], sessions: [], history: [], activity: .empty,
+        let forgotten = UsageReport(generatedAt: now.addingTimeInterval(120), snapshots: [], sessions: [], activity: .empty,
                                     insights: .empty, forgottenAccountProviders: ["Codex"])
         let provider = RetainedUsageProvider(provider: Sequence([report(account: accountA, remaining: 40, at: now, credits: nil), signedOut, forgotten]))
         _ = try await provider.fetchUsage(agents: [], historyHours: 24)
@@ -88,13 +88,11 @@ final class ProviderAccountTests: XCTestCase {
     func testUnscopedReadingsAreDroppedOnceTheProviderIdentifiesAccounts() async throws {
         let legacyRow = AgentDescriptor(id: "codex", vendor: "Codex", model: "5h", source: "", enabled: true)
         let legacy = UsageReport(generatedAt: now, snapshots: [.init(agentId: "codex", remainingPct: 12, updatedAt: now)], sessions: [],
-                                 history: [.init(agentId: "codex", hourStart: now, remainingStart: 20, remainingEnd: 12, tokens: 0)],
                                  activity: .empty, insights: .empty, discoveredAgents: [legacyRow])
         let provider = RetainedUsageProvider(provider: Sequence([legacy, report(account: accountA, remaining: 80, at: now.addingTimeInterval(60), credits: nil)]))
         _ = try await provider.fetchUsage(agents: [], historyHours: 24)
         let migrated = try await provider.fetchUsage(agents: [], historyHours: 24)
         XCTAssertNil(migrated.snapshot(for: "codex"))
-        XCTAssertTrue(migrated.history(for: "codex").isEmpty, "unattributed quota history is not assigned to an account")
         XCTAssertEqual(migrated.discoveredAgents.map(\.id), [accountA.windowID("codex")])
     }
 
@@ -126,7 +124,7 @@ final class ProviderAccountTests: XCTestCase {
             let other = current == accountA ? accountB : accountA
             let at = now.addingTimeInterval(elapsed)
             let snapshot = UsageSnapshot(agentId: current.windowID("codex"), remainingPct: remaining, resetAt: at.addingTimeInterval(3600), updatedAt: at)
-            let report = UsageReport(generatedAt: at, snapshots: [snapshot], sessions: [], history: [], activity: .empty, insights: .empty,
+            let report = UsageReport(generatedAt: at, snapshots: [snapshot], sessions: [], activity: .empty, insights: .empty,
                 accounts: ["Codex": [AccountObservation(account: current, observedAt: at), AccountObservation(account: other, observedAt: now, isCurrent: false)]])
             return tracker.update(report: report, agents: agents, now: at)
         }
@@ -165,7 +163,7 @@ final class ProviderAccountTests: XCTestCase {
 
     private func report(account: ProviderAccount, remaining: Double, at date: Date, credits: Int?) -> UsageReport {
         UsageReport(generatedAt: date, snapshots: [.init(agentId: account.windowID("codex"), remainingPct: remaining, updatedAt: date)],
-                    sessions: [], history: [], activity: .empty, insights: .empty, discoveredAgents: [descriptor(account)],
+                    sessions: [], activity: .empty, insights: .empty, discoveredAgents: [descriptor(account)],
                     codexResetCredits: credits.map { .init(availableCount: $0, credits: nil) }, codexResetCreditsObservedAt: credits == nil ? nil : date,
                     accounts: ["Codex": [AccountObservation(account: account, observedAt: date)]])
     }

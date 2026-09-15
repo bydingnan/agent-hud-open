@@ -101,7 +101,7 @@ public enum SnapshotRunner {
         let dashboardStore = UsageStore(provider: DemoUsageProvider(), settings: settings)
         let dashboardReport = DemoUsageProvider.report(agents: settings.agents, historyHours: UsageStore.historyHours, now: Date())
         dashboardStore.replace(report: UsageReport(generatedAt: dashboardReport.generatedAt,
-            snapshots: dashboardReport.snapshots, sessions: dashboardReport.sessions, history: dashboardReport.history,
+            snapshots: dashboardReport.snapshots, sessions: dashboardReport.sessions,
             activity: dashboardReport.activity, insights: dashboardReport.insights, consumers: dashboardReport.consumers,
             usage: dashboardReport.usage,
             insightsByAgent: Dictionary(uniqueKeysWithValues: dashboardReport.snapshots.map { ($0.agentId, dashboardReport.insights) }),
@@ -192,7 +192,7 @@ public enum SnapshotRunner {
         save("island-loading-no-reset", IslandScene(store: loadingStore, settings: settings, open: true, light: false), folder: folder, scheme: .dark)
         settings.update { $0.showResetCountdown = true; $0.showIslandTokens = true }
         save("island-loading-tokens", IslandScene(store: loadingStore, settings: settings, open: true, light: false), folder: folder, scheme: .dark)
-        loadingStore.replace(report: UsageReport(generatedAt: resetNow, snapshots: [], sessions: [], history: [],
+        loadingStore.replace(report: UsageReport(generatedAt: resetNow, snapshots: [], sessions: [],
                                                 activity: .empty, insights: .empty, indexing: IndexProgress(done: 12, total: 80)))
         save("island-loading-indexing", IslandScene(store: loadingStore, settings: settings, open: true, light: false), folder: folder, scheme: .dark)
         settings.update { $0.showIslandTokens = false }
@@ -202,7 +202,7 @@ public enum SnapshotRunner {
                           windowDuration: index == 0 ? 5 * 3600 : 7 * 86400,
                           updatedAt: resetNow)
         }
-        store.replace(report: UsageReport(generatedAt: resetNow, snapshots: quotaSnapshots, sessions: [], history: [], activity: .empty, insights: .empty))
+        store.replace(report: UsageReport(generatedAt: resetNow, snapshots: quotaSnapshots, sessions: [], activity: .empty, insights: .empty))
         save("island-weekly-resets-dark", IslandScene(store: store, settings: settings, open: true, light: false), folder: folder, scheme: .dark)
         let resetBalances: [(String, CodexResetCredits?)] = [
             ("available", DemoData.codexResetCredits(now: resetNow)),
@@ -215,7 +215,7 @@ public enum SnapshotRunner {
             ("unavailable", nil),
         ]
         for (name, balance) in resetBalances {
-            store.replace(report: UsageReport(generatedAt: resetNow, snapshots: quotaSnapshots, sessions: [], history: [],
+            store.replace(report: UsageReport(generatedAt: resetNow, snapshots: quotaSnapshots, sessions: [],
                                              activity: .empty, insights: .empty, codexResetCredits: balance))
             save("island-reset-\(name)-dark", IslandScene(store: store, settings: settings, open: true, light: false), folder: folder, scheme: .dark)
             if let balance, balance.availableCount > 0 {
@@ -241,13 +241,13 @@ public enum SnapshotRunner {
         let deepseek = AgentDescriptor(id: "deepseek", vendor: "DeepSeek", model: "Harness", source: L10n.sourceDeepSeekSessions, enabled: true)
         settings.updateAgents { _ in quotaAgents + [deepseek] }
         settings.update { $0.showResetCountdown = true }
-        store.replace(report: UsageReport(generatedAt: resetNow, snapshots: quotaSnapshots, sessions: [], history: [],
+        store.replace(report: UsageReport(generatedAt: resetNow, snapshots: quotaSnapshots, sessions: [],
                                          activity: .empty, insights: .empty, billing: [DemoData.deepSeekBilling(now: resetNow)],
                                          codexResetCredits: DemoData.codexResetCredits(now: resetNow)))
         save("island-layout-all-agents", IslandScene(store: store, settings: settings, open: true, light: false), folder: folder, scheme: .dark)
         settings.updateAgents { _ in [quotaAgents[0], deepseek] }
         settings.update { $0.showResetCountdown = true }
-        store.replace(report: UsageReport(generatedAt: resetNow, snapshots: [quotaSnapshots[0]], sessions: [], history: [],
+        store.replace(report: UsageReport(generatedAt: resetNow, snapshots: [quotaSnapshots[0]], sessions: [],
                                          activity: .empty, insights: .empty, billing: [DemoData.deepSeekBilling(now: resetNow)]))
         save("island-deepseek-enabled-dark", IslandScene(store: store, settings: settings, open: true, light: false), folder: folder, scheme: .dark)
         settings.setAgent(id: "deepseek", enabled: false)
@@ -272,7 +272,7 @@ public enum SnapshotRunner {
         store.replace(report: UsageReport(generatedAt: resetNow, snapshots: [quotaSnapshots[0]] + accountReadings.map { account, key, remaining, observed in
                 UsageSnapshot(agentId: account.windowID(key), remainingPct: remaining, resetAt: resetNow.addingTimeInterval(key == "codex" ? 4 * 86400 : 3 * 3600),
                               windowDuration: key == "codex" ? 7 * 86400 : 5 * 3600, updatedAt: observed)
-            }, sessions: [], history: [], activity: .empty, insights: .empty, subscriptions: ["Codex": "pro"],
+            }, sessions: [], activity: .empty, insights: .empty, subscriptions: ["Codex": "pro"],
             codexResetCredits: DemoData.codexResetCredits(now: resetNow), accounts: ["Codex": [
                 AccountObservation(account: currentAccount, label: "work@example.com", plan: "pro", observedAt: resetNow),
                 AccountObservation(account: previousAccount, label: "me@example.com", plan: "prolite", observedAt: resetNow.addingTimeInterval(-3 * 3600), isCurrent: false),
@@ -313,7 +313,7 @@ public enum SnapshotRunner {
             .init(id: "kimi", name: "Kimi", detail: "", state: .ready(plan: "Allegretto")),
             .init(id: "glm", name: "GLM", detail: "", state: .notDetected),
         ]
-        store.replace(report: UsageReport(generatedAt: Date(), snapshots: [], sessions: [], history: [], activity: .empty,
+        store.replace(report: UsageReport(generatedAt: Date(), snapshots: [], sessions: [], activity: .empty,
             insights: .empty, subscriptions: ["kimi-plan": "Allegretto"], billing: [DemoData.deepSeekBilling(now: Date())], services: [
                 .init(client: "OpenCode", provider: "Anthropic", product: .api),
                 .init(client: "OpenCode", provider: "OpenAI", product: .api),

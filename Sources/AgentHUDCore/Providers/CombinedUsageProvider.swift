@@ -74,7 +74,7 @@ public struct CombinedUsageProvider: UsageProvider {
                            sessions: reports.flatMap(\.sessions).sorted { a, b in
                                if a.isLive != b.isLive { return a.isLive }
                                return (a.endedAt ?? a.startedAt) > (b.endedAt ?? b.startedAt)
-                           }, history: UsageAggregation.historyUnion(reports.map(\.history)),
+                           },
                            activity: UsageAnalytics.activityGrid(usage: week, since: weekAgo, calendar: .current),
                            insights: UsageInsights(burnRatePctPerHour: nil, timeToExhaust: nil, weeklyCapHits: 0,
                                                   weeklyWaitTotal: 0, weeklyWaitLongest: 0, weeklyWaitLongestAt: nil,

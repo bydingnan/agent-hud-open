@@ -68,45 +68,8 @@ public struct TokenColumn: Hashable, Sendable, Identifiable {
     public var total: Int { tokens.reduce(0, +) }
 }
 
-/// Pure transforms from history samples to drawable series.
+/// Pure transforms from usage buckets to drawable series.
 public enum ChartData {
-    /// Polyline reproducing the prototype's shape: x in 0…1, y = remaining % (0…100).
-    /// A reset (remainingStart != previous remainingEnd) is drawn as a vertical jump at the bucket boundary.
-    public static func remainingPath(_ samples: [HistorySample]) -> [CGPoint] {
-        guard let first = samples.first else { return [] }
-        let n = Double(samples.count)
-        var points = [CGPoint(x: 0, y: first.remainingStart)]
-        for (i, sample) in samples.enumerated() {
-            let x0 = Double(i) / n, x1 = Double(i + 1) / n
-            if i > 0, sample.remainingStart != samples[i - 1].remainingEnd {
-                points.append(CGPoint(x: x0, y: sample.remainingStart))
-            }
-            points.append(CGPoint(x: x1, y: sample.remainingEnd))
-        }
-        return points
-    }
-
-    /// Same polyline in "used %" terms (rises with consumption, drops at a reset).
-    public static func usedPath(_ samples: [HistorySample]) -> [CGPoint] {
-        remainingPath(samples).map { CGPoint(x: $0.x, y: 100 - $0.y) }
-    }
-
-    /// Positions observed hours on the requested time axis; a new source does not acquire invented history.
-    public static func usedPath(_ samples: [HistorySample], interval: DateInterval) -> [CGPoint] {
-        let visible = samples.filter { $0.hourStart.addingTimeInterval(3600) > interval.start && $0.hourStart < interval.end }
-            .sorted { $0.hourStart < $1.hourStart }
-        var points: [CGPoint] = []
-        for (index, sample) in visible.enumerated() {
-            let x0 = max(0, sample.hourStart.timeIntervalSince(interval.start) / interval.duration)
-            let x1 = min(1, sample.hourStart.addingTimeInterval(3600).timeIntervalSince(interval.start) / interval.duration)
-            if index == 0 || sample.remainingStart != visible[index - 1].remainingEnd {
-                points.append(CGPoint(x: x0, y: 100 - sample.remainingStart))
-            }
-            points.append(CGPoint(x: x1, y: 100 - sample.remainingEnd))
-        }
-        return points
-    }
-
     /// Sums `values` into `buckets` groups of (nearly) equal size, preserving order.
     public static func bucketed(_ values: [Int], buckets: Int) -> [Int] {
         guard buckets > 0, !values.isEmpty else { return [] }

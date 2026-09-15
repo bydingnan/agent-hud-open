@@ -396,40 +396,6 @@ final class UsageAnalyticsTests: XCTestCase {
 
     let now = DateParsing.iso8601("2026-09-06T06:32:00Z")! // Sunday 14:32 CST
 
-    func testHourlyHistoryCarriesForwardAndShowsResets() {
-        // Buckets (5 hours ending in the current hour): 10:00, 11:00 (= base), 12:00, 13:00, 14:00.
-        let base = UsageAnalytics.hourStart(now, calendar: calendar).addingTimeInterval(-3 * 3600)
-        let quota = [
-            QuotaSample(agentId: "a", timestamp: base.addingTimeInterval(600), remainingPct: 80),
-            QuotaSample(agentId: "a", timestamp: base.addingTimeInterval(3000), remainingPct: 70),
-            QuotaSample(agentId: "a", timestamp: base.addingTimeInterval(2 * 3600 + 60), remainingPct: 100),
-        ]
-        let usage = [
-            UsageEvent(timestamp: base.addingTimeInterval(100), agentId: "a", tokensIn: 1000, tokensOut: 200),
-            UsageEvent(timestamp: base.addingTimeInterval(100), agentId: "b", tokensIn: 999, tokensOut: 0),
-        ]
-        let history = UsageAnalytics.hourlyHistory(agentId: "a", quota: quota, usage: usage, hours: 5, now: now, calendar: calendar, fallbackRemaining: nil)
-        XCTAssertEqual(history.count, 5)
-        XCTAssertEqual(history[0].remainingStart, 80, "hours before the first sample take its value")
-        XCTAssertEqual(history[0].tokens, 0)
-        XCTAssertEqual(history[1].hourStart, base)
-        XCTAssertEqual(history[1].remainingStart, 80)
-        XCTAssertEqual(history[1].remainingEnd, 70)
-        XCTAssertEqual(history[1].tokens, 1200)
-        XCTAssertEqual(history[2].remainingStart, 70)
-        XCTAssertEqual(history[2].remainingEnd, 70)
-        XCTAssertEqual(history[3].remainingStart, 100, "reset shows as a jump")
-        XCTAssertEqual(history[3].remainingEnd, 100)
-        XCTAssertEqual(history[4].remainingEnd, 100)
-        let path = ChartData.remainingPath(history)
-        XCTAssertTrue(path.contains(CGPoint(x: 0.6, y: 70)) && path.contains(CGPoint(x: 0.6, y: 100)))
-    }
-
-    func testHourlyHistoryWithoutSamplesUsesFallback() {
-        let history = UsageAnalytics.hourlyHistory(agentId: "a", quota: [], usage: [], hours: 2, now: now, calendar: calendar, fallbackRemaining: 42)
-        XCTAssertEqual(history.map(\.remainingEnd), [42, 42])
-    }
-
     func testActivityGridNormalises() {
         let monday = DateParsing.iso8601("2026-08-31T02:00:00Z")! // Monday 10:00 CST
         let usage = [
@@ -635,8 +601,6 @@ final class ClaudeCodeProviderTests: XCTestCase {
         // Both sessions fall inside the 5h window: live has 1200 of 1600 tokens → 75 % of the 28 % used.
         XCTAssertEqual(try XCTUnwrap(report.sessions[0].pctOfWindow), 21, accuracy: 1e-6)
 
-        XCTAssertEqual(report.history.count, 48 * 3)
-        XCTAssertEqual(report.history(for: account.windowID("claude-session")).last?.remainingEnd, 72)
         let opus = await transcripts.usage(since: now.addingTimeInterval(-7200)).filter { $0.agentId == "claude-model:claude-opus-4-5" }
         XCTAssertEqual(opus.map(\.total).reduce(0, +), 1200)
         let periods = Set([-1400.0, -30.0].map { offset in

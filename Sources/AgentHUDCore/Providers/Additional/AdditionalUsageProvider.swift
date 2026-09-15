@@ -142,14 +142,9 @@ actor AdditionalUsageProvider: UsageProvider, LedgerRecording {
         let snapshots = windows.map {
             UsageSnapshot(agentId: $0.id, remainingPct: $0.remaining, resetAt: $0.reset, windowDuration: $0.duration, updatedAt: observedAt)
         }
-        var samples: [HistorySample] = [], insights: [String: UsageInsights] = [:]
+        var insights: [String: UsageInsights] = [:]
         for snapshot in snapshots {
-            let readings = await history.samples(agentId: snapshot.agentId, since: min(since, snapshot.cycle?.start ?? since))
-            if let first = readings.first {
-                samples += UsageAnalytics.hourlyHistory(agentId: snapshot.agentId, quota: readings, usage: [],
-                    hours: min(historyHours, max(1, Int(now.timeIntervalSince(first.timestamp) / 3600) + 1)),
-                    now: now, calendar: .current, fallbackRemaining: nil)
-            }
+            let readings = await history.samples(agentId: snapshot.agentId, since: min(weekAgo, snapshot.cycle?.start ?? weekAgo))
             let burn = UsageAnalytics.burnRate(samples: readings, cycle: snapshot.cycle, now: now)
             let caps = UsageAnalytics.capStats(samples: readings.filter { $0.timestamp >= weekAgo }, now: now)
             insights[snapshot.agentId] = UsageInsights(burnRatePctPerHour: burn?.pctPerHour,
@@ -163,7 +158,7 @@ actor AdditionalUsageProvider: UsageProvider, LedgerRecording {
         }
         let consumerIDs = Set(consumers.map(\.id))
         let quotaIDs = Set(windows.map(\.id) + agents.filter { $0.vendor == source.vendor }.map(\.id))
-        return UsageReport(generatedAt: now, snapshots: snapshots, sessions: sessions, history: samples,
+        return UsageReport(generatedAt: now, snapshots: snapshots, sessions: sessions,
             activity: UsageAnalytics.activityGrid(usage: week, since: weekAgo, calendar: .current), insights: .empty,
             notice: notice.isEmpty ? nil : notice, discoveredAgents: descriptors, consumers: consumers,
             indexing: local.indexing, insightsByAgent: insights, subscriptions: quota.plan.map { [source.vendor: $0] } ?? [:],

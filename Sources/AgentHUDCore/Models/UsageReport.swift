@@ -64,7 +64,6 @@ public struct UsageReport: Hashable, Codable, Sendable {
     public let completions: [SessionCompletion]
     /// Explicit current/recent turn observations; archived session activity is not a substitute.
     public let turns: [SessionTurn]
-    public let history: [HistorySample]
     public let activity: ActivityGrid
     public let insights: UsageInsights
     /// Short note for the UI when quota data is missing or degraded ("等待 Claude Code 上报额度").
@@ -106,7 +105,6 @@ public struct UsageReport: Hashable, Codable, Sendable {
         generatedAt: Date,
         snapshots: [UsageSnapshot],
         sessions: [LiveSession],
-        history: [HistorySample],
         activity: ActivityGrid,
         insights: UsageInsights,
         notice: String? = nil,
@@ -146,7 +144,6 @@ public struct UsageReport: Hashable, Codable, Sendable {
         self.generatedAt = generatedAt
         self.snapshots = snapshots
         self.sessions = sessions
-        self.history = history
         self.activity = activity
         self.insights = insights
         self.notice = notice
@@ -158,9 +155,5 @@ public struct UsageReport: Hashable, Codable, Sendable {
 
     public func snapshot(for agentId: String) -> UsageSnapshot? {
         snapshots.first { $0.agentId == agentId }
-    }
-
-    public func history(for agentId: String) -> [HistorySample] {
-        history.filter { $0.agentId == agentId }.sorted { $0.hourStart < $1.hourStart }
     }
 }

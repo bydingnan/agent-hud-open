@@ -65,18 +65,10 @@ public actor CodexUsageProvider: UsageProvider, LedgerRecording {
                           resetAt: row.window.resetAt, windowDuration: row.window.duration,
                           weeklyResetAt: row.weekly?.resetAt, updatedAt: fetchedAt)
         }
-        var quotaHistory: [HistorySample] = []
         var byAgent: [String: UsageInsights] = [:]
         let sessionCount = indexed.sessions.filter { !$0.transcript.isSubagent }.count
         for (row, snapshot) in zip(windows, snapshots) {
-            let historyStart = now.addingTimeInterval(-Double(max(historyHours, 168)) * 3600)
-            let samples = await history.samples(agentId: row.id, since: min(historyStart, snapshot.cycle?.start ?? historyStart))
-            // Do not invent historical readings before Agent HUD first observed the account.
-            if let first = samples.first {
-                let hours = min(historyHours, Int(now.timeIntervalSince(first.timestamp) / 3600) + 1)
-                quotaHistory += UsageAnalytics.hourlyHistory(agentId: row.id, quota: samples, usage: [], hours: hours,
-                                                             now: now, calendar: calendar, fallbackRemaining: nil)
-            }
+            let samples = await history.samples(agentId: row.id, since: min(weekAgo, snapshot.cycle?.start ?? weekAgo))
             let burn = UsageAnalytics.burnRate(samples: samples, cycle: snapshot.cycle, now: now)
             let caps = UsageAnalytics.capStats(samples: samples.filter { $0.timestamp >= weekAgo }, now: now)
             byAgent[row.id] = UsageInsights(burnRatePctPerHour: burn?.pctPerHour,
@@ -104,7 +96,7 @@ public actor CodexUsageProvider: UsageProvider, LedgerRecording {
         let consumerIds = Set(consumers.map(\.id) + sessions.map(\.agentId))
         let quotaIds = Set(windows.map(\.id) + agents.filter { $0.vendor == "Codex" }.map(\.id))
         let consumerIdsByQuota = Dictionary(uniqueKeysWithValues: quotaIds.map { ($0, consumerIds) })
-        return UsageReport(generatedAt: now, snapshots: snapshots, sessions: sessions, history: quotaHistory,
+        return UsageReport(generatedAt: now, snapshots: snapshots, sessions: sessions,
                            activity: UsageAnalytics.activityGrid(usage: week, since: weekAgo, calendar: calendar),
                            insights: UsageInsights(burnRatePctPerHour: nil, timeToExhaust: nil, weeklyCapHits: 0,
                                                   weeklyWaitTotal: 0, weeklyWaitLongest: 0, weeklyWaitLongestAt: nil,

@@ -351,7 +351,6 @@ final class DeepSeekProviderTests: XCTestCase {
         XCTAssertEqual(recorded.reduce(0) { $0 + $1.tokensIn }, 8096, "sub-agent usage counts")
         XCTAssertEqual(report.billing[0].sessionCosts["deepseek:main"]?["CNY"], Decimal(string: "0.01239"))
         XCTAssertTrue(report.snapshots.isEmpty)
-        XCTAssertTrue(report.history.isEmpty)
         XCTAssertTrue(report.consumerIdsByQuota.isEmpty)
         XCTAssertEqual(report.discoveredAgents[0].source, L10n.sourceDeepSeekSessions)
         XCTAssertEqual(report.discoveredAgents.map(\.id), report.consumers.map(\.id))

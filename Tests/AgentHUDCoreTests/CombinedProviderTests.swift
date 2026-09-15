@@ -15,7 +15,7 @@ final class CombinedProviderTests: XCTestCase {
     private func report(_ id: String, tokens: Int) -> UsageReport {
         let bucket = UsageBucket(start: now.addingTimeInterval(-3600), agentId: id, tokensIn: tokens, tokensOut: 0)
         return UsageReport(generatedAt: now, snapshots: [UsageSnapshot(agentId: id, remainingPct: 80, updatedAt: now)],
-                           sessions: [], history: [], activity: .empty, insights: .empty, usage: [bucket],
+                           sessions: [], activity: .empty, insights: .empty, usage: [bucket],
                            consumerIdsByQuota: [id: ["\(id)-model"]])
     }
 

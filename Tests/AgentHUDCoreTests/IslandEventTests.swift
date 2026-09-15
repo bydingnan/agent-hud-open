@@ -121,7 +121,7 @@ final class IslandEventTests: XCTestCase {
     }
 
     private func report(completions: [SessionCompletion] = [], snapshots: [UsageSnapshot] = [], at: Date? = nil) -> UsageReport {
-        UsageReport(generatedAt: at ?? start, snapshots: snapshots, sessions: [], history: [], activity: .empty, insights: .empty,
+        UsageReport(generatedAt: at ?? start, snapshots: snapshots, sessions: [], activity: .empty, insights: .empty,
                     completions: completions)
     }
 

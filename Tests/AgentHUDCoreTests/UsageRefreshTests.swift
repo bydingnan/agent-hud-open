@@ -32,7 +32,7 @@ final class UsageRefreshTests: XCTestCase, @unchecked Sendable {
             if publishes.count == 1 { published.fulfill(); for await _ in gate.stream { break } }
         }, merge: { report in
             merges.append(report)
-            return UsageReport(generatedAt: report.generatedAt, snapshots: report.snapshots, sessions: report.sessions, history: [],
+            return UsageReport(generatedAt: report.generatedAt, snapshots: report.snapshots, sessions: report.sessions,
                                activity: .empty, insights: .empty, notice: "merged", discoveredAgents: report.discoveredAgents)
         }))
         let pass = Task { @MainActor in await store.refresh() }
@@ -59,7 +59,7 @@ final class UsageRefreshTests: XCTestCase, @unchecked Sendable {
         var label = "first", publishes = 0
         let provider = CountingProvider()
         let store = store(provider, hooks: UsageCollectionHooks(publish: { _ in publishes += 1 }, merge: { report in
-            UsageReport(generatedAt: report.generatedAt, snapshots: [], sessions: [], history: [], activity: .empty, insights: .empty,
+            UsageReport(generatedAt: report.generatedAt, snapshots: [], sessions: [], activity: .empty, insights: .empty,
                         notice: (report.notice ?? "") + label)
         }))
         await store.remerge()
@@ -71,7 +71,7 @@ final class UsageRefreshTests: XCTestCase, @unchecked Sendable {
         XCTAssertEqual(fetches, 1)
         XCTAssertEqual(publishes, 1)
         XCTAssertEqual(store.report?.notice, "second", "the merge starts again from the provider's report")
-        store.replace(report: UsageReport(generatedAt: Date(), snapshots: [], sessions: [], history: [], activity: .empty, insights: .empty))
+        store.replace(report: UsageReport(generatedAt: Date(), snapshots: [], sessions: [], activity: .empty, insights: .empty))
         await store.remerge()
         XCTAssertNil(store.report?.notice, "an installed report is not merged over")
     }
@@ -126,7 +126,7 @@ final class UsageRefreshTests: XCTestCase, @unchecked Sendable {
     func testPollsWaitForChangesWhileNoTurnRuns() {
         let now = Date(timeIntervalSince1970: 1_800_000_000), ms = Int64(1_800_000_000_000)
         func report(sessions: [LiveSession] = [], turns: [SessionTurn] = []) -> UsageReport {
-            UsageReport(generatedAt: now, snapshots: [], sessions: sessions, history: [], activity: .empty, insights: .empty, turns: turns)
+            UsageReport(generatedAt: now, snapshots: [], sessions: sessions, activity: .empty, insights: .empty, turns: turns)
         }
         func turn(_ state: SessionTurn.State, observedAgo seconds: Int64) -> SessionTurn {
             SessionTurn(provider: "codex", sessionID: "s", turnID: "t", state: state, startedAtMs: ms - 900_000, observedAtMs: ms - seconds * 1000)
