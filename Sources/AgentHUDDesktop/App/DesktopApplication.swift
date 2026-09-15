@@ -27,7 +27,7 @@ public final class DesktopApplication {
     private lazy var settingsWindow = SettingsWindowController(
         settings: settings, store: store, additionalPages: additionalSettingsPages
     )
-    private let statsWindow: StatsWindowController
+    private lazy var statsWindow = StatsWindowController(store: store)
     private let onboardingWindow: OnboardingWindowController
 
     /// `onIslandEvents` receives every island event check after the island has presented it, including checks that
@@ -42,7 +42,6 @@ public final class DesktopApplication {
         self.additionalMenuActions = additionalMenuActions
         self.additionalSettingsPages = additionalSettingsPages
         self.onIslandEvents = onIslandEvents
-        statsWindow = StatsWindowController(store: store)
         onboardingWindow = OnboardingWindowController(settings: settings, store: store,
             sources: options.demo ? { DemoData.sources } : { SourceDetector.detect() })
         onboardingWindow.onFinish = { [weak self] in

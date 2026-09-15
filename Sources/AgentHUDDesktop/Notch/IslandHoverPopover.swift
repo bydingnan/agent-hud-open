@@ -25,17 +25,13 @@ final class IslandHoverAnchorView<Content: View>: NSView {
     var onHover: (Bool) -> Void = { _ in }
     private var hoverArea: NSTrackingArea?
     private var pointerLocation: CGPoint?
-    private let details: NSHostingView<Content>
-    private let panel: NotchPanel
+    private var content: Content
+    /// Most rows are never hovered, so the panel and its hosting view wait for the first show.
+    private var popup: (panel: NotchPanel, details: NSHostingView<Content>)?
 
     init(content: Content) {
-        details = NSHostingView(rootView: content)
-        panel = NotchPanel(frame: .zero, level: .popUpMenu, acceptsMouse: false)
+        self.content = content
         super.init(frame: .zero)
-        panel.title = "Island hover details"
-        panel.hasShadow = true
-        panel.appearance = NSAppearance(named: .darkAqua)
-        panel.contentView = details
     }
 
     @available(*, unavailable)
@@ -73,24 +69,37 @@ final class IslandHoverAnchorView<Content: View>: NSView {
     }
 
     func update(content: Content, enabled: Bool, isHovered: Bool) {
-        details.rootView = content
+        self.content = content
+        popup?.details.rootView = content
         guard isHovered, enabled, let window, let pointerLocation else {
             dismiss()
             return
         }
-        position(in: window, at: pointerLocation, size: details.fittingSize)
-        if panel.parent !== window { window.addChildWindow(panel, ordered: .above) }
-        panel.orderFrontRegardless()
+        let popup = self.popup ?? makePopup()
+        position(popup.panel, in: window, at: pointerLocation, size: popup.details.fittingSize)
+        if popup.panel.parent !== window { window.addChildWindow(popup.panel, ordered: .above) }
+        popup.panel.orderFrontRegardless()
+    }
+
+    private func makePopup() -> (panel: NotchPanel, details: NSHostingView<Content>) {
+        let details = NSHostingView(rootView: content)
+        let panel = NotchPanel(frame: .zero, level: .popUpMenu, acceptsMouse: false)
+        panel.title = "Island hover details"
+        panel.hasShadow = true
+        panel.appearance = NSAppearance(named: .darkAqua)
+        panel.contentView = details
+        popup = (panel, details)
+        return (panel, details)
     }
 
     private func trackPointer(_ event: NSEvent) {
         guard let window else { return }
         let point = window.convertPoint(toScreen: event.locationInWindow)
         pointerLocation = point
-        if panel.isVisible { position(in: window, at: point, size: panel.frame.size) }
+        if let panel = popup?.panel, panel.isVisible { position(panel, in: window, at: point, size: panel.frame.size) }
     }
 
-    private func position(in window: NSWindow, at point: CGPoint, size: CGSize) {
+    private func position(_ panel: NSPanel, in window: NSWindow, at point: CGPoint, size: CGSize) {
         var origin = CGPoint(x: point.x + 10, y: point.y - size.height - 12)
         if let screen = window.screen {
             let visible = screen.visibleFrame.insetBy(dx: 8, dy: 8)
@@ -102,6 +111,7 @@ final class IslandHoverAnchorView<Content: View>: NSView {
     }
 
     func dismiss() {
+        guard let panel = popup?.panel else { return }
         panel.parent?.removeChildWindow(panel)
         panel.orderOut(nil)
     }
