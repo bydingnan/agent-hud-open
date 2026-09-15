@@ -72,7 +72,7 @@ public enum SnapshotRunner {
             save("settings-\(tab.slug)-light", SettingsView(settings: settings, store: store, initialTab: tab).frame(width: SettingsWindowLayout.size.width, height: SettingsWindowLayout.size.height), folder: folder, scheme: .light)
             save("settings-\(tab.slug)-small-dark", SettingsView(settings: settings, store: store, initialTab: tab).frame(width: SettingsWindowLayout.minimum.width, height: SettingsWindowLayout.minimum.height), folder: folder, scheme: .dark)
         }
-        await saveAgentSettings(settings: settings, store: store, folder: folder)
+        saveAgentSettings(settings: settings, store: store, folder: folder)
         save("settings-display-bottom-dark", SettingsView(settings: settings, store: store, initialTab: .display).frame(width: SettingsWindowLayout.size.width, height: SettingsWindowLayout.size.height), folder: folder, scheme: .dark, scrollToBottom: true)
         save("settings-display-small-bottom-dark", SettingsView(settings: settings, store: store, initialTab: .display).frame(width: SettingsWindowLayout.minimum.width, height: SettingsWindowLayout.minimum.height), folder: folder, scheme: .dark, scrollToBottom: true)
         let sampleWidth = SettingsWindowLayout.size.width - SettingsWindowLayout.sidebarWidth - 1
@@ -281,12 +281,9 @@ public enum SnapshotRunner {
         save("settings-agents-provider-accounts-dark", SettingsView(settings: settings, store: store, initialTab: .sources,
             sourceStatuses: [.init(id: "codex-cli", name: "Codex", detail: "", state: .ready(plan: "pro"))], initiallyExpandedAgents: ["Codex"])
             .frame(width: 760, height: 800), folder: folder, scheme: .dark)
-
-        await IslandAnimationChecks.run(store: store, settings: settings, folder: folder)
-        IslandHoverChecks.run(store: store, settings: settings, folder: folder)
     }
 
-    private static func saveAgentSettings(settings: SettingsStore, store: UsageStore, folder: URL) async {
+    private static func saveAgentSettings(settings: SettingsStore, store: UsageStore, folder: URL) {
         if let prefix = ProcessInfo.processInfo.environment["AGENTHUD_SNAPSHOT_PREFIX"], !"settings-agents".hasPrefix(prefix) { return }
         let original = settings.agents
         let preferences = settings.settings
@@ -343,7 +340,6 @@ public enum SnapshotRunner {
                 }
             }
         }
-        if L10n.resolved == .zhHans { await AgentSettingsChecks.run(settings: settings, store: store, sources: sources) }
     }
 
     private static func saveAdaptiveDashboard(store: UsageStore, folder: URL) async {

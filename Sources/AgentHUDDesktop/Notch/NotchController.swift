@@ -19,8 +19,8 @@ final class NotchController {
     private let store: UsageStore
     private let settings: SettingsStore
     private(set) var geometry: NotchGeometry
-    private let glow: GlowWindowController
-    private let island: IslandWindowController
+    let glow: GlowWindowController
+    let island: IslandWindowController
     private var machine = HoverMachine()
     private var timer: Timer?
     private var shrinkTask: Task<Void, Never>?

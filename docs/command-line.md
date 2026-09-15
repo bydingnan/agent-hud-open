@@ -15,7 +15,7 @@ Launch options, read-only probes and adapter commands of the standalone applicat
 | `--open-panel` | Start with the notch panel expanded. |
 | `--show-onboarding` | Show the first-launch window even when onboarding is complete. |
 | `--reset-defaults` | Remove the application's stored preferences before starting. |
-| `--snapshot <dir>` | Render every screen at 2× to PNG files in `<dir>` from sample data, then quit. `AGENTHUD_SNAPSHOT_PREFIX=<name>` limits rendering, and the built-in island animation, hover and agent-settings checks, to snapshots whose name starts with the prefix, for example `settings-`. |
+| `--snapshot <dir>` | Render every screen at 2× to PNG files in `<dir>` from sample data, then quit. `AGENTHUD_SNAPSHOT_PREFIX=<name>` limits rendering to snapshots whose name starts with the prefix, for example `settings-`. |
 
 `make demo` runs `--demo --show-settings`; `make snapshot` runs `--snapshot build/snapshots` (override the directory with `SNAPSHOT_DIR=…`).
 
@@ -52,7 +52,8 @@ Normal start-up already runs `SessionObservers.configure(executable:)` for insta
 | --- | --- |
 | Switch parsing | `Sources/AgentHUDDesktop/App/LaunchOptions.swift` |
 | Probes, adapter commands, hook handler | `Sources/AgentHUDOpenApp/main.swift` |
-| Snapshot rendering and checks | `Sources/AgentHUDDesktop/Debug/SnapshotRunner.swift` |
+| Snapshot rendering | `Sources/AgentHUDDesktop/Debug/SnapshotRunner.swift` |
+| Real-window interaction tests | `Tests/AgentHUDDesktopTests/IslandAnimationTests.swift`, `IslandHoverTests.swift`, `AgentSettingsInteractionTests.swift` |
 | Build script and targets | `scripts/build-app.sh`, `Makefile` |
 
 ## Related

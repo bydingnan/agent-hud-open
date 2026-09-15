@@ -8,8 +8,8 @@ import AgentHUDCore
 final class GlowWindowController {
     let panel: NotchPanel
     private let host = NSView()
-    private let glowLayer = CALayer()
-    private let shadowLayer = CALayer()
+    let glowLayer = CALayer()
+    let shadowLayer = CALayer()
     private let alertLayer = CALayer()
     private var lastAlertID: String?
     private var softKey: SoftKey?
