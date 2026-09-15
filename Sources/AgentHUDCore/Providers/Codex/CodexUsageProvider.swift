@@ -81,7 +81,7 @@ public actor CodexUsageProvider: UsageProvider, LedgerRecording {
         }.map { session in
             let t = session.transcript
             return LiveSession(id: t.id!, agentId: "codex-model:\(t.model)",
-                               task: session.title ?? t.task ?? t.cwd.map { URL(fileURLWithPath: $0).lastPathComponent } ?? L10n.vendorLabel("Codex"),
+                               task: session.title ?? t.task ?? t.cwd.map { URL(fileURLWithPath: $0).lastPathComponent } ?? "Codex",
                                terminal: t.cwd.map { URL(fileURLWithPath: $0).lastPathComponent },
                                startedAt: t.startedAt ?? session.modifiedAt,
                                endedAt: t.isLive(now: now, modifiedAt: session.modifiedAt) ? nil : (t.lastActivityAt ?? session.modifiedAt),

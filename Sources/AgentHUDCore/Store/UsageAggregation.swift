@@ -3,21 +3,6 @@ import AgentHUDSupport
 
 /// Combines local usage observations without counting the same event twice.
 public enum UsageAggregation {
-    /// Combine exact observations without counting copies twice. Preserve repeated equal events within one source.
-    public static func eventUnion<T: Hashable>(_ sources: [[T]]) -> [T] {
-        var maximum: [T: Int] = [:]
-        var result: [T] = []
-        for source in sources {
-            var count: [T: Int] = [:]
-            for event in source {
-                count[event, default: 0] += 1
-                if count[event]! > maximum[event, default: 0] { result.append(event) }
-            }
-            for (event, occurrences) in count { maximum[event] = max(maximum[event, default: 0], occurrences) }
-        }
-        return result
-    }
-
     /// Cache reads enrich an existing usage observation; they do not create another input/output event.
     public static func usageUnion(_ sources: [[UsageEvent]]) -> [UsageEvent] {
         var priorities: [String: Int] = [:]

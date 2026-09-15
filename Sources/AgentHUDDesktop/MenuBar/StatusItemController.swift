@@ -66,7 +66,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         for (index, group) in groups.enumerated() {
             if index > 0 { menu.addItem(.separator()) }
             if groups.count > 1 || group.rows.count > 1 {
-                let header = NSMenuItem(title: L10n.vendorLabel(group.vendor), action: nil, keyEquivalent: "")
+                let header = NSMenuItem(title: group.vendor, action: nil, keyEquivalent: "")
                 header.isEnabled = false
                 header.view = MenuRowView(
                     title: header.title, image: AgentArtwork.image(for: group.vendor),

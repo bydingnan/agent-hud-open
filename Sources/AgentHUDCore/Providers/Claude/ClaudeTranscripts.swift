@@ -149,9 +149,6 @@ public enum ClaudeEntrypoint {
 
 /// Compact summary of one transcript file; grows incrementally as the file is appended to.
 public struct TranscriptSession: Hashable, Sendable, Identifiable {
-    /// Kept for existing library hosts using the original nested type name.
-    public typealias UsageEvent = AgentHUDCore.UsageEvent
-
     public let id: String
     public let path: String
     public let cwd: String?

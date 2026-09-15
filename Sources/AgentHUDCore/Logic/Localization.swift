@@ -51,10 +51,6 @@ public enum L10n {
 
     // MARK: Persisted keys → display text
 
-    public static func vendorLabel(_ vendor: String) -> String {
-        vendor
-    }
-
     public static let sourceClaudeCode = "claude-code"
     public static let sourceClaudeSessions = "claude-sessions"
     public static let sourceBrowserAuth = "browser-auth"

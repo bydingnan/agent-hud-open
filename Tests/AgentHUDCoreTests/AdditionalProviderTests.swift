@@ -225,10 +225,6 @@ final class AdditionalProviderTests: XCTestCase, @unchecked Sendable {
         XCTAssertEqual(legacy[0].cacheReadTokens, 5)
     }
 
-    func testEqualEventsWithinOneSourceKeepTheirMultiplicity() {
-        XCTAssertEqual(UsageAggregation.eventUnion([[1, 1, 2], [1, 2, 3]]), [1, 1, 2, 3])
-    }
-
     func testGrokProcessModelIsNotInheritedAcrossPIDReuse() throws {
         let url = try file("unified.jsonl", """
         {"pid":1,"msg":"AuthManager::new"}

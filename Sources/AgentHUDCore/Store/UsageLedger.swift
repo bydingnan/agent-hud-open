@@ -48,8 +48,6 @@ public actor UsageLedger {
     private var expiredAt: Date?
     /// Changes when a failed pass rolled back writes that providers may already reflect in memory.
     public private(set) var generation = 0
-    /// Changes with every committed write that altered a usage or cost bucket.
-    public private(set) var bucketRevision = 0
 
     /// - expires: deletes rows older than `retention`, and ignores such rows on write. Fixtures with fixed dates keep everything.
     public init(url: URL?, expires: Bool = false) throws {
@@ -87,7 +85,6 @@ public actor UsageLedger {
         passOpen = false
         do {
             try storage.connection.execute("COMMIT")
-            publish()
             // Expired rows leave in their own small transaction about once an hour.
             let now = Date()
             if storage.retention != nil, expiredAt.map({ now.timeIntervalSince($0) >= 3600 }) ?? true {
@@ -124,14 +121,7 @@ public actor UsageLedger {
                 throw error
             }
         }
-        let value = try storage.connection.transaction { try body(writer) }
-        publish()
-        return value
-    }
-
-    private func publish() {
-        if storage.bucketsChanged { bucketRevision += 1 }
-        storage.bucketsChanged = false
+        return try storage.connection.transaction { try body(writer) }
     }
 
     /// Deletes rows that left the retention window, aligned to a bucket so no bucket keeps half its events.
@@ -261,7 +251,6 @@ final class LedgerStorage {
     let retention: TimeInterval?
     private var agents: [String: Int64] = [:]
     private var names: [Int64: String] = [:]
-    var bucketsChanged = false
 
     init(url: URL?, retention: TimeInterval?) throws {
         self.retention = retention
@@ -372,7 +361,6 @@ public struct LedgerWriter {
         }
     }
 
-    /// Makes `events` the whole contribution. An unchanged contribution is left untouched.
     /// Makes `events` the whole contribution, or with `since` only its events from then on, keeping older ones that a
     /// reader no longer returns. An unchanged contribution is left untouched.
     public func replace(source: String, contribution: String, account: String? = nil, events: [UsageLedger.Event], since: Date? = nil) throws {
@@ -574,7 +562,6 @@ public struct LedgerWriter {
                 AND tokens_in = 0 AND tokens_out = 0 AND cache_read = 0
                 """, [.integer(start), .text(source), .text(account), .integer(agent)])
         }
-        storage.bucketsChanged = true
     }
 
     private func addCost(billing: String, start: Int64, currency: String, amount: Int64, events: Int64) throws {
@@ -587,7 +574,6 @@ public struct LedgerWriter {
             try storage.connection.run("DELETE FROM cost_bucket WHERE billing = ? AND start_ms = ? AND currency = ? AND events <= 0",
                                        [.text(billing), .integer(start), .text(currency)])
         }
-        storage.bucketsChanged = true
     }
 
     static func bucket(_ milliseconds: Int64) -> Int64 {

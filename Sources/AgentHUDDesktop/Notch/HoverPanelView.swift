@@ -76,7 +76,7 @@ struct HoverPanelView: View {
                     HStack(spacing: 6) {
                         AgentLogo(vendor: group.vendor, size: 14)
                             .frame(width: IslandRowLayout.inset * 2 + IslandRowLayout.markerWidth)
-                        Text(L10n.vendorLabel(group.vendor))
+                        Text(group.vendor)
                             .font(IslandRowLayout.headingFont)
                             .foregroundStyle(theme.text)
                         if store.isLoading {

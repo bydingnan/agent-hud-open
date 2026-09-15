@@ -90,9 +90,6 @@ final class SQLiteConnection {
         }
     }
 
-    /// Rows changed by the latest `run`.
-    var changes: Int { Int(sqlite3_changes(handle)) }
-
     /// Runs `body` in one immediate transaction; any thrown error rolls every statement back.
     func transaction<T>(_ body: () throws -> T) throws -> T {
         try execute("BEGIN IMMEDIATE")

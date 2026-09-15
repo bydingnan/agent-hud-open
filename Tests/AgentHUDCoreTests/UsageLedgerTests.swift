@@ -35,10 +35,12 @@ final class UsageLedgerTests: XCTestCase, @unchecked Sendable {
         let ledger = UsageLedger.inMemory()
         let first = [event("e1", minute: 2, agent: "copilot-model:gpt", input: 10), event("e2", minute: 3, agent: "copilot-model:gpt", input: 5)]
         try await ledger.write { try $0.replace(source: "copilot", contribution: "s", events: first) }
-        let revision = await ledger.bucketRevision
+        // Uncounted events leave the buckets; rewriting the contribution would count them again.
+        try await ledger.write { try $0.setCounted(source: "copilot", contribution: "s", counted: false) }
         try await ledger.write { try $0.replace(source: "copilot", contribution: "s", events: first.reversed()) }
-        let unchanged = await ledger.bucketRevision
-        XCTAssertEqual(unchanged, revision, "an identical contribution is not rewritten")
+        let unchanged = try await ledger.buckets(since: base)
+        XCTAssertTrue(unchanged.isEmpty, "an identical contribution is not rewritten")
+        try await ledger.write { try $0.setCounted(source: "copilot", contribution: "s", counted: true) }
         try await ledger.write { try $0.replace(source: "copilot", contribution: "s", events: [self.event("e1", minute: 2, agent: "copilot-model:gpt", input: 12)]) }
         let replaced = try await ledger.buckets(since: base)
         XCTAssertEqual(replaced.map(\.tokensIn), [12])

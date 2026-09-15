@@ -41,7 +41,7 @@ public struct AgentDescriptor: Hashable, Codable, Sendable, Identifiable {
         return id
     }
 
-    public var displayVendor: String { L10n.vendorLabel(billingPool?.product == .api ? billingPool!.provider : vendor) }
+    public var displayVendor: String { billingPool?.product == .api ? billingPool!.provider : vendor }
     public var displayName: String { "\(displayVendor) · \(L10n.modelLabel(model))" }
 
     /// DeepSeek exposes API balance and costs instead of subscription quota windows.

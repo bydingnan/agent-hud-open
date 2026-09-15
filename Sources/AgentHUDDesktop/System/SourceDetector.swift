@@ -54,7 +54,7 @@ enum SourceDetector {
                 state: claudeReady ? .installed : .notDetected
             ),
             SourceStatus(
-                id: "codex-cli", name: L10n.vendorLabel("Codex"),
+                id: "codex-cli", name: "Codex",
                 detail: codexReady
                     ? L10n.text("额度、会话与用量统计", "Quota, sessions and usage")
                     : L10n.text("安装并登录后读取用量", "Reads usage once installed and signed in"),
