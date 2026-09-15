@@ -2,6 +2,22 @@
 
 Releases of Agent HUD Open. A version is a git tag `vX.Y.Z` on `main`; `CFBundleShortVersionString` in `scripts/build-app.sh` carries the same number. Each entry lists what changed for people using the application and, under **Host API**, what changed for applications that embed `AgentHUDCore` and `AgentHUDDesktop`. Dates are tag dates.
 
+## 0.4.7 — 2026-09-15
+
+- The application decides and shows island alerts itself: quota alerts and a reminder for each completed turn, for clients whose Live status is on. Baselines start again at every launch, nothing is checked while collection is paused or failing, and turns that finished while Live status was off are not replayed.
+- Every subprocess runs under a deadline — the Claude Code engine 40 s, the Codex app-server 30 s, the DeepSeek Harness helper 10 s for a log and 30 s for the balance, `ps` and `lsof` 3 s — and is sent SIGTERM, then SIGKILL after two seconds. A stuck child, or a grandchild holding its pipes, no longer stalls collection.
+- Local logs of every client are read through shared ledger-backed file stores. A file missing from its client's listing removes what it recorded, also when its directory is unreadable or gone; a listed file that cannot be read keeps it; after a pass that could not be saved, each source writes back what the ledger lost.
+- Host API: `IslandEventTracker` with `Update` and `Crossing`; `DesktopApplication(..., onIslandEvents:)` receives every check with the report and time it used; the public `DesktopApplication.present(_:)` overloads and `IslandAlert.isPreview` are removed; `ClaudeTranscriptParser.title(from:)` becomes `SessionTitle.from(_:)`; `DateParsing` and `ISO8601Fast` move to `Providers/Shared`.
+
+## 0.4.6 — 2026-09-15
+
+- Sessions and token usage from GitHub Copilot CLI, OpenClaw, Hermes Agent, ZCode, CodeBuddy and WorkBuddy, with their logos. GitHub Copilot quota is read only after Settings → Agents → GitHub Copilot → Read quota is confirmed.
+- Quota readings belong to the provider account they were read from; readings, history, alert baselines and display settings of different accounts never mix, and Settings → Agents lists the accounts each client has used.
+- Usage is collected one source at a time into `usage-ledger.sqlite`: a local poll every 5 s (2 s while indexing) that skips when nothing changed, and an account sweep every 5 minutes. Token charts add up 15-minute totals.
+- The unused poll interval setting is removed.
+- Host API: `ProviderAccount`, `AccountObservation`, `ClientHome`, `AccountSection` and `UsageStore.accountSections(_:)`; `AgentDescriptor.account` and `windowKey`; `UsageReport.accounts`, `forgottenAccountProviders`, `observation(accountID:)` and `isCurrent(_:)`; `SettingsStore.mergeDiscovered(_:activeQuotaPoolIDs:accounts:)`; `UsageLedger`, `LedgerWriter`, `UsageRefresh`, `AccountRefreshStep`, `UsageBucket` and `CostBucket`; `PollInterval` is removed.
+- Known: `scripts/build-app.sh` still stamped `0.4.5` at this tag.
+
 ## 0.4.5 — 2026-09-13
 
 - Notch glow styles: besides the blurred band, a halftone dot grid, ASCII characters, shade blocks, Braille and binary digits (`GlowStyle`), with grid pitch, density and spread controls in Settings → Display.
