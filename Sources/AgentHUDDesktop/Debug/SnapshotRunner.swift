@@ -34,7 +34,7 @@ public enum SnapshotRunner {
             let completion = SessionCompletion(sessionID: "snapshot", vendor: vendor, turnID: "preview",
                 task: L10n.text("完成本地用量面板", "Build the local usage dashboard"),
                 model: ["Claude": "Fable 5.1", "Codex": "gpt-6-astra"][vendor] ?? "deepseek-v4-flash", startedAt: now.addingTimeInterval(-83), completedAt: now)
-            let alert = IslandAlert.completion(completion, preview: true)
+            let alert = IslandAlert.completion(completion)
             save("alert-completion-\(vendor)-compact", IslandScene(store: store, settings: settings, open: false, light: false, alert: alert), folder: folder, scheme: .dark)
             save("alert-completion-\(vendor)-detail", IslandScene(store: store, settings: settings, open: true, light: false, alert: alert, showsAlertDetails: true), folder: folder, scheme: .dark)
             save("alert-completion-\(vendor)-inline", IslandScene(store: store, settings: settings, open: true, light: false, alert: alert), folder: folder, scheme: .dark)

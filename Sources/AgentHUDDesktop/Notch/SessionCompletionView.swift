@@ -11,7 +11,7 @@ struct IslandAlertCompactView: View {
         switch alert {
         case .quota(let event):
             QuotaAlertCompactView(alert: event, cameraWidth: cameraWidth, height: height, onOpen: onOpen)
-        case .completion(let event, _):
+        case .completion(let event):
             Button(action: onOpen) {
                 HStack(spacing: 0) {
                     HStack(spacing: 8) {
@@ -41,7 +41,7 @@ struct IslandAlertDetailView: View {
     var body: some View {
         switch alert {
         case .quota(let event): QuotaAlertDetailView(alert: event, onOpen: onOpen)
-        case .completion(let event, _):
+        case .completion(let event):
             VStack(alignment: .leading, spacing: 18) {
                 HStack(spacing: 10) {
                     AgentLogo(vendor: event.vendor, size: 24)
@@ -79,7 +79,7 @@ struct IslandAlertInlineView: View {
     var body: some View {
         switch alert {
         case .quota(let event): QuotaAlertView(alert: event, onOpen: onOpen)
-        case .completion(let event, _):
+        case .completion(let event):
             Button(action: onOpen) {
                 HStack(spacing: 10) {
                     CompletionSymbol(eventID: event.id)

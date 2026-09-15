@@ -20,6 +20,8 @@ public final class DesktopApplication {
     private let options: DesktopLaunchOptions
     private let additionalMenuActions: [DesktopMenuAction]
     private let additionalSettingsPages: [DesktopSettingsPage]
+    private let onIslandEvents: ((IslandEventTracker.Update, UsageReport, Date) -> Void)?
+    private var islandEvents = IslandEventTracker()
     private var notch: NotchController?
     private var statusItem: StatusItemController?
     private lazy var settingsWindow = SettingsWindowController(
@@ -28,14 +30,18 @@ public final class DesktopApplication {
     private let statsWindow: StatsWindowController
     private let onboardingWindow: OnboardingWindowController
 
+    /// `onIslandEvents` receives every island event check after the island has presented it, including checks that
+    /// found nothing, with the report and time the check used.
     public init(options: DesktopLaunchOptions, settings: SettingsStore, store: UsageStore,
                 additionalMenuActions: [DesktopMenuAction] = [],
-                additionalSettingsPages: [DesktopSettingsPage] = []) {
+                additionalSettingsPages: [DesktopSettingsPage] = [],
+                onIslandEvents: ((IslandEventTracker.Update, UsageReport, Date) -> Void)? = nil) {
         self.options = options
         self.settings = settings
         self.store = store
         self.additionalMenuActions = additionalMenuActions
         self.additionalSettingsPages = additionalSettingsPages
+        self.onIslandEvents = onIslandEvents
         statsWindow = StatsWindowController(store: store)
         onboardingWindow = OnboardingWindowController(settings: settings, store: store,
             sources: options.demo ? { DemoData.sources } : { SourceDetector.detect() })
@@ -86,6 +92,11 @@ public final class DesktopApplication {
             guard let self else { return }
             LoginItem.set(self.settings.settings.launchAtLogin)
         })
+        observeChanges({ [weak self] in
+            _ = self?.store.report
+            _ = self?.settings.agents
+            _ = self?.settings.settings.disabledLiveStatusSources
+        }, onChange: { [weak self] in self?.checkIslandEvents() })
         store.start()
         if options.openPanel { notch.forceOpen() }
         if store.isAccessAllowed, options.showOnboarding || !settings.hasCompletedOnboarding { showOnboarding() }
@@ -98,8 +109,16 @@ public final class DesktopApplication {
     public func showStats() { statsWindow.show() }
     public func showOnboarding() { onboardingWindow.show() }
     public func toggleGlow() { store.glowHidden.toggle() }
-    public func present(_ alert: QuotaAlert) { notch?.present(alert) }
-    public func present(_ completion: SessionCompletion) { notch?.present(.completion(completion)) }
+
+    /// A paused store or a failed refresh leaves the island silent; the baselines wait for the next good report.
+    private func checkIslandEvents() {
+        guard !store.isPaused, store.lastError == nil, let report = store.report else { return }
+        let now = Date()
+        let update = islandEvents.update(report: report, agents: settings.agents, now: now, settings: settings.settings)
+        for alert in update.quotaAlerts { notch?.present(alert) }
+        for completion in update.completions { notch?.present(.completion(completion)) }
+        onIslandEvents?(update, report, now)
+    }
 
     private func applyAppearance() {
         switch settings.settings.appearance {

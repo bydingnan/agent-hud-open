@@ -108,8 +108,8 @@ final class NotchController {
     func present(_ alert: QuotaAlert) { present(.quota(alert)) }
 
     func present(_ alert: IslandAlert) {
-        guard alert.isPreview || (!store.glowHidden && !store.isPaused) else { return }
-        if activeAlert != nil && !alert.isPreview {
+        guard !store.glowHidden, !store.isPaused else { return }
+        if activeAlert != nil {
             pendingAlerts.append(alert)
             return
         }

@@ -2,15 +2,15 @@
 
 ## Overview
 
-Agent HUD Open is a Swift package with three libraries and one executable. `AgentHUDCore` reads agent activity and account usage on this Mac and normalizes it into a `UsageReport`; `AgentHUDDesktop` presents that report in the menu bar, the notch and the settings and statistics windows; the standalone application wires the two together. A host application can embed the libraries, supply its own provider, and add menu actions and settings pages. Account services, synchronization and notifications are outside the package.
+Agent HUD Open is a Swift package with three libraries and one executable. `AgentHUDCore` reads agent activity and account usage on this Mac and normalizes it into a `UsageReport`; `AgentHUDDesktop` presents that report in the menu bar, the notch and the settings and statistics windows; the standalone application wires the two together. A host application can embed the libraries, supply its own provider, add menu actions and settings pages, and relay the island's alerts. Account services, synchronization and any relay of alerts are outside the package.
 
 ## Model
 
 | Module | Responsibility | Depends on |
 | --- | --- | --- |
 | `AgentHUDSupport` | `JSONValue` (integer-preserving JSON) and `RecordCoding` (deterministic encoding, millisecond dates, hashed identities) | — |
-| `AgentHUDCore` | Providers, usage models, calculations, the usage ledger, the settings and usage stores | Support |
-| `AgentHUDDesktop` | Menu bar item, notch glow and panel, alerts, onboarding, settings and statistics windows; its resource bundle holds every logo and notice | Core |
+| `AgentHUDCore` | Providers, usage models, calculations, alert decisions, the usage ledger, the settings and usage stores | Support |
+| `AgentHUDDesktop` | Menu bar item, notch glow and panel, island alerts, onboarding, settings and statistics windows; its resource bundle holds every logo and notice | Core |
 | `AgentHUDOpenApp` (product `AgentHUDOpen`) | Launch options, live or sample data, adapter setup, process lifetime | Desktop, Core |
 
 `CombinedUsageProvider` reads one provider per client, one after another, and merges their reports; `UsageLedger` is the local SQLite store where providers keep parse positions, token events and quota readings, and from which the 15-minute usage and cost totals are read; `RetainedUsageProvider` restores the saved report at start and fills readings a partial refresh could not supply; `UsageStore` runs the collection pipeline, one local poll or account step at a time, and publishes the report the desktop observes. A report carries quota windows, sessions, turns, completions, 15-minute usage buckets, history, services, billing and the account inventory (`ProviderAccount`, `AccountObservation`); every quota row belongs to one account.
@@ -23,8 +23,9 @@ Agent HUD Open is a Swift package with three libraries and one executable. `Agen
 - `fetchUsage(agents:historyHours:)` assembles local activity with the latest account results; `refreshAccountUsage(historyHours:)` performs the slower quota, balance and account-wide requests and has a no-op default; `accountRefreshSteps` splits it into steps the store runs between polls, and `watchedDirectories` names the directories whose changes need a poll (nil polls every time). A provider that wraps another forwards all of them.
 - A provider that does not write the ledger reports its periods in `UsageReport.usage`; `CombinedUsageProvider` adds them to the ledger's totals.
 - A failed full refresh keeps the previous report and exposes `UsageStore.lastError`; a partial failure keeps the missing readings from the saved report.
-- The standalone application never calls `present(_:)`. Deciding that a quota alert or a completion reminder is due is a host responsibility; `QuotaAlertTracker` supplies the baseline and deduplication logic.
-- Hosts apply the same Live status preference as the desktop, `Settings.liveStatusEnabled(for:)`, in any relay, reminder or synchronization service they add ([session lifecycle](session-lifecycle.md)).
+- `DesktopApplication` decides and presents island alerts itself: one `IslandEventTracker` checks every change of the report, the agent list or the Live status preference while the store is neither paused nor failing, and the island shows the new quota events and completed turns. Every host, the standalone application included, gets the same alerts without extra wiring.
+- A host that relays alerts elsewhere passes `onIslandEvents`. It receives every check after the island has presented it, including checks that found nothing, with the report and time the check used; the host maps that update and never runs a second tracker or presents again.
+- Completions in an update already honor `Settings.liveStatusEnabled(for:)`; hosts apply the same preference in any other relay or synchronization service they add ([session lifecycle](session-lifecycle.md)).
 
 ### Session observers and hook ownership
 
@@ -58,8 +59,9 @@ Agent HUD Open is a Swift package with three libraries and one executable. `Agen
 
 | Item | Source | Meaning |
 | --- | --- | --- |
-| `DesktopApplication(options:settings:store:additionalMenuActions:additionalSettingsPages:)` | AgentHUDDesktop | Parsed `DesktopLaunchOptions`, the two stores, `[DesktopMenuAction]` (title and action closures added to the status-item menu) and `[DesktopSettingsPage]` |
-| `start()`, `stop()`, `showSettings(pageID:)`, `showStats()`, `showOnboarding()`, `toggleGlow()`, `present(_:)` | `DesktopApplication` | Host entry points. `showSettings` selects a page by id (built-in `general`, `sources`, `display`; an unknown id keeps the current page); `present` shows a `QuotaAlert` or a `SessionCompletion` |
+| `DesktopApplication(options:settings:store:additionalMenuActions:additionalSettingsPages:onIslandEvents:)` | AgentHUDDesktop | Parsed `DesktopLaunchOptions`, the two stores, `[DesktopMenuAction]` (title and action closures added to the status-item menu), `[DesktopSettingsPage]` and an optional `(IslandEventTracker.Update, UsageReport, Date) -> Void` relay hook |
+| `start()`, `stop()`, `showSettings(pageID:)`, `showStats()`, `showOnboarding()`, `toggleGlow()` | `DesktopApplication` | Host entry points. `showSettings` selects a page by id (built-in `general`, `sources`, `display`; an unknown id keeps the current page) |
+| `IslandEventTracker.Update` | AgentHUDCore | `completions` (new, Live status on, oldest first), `quotaAlerts` (warnings, exhaustion, resets), `exhaustedWindows` and `criticalWindows` (threshold crossings with the reading that crossed; reaching zero supersedes critical in the same reading) |
 | `DesktopSettingsPage` | AgentHUDDesktop | `id`; `title` closure (follows language changes); optional `heading`; `subtitle`; `symbol` and `color` for the sidebar icon; `preferredContentWidth` in points (built-in pages use 640); `@ViewBuilder` `content` |
 | Settings window | AgentHUDDesktop | 760 × 720 points, minimum 680 × 560, sidebar 212; the initial width grows to fit the widest host page |
 | `SessionObservers.configure(executable:)` | AgentHUDCore | Adapter setup with the executable that handles hook callbacks |
@@ -76,6 +78,7 @@ Agent HUD Open is a Swift package with three libraries and one executable. `Agen
 | Models and calculations | `Sources/AgentHUDCore/Models/`, `Sources/AgentHUDCore/Logic/` |
 | Stores and data directory | `Sources/AgentHUDCore/Store/UsageStore.swift`, `SettingsStore.swift`, `QuotaHistoryStore.swift`, `AppSupport.swift` |
 | Application object, launch options, host pages | `Sources/AgentHUDDesktop/App/DesktopApplication.swift`, `LaunchOptions.swift`, `Settings/DesktopSettingsPage.swift` |
+| Island alerts: decision and presentation | `Sources/AgentHUDCore/Logic/IslandEvents.swift`, `QuotaAlerts.swift`; `Sources/AgentHUDDesktop/Notch/NotchController.swift`, `IslandAlert.swift` |
 | Standalone entry and commands | `Sources/AgentHUDOpenApp/main.swift` |
 | Build, boundary check, CI | `scripts/build-app.sh`, `scripts/check-source-boundaries.py`, `.github/workflows/ci.yml` |
 

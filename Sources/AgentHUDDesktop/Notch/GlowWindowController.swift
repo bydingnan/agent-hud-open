@@ -69,7 +69,7 @@ final class GlowWindowController {
         glowLayer.contentsScale = geometry.backingScale
         shadowLayer.contentsScale = geometry.backingScale
 
-        if appearance.hidden && alert?.isPreview != true {
+        if appearance.hidden {
             animator.stop()
             glowKey = ""
             restingKey = nil

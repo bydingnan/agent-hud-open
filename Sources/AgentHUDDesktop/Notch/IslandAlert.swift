@@ -3,24 +3,18 @@ import AgentHUDCore
 /// One presentation queue for quota events and completed turns.
 enum IslandAlert: Identifiable {
     case quota(QuotaAlert)
-    case completion(SessionCompletion, preview: Bool = false)
+    case completion(SessionCompletion)
 
     var id: String {
         switch self {
         case .quota(let event): return event.id.uuidString
-        case .completion(let event, _): return event.id
+        case .completion(let event): return event.id
         }
     }
     var vendor: String {
         switch self {
         case .quota(let event): return event.agent.vendor
-        case .completion(let event, _): return event.vendor
-        }
-    }
-    var isPreview: Bool {
-        switch self {
-        case .quota(let event): return event.isPreview
-        case .completion(_, let preview): return preview
+        case .completion(let event): return event.vendor
         }
     }
     var isWarning: Bool {

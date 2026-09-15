@@ -1,6 +1,6 @@
 import Foundation
 
-/// A confirmed quota event, also used by Settings to preview the production presentation.
+/// A confirmed quota event; `preview` builds sample events for snapshots.
 public struct QuotaAlert: Identifiable, Hashable, Sendable {
     public enum Kind: String, CaseIterable, Sendable {
         case exhaustion, reset
@@ -33,7 +33,7 @@ public struct QuotaAlert: Identifiable, Hashable, Sendable {
     }
 }
 
-/// One observation history owns both island events and the existing critical system notification.
+/// One observation history per window decides island events and the threshold crossings a host may relay.
 public struct QuotaAlertTracker: Sendable {
     public struct Update: Sendable {
         public var alerts: [QuotaAlert] = []

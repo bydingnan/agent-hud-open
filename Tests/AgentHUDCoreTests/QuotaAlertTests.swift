@@ -125,6 +125,18 @@ final class QuotaAlertTests: XCTestCase {
         XCTAssertEqual(events.alerts.first?.otherExhaustedWindows, ["weekly"])
     }
 
+    func testRepeatedAndFutureReadingsAreIgnored() {
+        var tracker = QuotaAlertTracker()
+        func update(_ remaining: Double, observed: Double, now: Double) -> QuotaAlertTracker.Update {
+            tracker.update(report: report([snapshot(remaining: remaining, elapsed: observed, deadline: 1000)]), agents: [agent],
+                           now: start.addingTimeInterval(now))
+        }
+        _ = update(20, observed: 0, now: 0)
+        XCTAssertTrue(update(20, observed: 0, now: 0).criticalAgentIDs.isEmpty)
+        XCTAssertTrue(update(19, observed: 120, now: 120).criticalAgentIDs.isEmpty)
+        XCTAssertTrue(update(100, observed: 240, now: 120).alerts.isEmpty, "a reading from the future is not a reset")
+    }
+
     func testReenabledWindowStartsWithANewBaseline() {
         var tracker = QuotaAlertTracker()
         _ = feed(&tracker, remaining: 1, elapsed: 0)

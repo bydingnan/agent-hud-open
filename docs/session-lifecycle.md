@@ -29,11 +29,12 @@ Which clients expose running and terminal turns, what evidence each provider acc
 
 ### Live status
 
-- Every execution client has Settings → Agents → [Agent] → Live status; billing-only services have none. `Settings.liveStatusEnabled(for:)` controls running indicators only: turning it off changes nothing in collection, session history, token statistics or quota windows, and installs or removes no adapter.
+- Every execution client has Settings → Agents → [Agent] → Live status; billing-only services have none. `Settings.liveStatusEnabled(for:)` controls running indicators and completion reminders only: turning it off changes nothing in collection, session history, token statistics or quota windows, and installs or removes no adapter.
 - The switch permits available observations; it never manufactures lifecycle support for a source whose logs only provide usage.
 - A running observation older than 120 s leaves the running indicator and stays in history without an invented end time; a failed read never creates a completion or an artificial end.
 - Process evidence is separate from the last recorded observation: a quiet process does not manufacture a transcript event, and a disappeared process does not prove completion.
-- Hosts apply the same preference in their reminder, relay or synchronization services. The standalone application presents no reminders; a host that does decides which records are new — completions that happened before it started are history, not events.
+- The island announces each completed turn once, for clients whose Live status is on (`IslandEventTracker`). Completions that happened before the application started are history, not events, and turns that finished while Live status was off are not replayed when it is turned back on.
+- Hosts that relay completions use the island's update rather than deciding again, and apply the same preference in any other relay or synchronization service.
 
 ### Pi observer
 
@@ -65,6 +66,7 @@ Antigravity, Cursor, GitHub Copilot CLI and CodeBuddy do not record finished tur
 | --- | --- |
 | Turn, completion and session models | `Sources/AgentHUDCore/Models/SessionTurn.swift`, `SessionCompletion.swift`, `LiveSession.swift` |
 | Live status preference and desktop liveness | `Sources/AgentHUDCore/Models/Settings.swift`, `Sources/AgentHUDCore/Store/UsageStore.swift` |
+| Completion reminders | `Sources/AgentHUDCore/Logic/IslandEvents.swift`, `Sources/AgentHUDDesktop/App/DesktopApplication.swift` |
 | Adapter setup | `Sources/AgentHUDCore/Providers/SessionObservers.swift` |
 | Completion hooks and handler entry | `Sources/AgentHUDCore/Providers/Additional/CompletionHooks.swift`, `Sources/AgentHUDOpenApp/main.swift` |
 | Pi observer and its extension script | `Sources/AgentHUDCore/Providers/OpenAgents/PiSessionObserver.swift` |
