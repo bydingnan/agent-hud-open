@@ -27,7 +27,7 @@ actor OpenAgentUsageProvider: UsageProvider, LedgerRecording {
     private var cached: [String: QuotaResult]?
     nonisolated let watchedDirectories: [URL]?
     private let ledger: UsageLedger
-    private var recorded: (revision: Int, window: Date)?
+    private let sessionLedger: SessionLedger
     static let source = "open-agents"
     init(credentials: @escaping @Sendable () -> [OpenAgentCredential],
          sessions: @escaping @Sendable (Date) async -> OpenAgentLocalStore.Result,
@@ -42,6 +42,7 @@ actor OpenAgentUsageProvider: UsageProvider, LedgerRecording {
         self.identityCacheURL = identityCacheURL
         self.watchedDirectories = watchedDirectories
         self.ledger = ledger
+        sessionLedger = SessionLedger(source: Self.source, ledger: ledger)
         if let data = identityCacheURL.flatMap({ try? Data(contentsOf: $0) }),
            let saved = try? JSONDecoder().decode([String: BillingPool].self, from: data) {
             identities = saved.filter { $0.value.evidence == .account }.mapValues { Identity(at: .distantPast, pool: $0) }
@@ -68,17 +69,9 @@ actor OpenAgentUsageProvider: UsageProvider, LedgerRecording {
     /// Writes each session's usage once the index is complete and something changed.
     private func record(_ local: OpenAgentLocalStore.Result, since: Date) async {
         guard local.indexing == nil else { return }
-        let window = SessionContributions.windowStart(since)
-        if let revision = local.revision, let recorded, recorded.revision == revision, recorded.window == window { return }
-        let contributions = SessionContributions.canonical(local.sessions.map { ($0.id, $0.events) })
-        do {
-            try await ledger.write { writer in
-                for (session, events) in contributions {
-                    try writer.replace(source: Self.source, contribution: session, events: events, since: window)
-                }
-            }
-            recorded = local.revision.map { ($0, window) }
-        } catch { /* The next poll writes the same sessions again. */ }
+        await sessionLedger.record(files: local.files, revision: local.revision, window: SessionContributions.windowStart(since)) {
+            local.sessions.map { ($0.id, $0.events) }
+        }
     }
     func refreshAccountUsage(historyHours: Int) async {
         let now = clock()

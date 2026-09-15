@@ -9,27 +9,37 @@ final class LogFiles {
         let size: Int
     }
 
+    /// What a full listing could not cover, for a notice: entries it could not read, and whether it stopped at its limit.
+    struct Gaps {
+        var unreadable = 0
+        var truncated = false
+    }
+
     static let fullScanInterval: TimeInterval = 300
 
     private let roots: [URL]
+    private let limit: Int
+    private let skips: (URL) -> Bool
     private let accepts: (URL) -> Bool
     private let monitor: FileChangeMonitor?
     private(set) var files: [String: File] = [:]
     private var scannedAt: Date?
-    /// Roots that exist, under the names a listing and a change event can use.
-    private var existingRoots: [String] = []
 
-    init(roots: [URL], watchesChanges: Bool, accepts: @escaping (URL) -> Bool) {
+    /// - limit: entries a full listing visits before it stops.
+    /// - skips: an entry the listing neither accepts nor descends into.
+    init(roots: [URL], watchesChanges: Bool, limit: Int = .max, skips: @escaping (URL) -> Bool = { _ in false },
+         accepts: @escaping (URL) -> Bool) {
         self.roots = roots
+        self.limit = limit
+        self.skips = skips
         self.accepts = accepts
         monitor = watchesChanges ? FileChangeMonitor(directories: roots) : nil
     }
 
-    /// Brings `files` up to date and returns how many entries of a full listing could not be read; an unreadable tree
-    /// is not an authoritative snapshot of the user's history.
-    func refresh(now: Date) -> Int {
+    /// Brings `files` up to date.
+    @discardableResult
+    func refresh(now: Date) -> Gaps {
         monitor?.update()
-        existingRoots = roots.filter { FileManager.default.fileExists(atPath: $0.path) }.flatMap { [$0.path, $0.resolvingSymlinksInPath().path] }
         let changed = monitor?.consumePaths()
         if let changed, let scannedAt, now.timeIntervalSince(scannedAt) < Self.fullScanInterval {
             for path in changed.compactMap(canonical) {
@@ -42,34 +52,45 @@ final class LogFiles {
                     files.removeValue(forKey: path)
                 }
             }
-            return 0
+            return Gaps()
         }
         return scan(now: now)
     }
 
-    private func scan(now: Date) -> Int {
+    private func scan(now: Date) -> Gaps {
         let keys: [URLResourceKey] = [.contentModificationDateKey, .fileSizeKey, .isRegularFileKey]
-        var listed: [String: File] = [:]
-        var failures = 0
-        for root in roots {
-            guard FileManager.default.fileExists(atPath: root.path) else { continue }
+        var listed: [String: File] = [:], gaps = Gaps(), visited = 0
+        func list(_ url: URL) {
+            guard let values = try? url.resourceValues(forKeys: Set(keys)), let modified = values.contentModificationDate,
+                  let size = values.fileSize, values.isRegularFile != nil else { gaps.unreadable += 1; return }
+            if values.isRegularFile == true { listed[url.path] = File(modified: modified, size: size) }
+        }
+        roots: for root in roots {
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: root.path, isDirectory: &isDirectory) else { continue }
+            guard isDirectory.boolValue else {
+                // A root can name one file; a new URL does not answer from values cached by an earlier listing.
+                let url = URL(fileURLWithPath: root.path)
+                if accepts(url) { list(url) }
+                continue
+            }
             guard let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles], errorHandler: { _, _ in
-                failures += 1
+                gaps.unreadable += 1
                 return true
             }) else {
-                failures += 1
+                gaps.unreadable += 1
                 continue
             }
             for case let url as URL in enumerator {
-                guard accepts(url) else { continue }
-                guard let values = try? url.resourceValues(forKeys: Set(keys)), let modified = values.contentModificationDate,
-                      let size = values.fileSize, values.isRegularFile != nil else { failures += 1; continue }
-                if values.isRegularFile == true { listed[url.path] = File(modified: modified, size: size) }
+                visited += 1
+                guard visited <= limit else { gaps.truncated = true; break roots }
+                if skips(url) { enumerator.skipDescendants(); continue }
+                if accepts(url) { list(url) }
             }
         }
         files = listed
         scannedAt = now
-        return failures
+        return gaps
     }
 
     /// Change events can name a root by its resolved path; files are keyed as the listing names them.
@@ -80,11 +101,5 @@ final class LogFiles {
             if resolved != root.path, path.hasPrefix(resolved + "/") { return root.path + path.dropFirst(resolved.count) }
         }
         return nil
-    }
-
-    /// Whether `path` lies under a root that existed at the last refresh, so its absence from `files` means the file was deleted.
-    /// A root that disappeared entirely (an unmounted or renamed directory) is not a deletion of its history.
-    func covers(_ path: String) -> Bool {
-        existingRoots.contains { path.hasPrefix($0 + "/") }
     }
 }

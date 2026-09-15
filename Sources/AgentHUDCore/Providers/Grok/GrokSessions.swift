@@ -2,9 +2,54 @@ import AgentHUDSupport
 import Foundation
 
 // Recorded Grok schemas and source precedence follow Tokscale grok.rs (MIT).
-enum GrokSessions {
+enum GrokSessions: LocalSessionLayout {
+    static let installPaths = [".grok"]
+
+    static func directory(home: URL, environment: [String: String]) -> URL {
+        environment["GROK_HOME"].map { URL(fileURLWithPath: $0) } ?? home.appendingPathComponent(".grok")
+    }
+
+    static func roots(home: URL, environment: [String: String]) -> [URL] {
+        let base = directory(home: home, environment: environment)
+        return [base.appendingPathComponent("sessions"), base.appendingPathComponent("logs")]
+    }
+
+    static func accepts(_ url: URL) -> Bool { url.lastPathComponent == "updates.jsonl" || url.lastPathComponent == "unified.jsonl" }
+
+    static func related(_ url: URL) -> [URL] {
+        url.lastPathComponent == "updates.jsonl" ? ["summary.json", "signals.json"].map { url.deletingLastPathComponent().appendingPathComponent($0) } : []
+    }
+
     static func read(_ url: URL) throws -> ProviderSessions {
         url.lastPathComponent == "unified.jsonl" ? try unified(url) : try updates(url)
+    }
+
+    /// The inference log owns usage for the sessions it covers; their title, workspace, turns and completions still come
+    /// from the session's updates log.
+    static func merge(_ sessions: [ProviderSession]) -> [ProviderSession] {
+        let covered = Set(sessions.filter(isInference).map(\.id)), updates = updateLogs(sessions)
+        return sessions.filter { isInference($0) || !covered.contains($0.id) }.map { item in
+            guard isInference(item), let previous = updates[item.id] else { return item }
+            var item = item
+            item.title = previous.title; item.workspace = previous.workspace
+            item.turns = previous.turns; item.completions = previous.completions
+            item.startedAt = previous.startedAt
+            item.lastActivity = [item.lastActivity, previous.lastActivity].compactMap { $0 }.max()
+            return item
+        }
+    }
+
+    static func notice(merging sessions: [ProviderSession]) -> String? {
+        let updates = updateLogs(sessions)
+        guard sessions.contains(where: { isInference($0) && updates[$0.id]?.events.isEmpty == false }) else { return nil }
+        return L10n.text("Grok 新旧日志并存：采用新版请求记录，旧历史可能不完整", "Grok log formats overlap: using inference records; older history may be incomplete")
+    }
+
+    private static func isInference(_ session: ProviderSession) -> Bool { session.path?.hasSuffix("/unified.jsonl") == true }
+
+    /// The first session of each id read from an updates log.
+    private static func updateLogs(_ sessions: [ProviderSession]) -> [String: ProviderSession] {
+        Dictionary(sessions.filter { $0.path?.hasSuffix("/updates.jsonl") == true }.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
     }
 
     static func updates(_ url: URL) throws -> ProviderSessions {

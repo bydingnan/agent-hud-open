@@ -128,13 +128,15 @@ Files in the data directory ([architecture](architecture.md#storage)); none cont
 
 | File | Contents |
 | --- | --- |
-| `usage-ledger.sqlite` | Per log file the client's parse position and session summary; token events grouped by session with their estimated cost; the 15-minute usage and cost totals kept exact as events arrive, change or leave; quota readings per provider |
+| `usage-ledger.sqlite` | Per log file the client's parse position and session summary, or the sessions of a file parsed whole; token events grouped by session with their estimated cost; the 15-minute usage and cost totals kept exact as events arrive, change or leave; quota readings per provider |
 | `last-usage-report.json` | The retained report without turns and completions, restored at start; rewritten at most every 5 minutes |
 | `engine/`, `turn-completions/<source>/`, `open-agent-identities.json` | Claude Code engine working directory; the completion-hook inbox; confirmed Kimi identities as hashes |
 
-- An appended log is read from where the previous read stopped; a file that shrank or was rewritten is read again and replaces what it recorded, and a deleted file removes it.
+- An appended log is read from where the previous read stopped; a file that shrank or was rewritten is read again and replaces what it recorded.
+- A file missing from its client's listing removes what it recorded, also when its directory is unreadable or gone; a listed file that cannot be read keeps it, as does one the read budget has not reached.
 - Copies of one session in several places, such as a Codex rollout and its archived copy or a copied Harness log, count once, from the newest copy.
-- Sources parsed as whole files or account records replace a session's events from the start of the reading window, so older events stay until the ledger expires them. Their reports resolve overlapping logs first: the highest-priority log of a Grok or Copilot session, and one event per identity.
+- Sources parsed as whole files or account records replace a session's events from the start of the reading window, so older events stay until the ledger expires them; a missing file removes the sessions no listed file still holds. Their reports resolve overlapping logs first: the highest-priority log of a Grok or Copilot session, and one event per identity.
+- After a collection pass that could not be saved, each source reads its stored positions again and writes what the ledger lost.
 - Token events and totals keep 31 days, quota readings 30 days; expired rows are deleted, never rewritten. JSON caches of earlier versions are removed at start, and their quota histories are imported once.
 
 ## Code map and tests
@@ -146,7 +148,7 @@ Files in the data directory ([architecture](architecture.md#storage)); none cont
 | Antigravity, Cursor, Grok | `Sources/AgentHUDCore/Providers/Antigravity/`, `Cursor/`, `Grok/`; shared HTTP, SQLite and hooks in `Additional/` | `AdditionalProviderTests`, `CompletionHooksTests` |
 | OpenCode, Kimi, GLM, Pi | `Sources/AgentHUDCore/Providers/OpenAgents/` | `OpenAgentProviderTests`, `KimiQuotaIdentityTests`, `PiSessionObserverTests` |
 | GitHub Copilot CLI, OpenClaw, Hermes Agent, ZCode, CodeBuddy, WorkBuddy | `Sources/AgentHUDCore/Providers/Copilot/`, `OpenClaw/`, `Hermes/`, `ZCode/`, `TencentBuddy/`; per-client layouts through `Additional/LocalSessionLayout.swift` | `CopilotProviderTests`, `OpenClawProviderTests`, `HermesProviderTests`, `ZCodeProviderTests`, `TencentBuddyProviderTests` |
-| Cross-provider | `Sources/AgentHUDCore/Providers/CombinedUsageProvider.swift`, `RetainedUsageProvider.swift`, `Sources/AgentHUDCore/Models/BillingPool.swift`, `ProviderAccount.swift` | `ProviderAccountTests`, `CombinedProviderTests`, `RetainedUsageProviderTests`, `UsageRefreshTests`, `LiveStatusTests`, `SessionSourceTests`, `QuotaHistoryStoreTests`, `UsageAnalyticsTests` |
+| Cross-provider | `Sources/AgentHUDCore/Providers/CombinedUsageProvider.swift`, `RetainedUsageProvider.swift`, `Sources/AgentHUDCore/Models/BillingPool.swift`, `ProviderAccount.swift`; log stores and parsing helpers in `Providers/Shared/` | `LedgerFileStoreTests`, `ProviderAccountTests`, `CombinedProviderTests`, `RetainedUsageProviderTests`, `UsageRefreshTests`, `LiveStatusTests`, `SessionSourceTests`, `QuotaHistoryStoreTests`, `UsageAnalyticsTests` |
 
 ## Upstream references
 

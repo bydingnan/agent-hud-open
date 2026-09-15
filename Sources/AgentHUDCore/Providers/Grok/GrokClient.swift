@@ -2,7 +2,7 @@ import Foundation
 
 // Protocol reference: CodexBar GrokCreditsProxyFetcher/GrokAuth (MIT), pinned in THIRD_PARTY_NOTICES.txt.
 struct GrokClient: Sendable {
-    var home = AdditionalLocalStore.grokHome
+    var home = GrokSessions.directory(home: FileManager.default.homeDirectoryForCurrentUser, environment: ProcessInfo.processInfo.environment)
     var http = ProviderHTTP()
 
     func fetch() async throws -> ProviderQuota {

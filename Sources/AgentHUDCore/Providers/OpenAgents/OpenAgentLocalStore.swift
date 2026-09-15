@@ -7,87 +7,50 @@ actor OpenAgentLocalStore {
         var indexing: IndexProgress?
         /// Changes whenever the parsed files change; nil when the reader cannot tell.
         var revision: Int? = nil
+        /// The files the sessions come from.
+        var files: ListedFiles? = nil
     }
     let paths: OpenAgentPaths
-    private struct Entry { let signature: String; let sessions: [OpenAgentSession] }
-    private var cache: [URL: Entry] = [:]
-    private var revision = 0
-    init(paths: OpenAgentPaths) { self.paths = paths }
+    private var files: WholeFileStore<[OpenAgentSession]>
+
+    init(paths: OpenAgentPaths) {
+        self.paths = paths
+        func pi(_ data: Data, _ url: URL) throws -> [OpenAgentSession] {
+            url.pathExtension == "json" ? [try PiSessionObserver.read(data).session] : try OpenAgentParser.pi(data, path: url.path)
+        }
+        func listing(_ source: OpenAgentSource, _ roots: [URL], accepts: @escaping (URL) -> Bool,
+                     parse: @escaping (Data, URL) throws -> [OpenAgentSession]) -> WholeFileStore<[OpenAgentSession]>.Listing {
+            .init(name: source.name, files: LogFiles(roots: roots, watchesChanges: false, limit: 20000, accepts: accepts), parse: { url, _ in
+                let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+                guard size <= 64 * 1024 * 1024 else { throw ProviderFailure.limit }
+                return try parse(Data(contentsOf: url), url)
+            })
+        }
+        files = WholeFileStore(listings: [
+            // SQLite records take precedence over JSON records regardless of file modification time.
+            .init(name: OpenAgentSource.opencode.name, files: LogFiles(roots: [paths.openCode.appendingPathComponent("opencode.db")], watchesChanges: false) { _ in true },
+                  related: { [URL(fileURLWithPath: $0.path + "-wal")] }, leads: true, parse: { url, since in try OpenAgentParser.openCodeSQLite(url, since: since) }),
+            listing(.opencode, [paths.openCode.appendingPathComponent("storage/message")], accepts: { $0.pathExtension == "json" }) { data, url in
+                let value = try ProviderJSON.read(data)
+                guard let id = value["id"].stringValue, let sid = value["sessionID"].stringValue else { throw ProviderFailure.format }
+                return try OpenAgentParser.openCodeMessage(value, id: id, sessionID: sid, path: url.path).map { [$0] } ?? []
+            },
+            listing(.kimi, paths.roots(for: .kimi), accepts: { $0.lastPathComponent == "wire.jsonl" }) { data, url in
+                try OpenAgentParser.kimi(data, path: url.path)
+            },
+            listing(.pi, paths.roots(for: .pi), accepts: { $0.pathExtension == "jsonl" }, parse: pi),
+            // Turn observations of the Pi extension, read like transcripts.
+            listing(.pi, [paths.piTurns], accepts: { ["jsonl", "json"].contains($0.pathExtension) }, parse: pi),
+        ])
+    }
 
     func index(since: Date) -> Result {
-        let manager = FileManager.default, started = Date()
-        var result = Result(), candidates: [(URL, OpenAgentSource, String, Date)] = []
-        var seen = Set<URL>()
-        func candidate(_ url: URL, source: OpenAgentSource) {
-            guard let attributes = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey]),
-                  attributes.isRegularFile == true, let modified = attributes.contentModificationDate else { return }
-            var date = modified, signature = "\(modified.timeIntervalSince1970):\(attributes.fileSize ?? 0)"
-            if url.pathExtension == "db", let wal = try? URL(fileURLWithPath: url.path + "-wal").resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]), let updated = wal.contentModificationDate {
-                date = max(date, updated); signature += ":\(updated.timeIntervalSince1970):\(wal.fileSize ?? 0)"
-            }
-            guard date >= since, seen.insert(url).inserted else { return }
-            candidates.append((url, source, signature, date))
-        }
-        for source in [OpenAgentSource.opencode, .kimi, .pi] {
-            let roots = source == .opencode ? [paths.openCode.appendingPathComponent("storage/message")]
-                : paths.roots(for: source) + (source == .pi ? [paths.piTurns] : [])
-            if source == .opencode { candidate(paths.openCode.appendingPathComponent("opencode.db"), source: source) }
-            var visited = 0
-            for root in roots where manager.fileExists(atPath: root.path) {
-                guard let enumerator = manager.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey], options: [.skipsHiddenFiles], errorHandler: { _, _ in
-                    result.notices[source.name] = ProviderFailure.local.message; return false
-                }) else { result.notices[source.name] = ProviderFailure.local.message; continue }
-                for case let url as URL in enumerator {
-                    visited += 1
-                    if visited > 20000 { result.notices[source.name] = ProviderFailure.limit.message; break }
-                    let accepted = source == .opencode ? url.pathExtension == "json" : source == .kimi ? url.lastPathComponent == "wire.jsonl"
-                        : url.pathExtension == "jsonl" || (root == paths.piTurns && url.pathExtension == "json")
-                    if accepted { candidate(url, source: source) }
-                }
-            }
-        }
-        // SQLite records take precedence over JSON records regardless of file modification time.
-        candidates.sort { a, b in
-            if (a.0.pathExtension == "db") != (b.0.pathExtension == "db") { return a.0.pathExtension == "db" }
-            return a.3 > b.3
-        }
-        var pending = 0, loaded = 0
-        for (url, source, signature, _) in candidates {
-            if cache[url]?.signature == signature { continue }
-            if loaded > 0 && Date().timeIntervalSince(started) >= 1.5 { pending += 1; continue }
-            loaded += 1
-            do {
-                try Task.checkCancellation()
-                let sessions: [OpenAgentSession]
-                if url.pathExtension == "db" { sessions = try OpenAgentParser.openCodeSQLite(url, since: since) }
-                else {
-                    let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-                    guard size <= 64 * 1024 * 1024 else { throw ProviderFailure.limit }
-                    let data = try Data(contentsOf: url)
-                    switch source {
-                    case .pi:
-                        sessions = url.pathExtension == "json" ? [try PiSessionObserver.read(data).session]
-                            : try OpenAgentParser.pi(data, path: url.path)
-                    case .kimi: sessions = try OpenAgentParser.kimi(data, path: url.path)
-                    case .opencode:
-                        let value = try ProviderJSON.read(data)
-                        guard let id = value["id"].stringValue, let sid = value["sessionID"].stringValue else { throw ProviderFailure.format }
-                        sessions = try OpenAgentParser.openCodeMessage(value, id: id, sessionID: sid, path: url.path).map { [$0] } ?? []
-                    case .glm: sessions = []
-                    }
-                }
-                cache[url] = .init(signature: signature, sessions: sessions)
-                revision += 1
-            } catch { result.notices[source.name] = ProviderFailure.local.message }
-        }
-        if result.notices.isEmpty, cache.keys.contains(where: { !seen.contains($0) }) {
-            cache = cache.filter { seen.contains($0.key) }
-            revision += 1
-        }
+        let pass = files.index(since: since)
+        var result = Result(notices: pass.notices)
         var grouped: [String: OpenAgentSession] = [:]
         var workspaceIndexes: [URL: ProviderJSON] = [:]
-        for (url, _, _, _) in candidates {
-            for var item in cache[url]?.sessions ?? [] {
+        for (_, sessions) in pass.files {
+            for var item in sessions {
                 if item.client == .kimi {
                     let file = URL(fileURLWithPath: item.path)
                     let agent = file.deletingLastPathComponent()
@@ -118,8 +81,9 @@ actor OpenAgentLocalStore {
             }
         }
         result.sessions = grouped.values.sorted { $0.id < $1.id }
-        result.indexing = pending > 0 ? IndexProgress(done: candidates.count - pending, total: candidates.count) : nil
-        result.revision = revision
+        result.indexing = pass.indexing
+        result.revision = pass.revision
+        result.files = pass.listedFiles { $0.map(\.id) }
         return result
     }
 }

@@ -2,7 +2,21 @@ import AgentHUDSupport
 import Foundation
 import SQLite3
 
-enum AntigravitySessions {
+enum AntigravitySessions: LocalSessionLayout {
+    static let installPaths = [".gemini/antigravity", ".gemini/antigravity-cli", "Applications/Antigravity.app"]
+
+    static func roots(home: URL, environment: [String: String]) -> [URL] {
+        let base = environment["GEMINI_CLI_HOME"].map { URL(fileURLWithPath: $0) } ?? home.appendingPathComponent(".gemini")
+        return ["antigravity-cli/conversations", "antigravity", "antigravity/conversations"].map { base.appendingPathComponent($0) }
+    }
+
+    static func accepts(_ url: URL) -> Bool { url.pathExtension == "db" }
+
+    /// The recognized SQLite roots are flat; configuration and storage beside the databases are not scanned.
+    static func skips(_ url: URL) -> Bool { url.pathExtension != "db" }
+
+    static func related(_ url: URL) -> [URL] { [URL(fileURLWithPath: url.path + "-wal")] }
+
     static func read(_ url: URL) throws -> ProviderSessions {
         let database = try ReadOnlySQLite(url)
         try database.requireTable("gen_metadata")

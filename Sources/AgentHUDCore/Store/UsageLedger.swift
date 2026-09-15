@@ -95,11 +95,17 @@ public actor UsageLedger {
                 try? expire(now: now)
             }
         } catch {
-            try? storage.connection.execute("ROLLBACK")
-            storage.reset()
-            generation += 1
+            rollBackPass()
             NSLog("[AgentHUD] Usage ledger pass rolled back: %@", error.localizedDescription)
         }
+    }
+
+    /// Discards everything the open pass wrote; providers that remember any of it read their state again.
+    func rollBackPass() {
+        passOpen = false
+        try? storage.connection.execute("ROLLBACK")
+        storage.reset()
+        generation += 1
     }
 
     /// Runs `body` atomically: inside an open pass it is a savepoint, otherwise its own transaction.

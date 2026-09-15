@@ -44,9 +44,8 @@ public enum AdditionalSource: String, CaseIterable, Sendable {
     public func isInstalled(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> Bool {
         let paths: [String]
         switch self {
-        case .antigravity: paths = [".gemini/antigravity", ".gemini/antigravity-cli", "Applications/Antigravity.app"]
         case .cursor: paths = ["Library/Application Support/Cursor/User/globalStorage/state.vscdb", "Applications/Cursor.app"]
-        case .grok: paths = [".grok"]
+        case .antigravity, .grok: paths = layout?.installPaths ?? []
         // A same-named desktop app is not the CLI these clients read, and it must not trigger hook installation.
         default: return layout?.installPaths.contains { FileManager.default.fileExists(atPath: home.appendingPathComponent($0).path) } ?? false
         }
@@ -122,6 +121,8 @@ struct ProviderSessions: Sendable {
     var indexing: IndexProgress? = nil
     /// Changes whenever the reader's results change; nil when the reader cannot tell.
     var revision: Int? = nil
+    /// The files the sessions come from; nil for a reader of account records.
+    var files: ListedFiles? = nil
 }
 
 // The existing JSON value representation keeps parsed data Sendable without passing Foundation Any graphs.

@@ -14,7 +14,7 @@ actor AdditionalUsageProvider: UsageProvider, LedgerRecording {
     private var lastQuota: (at: Date, key: String, result: Result<ProviderQuota, UsageProviderError>)?
     nonisolated let watchedDirectories: [URL]?
     private let ledger: UsageLedger
-    private var recorded: (revision: Int, account: String?, window: Date)?
+    private let sessionLedger: SessionLedger
 
     init(source: AdditionalSource, readQuota: @escaping @Sendable () async throws -> ProviderQuota,
          readSessions: @escaping @Sendable (Date) async -> ProviderSessions,
@@ -30,6 +30,7 @@ actor AdditionalUsageProvider: UsageProvider, LedgerRecording {
         self.history = history; self.clock = clock; self.quotaKey = quotaKey
         self.watchedDirectories = watchedDirectories
         self.ledger = ledger
+        sessionLedger = SessionLedger(source: source.rawValue, ledger: ledger)
     }
 
     static func standard(_ source: AdditionalSource, ledger: UsageLedger, persistHistory: Bool = true) -> AdditionalUsageProvider {
@@ -69,17 +70,9 @@ actor AdditionalUsageProvider: UsageProvider, LedgerRecording {
     private func record(_ local: ProviderSessions, account: String?, since: Date, now: Date) async {
         guard local.indexing == nil else { return }
         let window = SessionContributions.windowStart(max(since, source.readerWindow.map { now.addingTimeInterval(-$0) } ?? since))
-        if let revision = local.revision, let recorded, recorded.revision == revision, recorded.account == account, recorded.window == window { return }
-        let contributions = SessionContributions.canonical(local.sessions.map { session in (session.id, session.events.map { $0.usage(source: source) }) })
-        let name = source.rawValue
-        do {
-            try await ledger.write { writer in
-                for (session, events) in contributions {
-                    try writer.replace(source: name, contribution: session, account: account, events: events, since: window)
-                }
-            }
-            recorded = local.revision.map { ($0, account, window) }
-        } catch { /* The next poll writes the same sessions again. */ }
+        await sessionLedger.record(files: local.files, revision: local.revision, account: account, window: window) {
+            local.sessions.map { session in (session.id, session.events.map { $0.usage(source: source) }) }
+        }
     }
 
     func refreshAccountUsage(historyHours: Int) async {
