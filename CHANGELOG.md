@@ -2,6 +2,15 @@
 
 Releases of Agent HUD Open. A version is a git tag `vX.Y.Z` on `main`; `CFBundleShortVersionString` in `scripts/build-app.sh` carries the same number. Each entry lists what changed for people using the application and, under **Host API**, what changed for applications that embed `AgentHUDCore` and `AgentHUDDesktop`. Dates are tag dates.
 
+## 0.4.8 — 2026-09-15
+
+- Lower idle CPU: clock ticks that change nothing on the island skip its layout, and the statistics window and forecast hover popups are created the first time they are shown.
+- A poll reads less of the ledger: the hourly quota history, which no screen used, is gone, and the heatmap and weekly token share are derived from the stored usage buckets.
+- Chinese interface: the notch is called 灵动岛 throughout, and vendor plan badges and descriptions say 套餐 / Plan instead of 订阅 / Subscription.
+- `--snapshot` no longer runs the built-in island animation, hover and agent settings checks, which are XCTests now, and no longer writes the island forecast hover images.
+- The restart cache written by 0.4.8 cannot be read by earlier versions; after a downgrade the first launch starts without the previous report until collection completes.
+- Host API: `UsageStore(provider:settings:accessAllowed:hooks:)` with `UsageCollectionHooks(historyHours:publish:merge:)` and `UsageStore.remerge()`, collection scheduling moves into an internal collector; `DesktopMenuAction`, the `additionalMenuActions:` parameter and `DesktopSettingsPage.heading` are removed; `SettingsSection`, `Theme`, `Font.ui`, `Font.tabular`, `HostedWindowController` and `SourceDetector` become internal; `HistorySample`, `UsageReport.history`, `history(for:)`, `activity`, `insights` and `subscriptionType`, `UsageInsights.weeklyShare`, `windowSessionCount`, `windowUsedPct` and `empty`, and `ActivityGrid.empty` with its `Codable` conformance are removed; `UsageAnalytics.hourlyHistory`, `hourStart` and `weeklyShare`, `UsageAggregation.historyUnion` and `eventUnion`, `ChartData.remainingPath`, `usedPath` and `bucketed`, `BurnRate.estimate`, the `DemoSeries` candle, series, line seed and activity members, the `calendar:` parameter of `ClaudeCodeProvider.init`, `UsageLedger.bucketRevision`, `TranscriptSession.UsageEvent`, `L10n.vendorLabel`, `UsageStore.primaryRow`, `quotaUpdatedAt`, `weeklyByVendor`, `minRemainingPct` and `primaryInsights`, `SettingsStore.resetOnboarding()`, `Countdown.updatedLabel`, `GlowGeometry.visibleHeight`, `SourceStatus.isReady` and `ClaudeModelInfo.isSubagentModel` are removed; `AgentHUDDesktop` and `AgentHUDOpenApp` build in the Swift 6 language mode.
+
 ## 0.4.7 — 2026-09-15
 
 - The application decides and shows island alerts itself: quota alerts and a reminder for each completed turn, for clients whose Live status is on. Baselines start again at every launch, nothing is checked while collection is paused or failing, and turns that finished while Live status was off are not replayed.
