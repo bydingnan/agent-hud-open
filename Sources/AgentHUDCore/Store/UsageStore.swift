@@ -42,14 +42,14 @@ public struct AccountSection: Identifiable, Sendable {
     public let rows: [AgentRow]
 }
 
-/// Observable app state: polls the provider, exposes derived rows, glow appearance and stats selections.
+/// Observable app state: the collected report, derived rows, glow appearance and stats selections.
 @MainActor
 @Observable
 public final class UsageStore {
-    public private(set) var report: UsageReport?
-    public private(set) var lastError: String?
-    public private(set) var pausedUntil: Date?
-    public private(set) var isRefreshing = false
+    public internal(set) var report: UsageReport?
+    public internal(set) var lastError: String?
+    public internal(set) var pausedUntil: Date?
+    public internal(set) var isRefreshing = false
     public private(set) var statsRange: StatsRange = .hours24
     public var tokenBucketSize: TokenBucketSize = .hour1
     public var tokenDimensions: TokenDimensions = .fresh
@@ -58,32 +58,22 @@ public final class UsageStore {
     public var selectedQuotaId: String?
     public var glowHidden = false
     /// Advances every few seconds so countdowns re-render.
-    public private(set) var now = Date()
+    public internal(set) var now = Date()
 
     public let settings: SettingsStore
-    private let provider: any UsageProvider
     private let accessAllowed: () -> Bool
-    private var pollTask: Task<Void, Never>?
+    private let collector: UsageCollector
     private var clockTask: Task<Void, Never>?
-    /// One pass of the pipeline runs at a time; a request during a pass is served by the next one.
-    private var isCollecting = false
-    /// Account steps left in the current sweep, run one at a time between local polls.
-    private var accountSteps: [AccountRefreshStep] = []
-    private var accountSweepAt: Date?
-    /// Consent to read an account starts a sweep at once instead of at the next interval.
-    private var sweptWithCopilotQuota: Bool?
-    private var fetchedAt: Date?
-    private var fetchedAgents: [AgentDescriptor]?
-    /// Something the watched directories cannot show changed: a finished account step, a language switch, a failed poll.
-    private var needsFetch = true
-    private var changes: FileChangeMonitor?
     /// A later poll that found nothing changed extends the report's coverage.
-    private var checkedAt: Date?
+    var checkedAt: Date?
 
-    public init(provider: any UsageProvider, settings: SettingsStore, accessAllowed: @escaping () -> Bool = { true }) {
-        self.provider = provider
+    /// `hooks` let a host choose the history window, publish each provider report and merge it into the displayed report.
+    public init(provider: any UsageProvider, settings: SettingsStore, accessAllowed: @escaping () -> Bool = { true },
+                hooks: UsageCollectionHooks = UsageCollectionHooks()) {
         self.settings = settings
         self.accessAllowed = accessAllowed
+        collector = UsageCollector(provider: provider, settings: settings, hooks: hooks)
+        collector.store = self
     }
 
     public var isAccessAllowed: Bool { accessAllowed() }
@@ -92,14 +82,7 @@ public final class UsageStore {
 
     public func start() {
         stop()
-        changes = provider.watchedDirectories.map { FileChangeMonitor(directories: $0) }
-        pollTask = Task { [weak self] in
-            while !Task.isCancelled {
-                guard let self else { return }
-                let pause = await self.collect(force: false)
-                try? await Task.sleep(for: .seconds(pause))
-            }
-        }
+        collector.start()
         clockTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(10))
@@ -109,96 +92,36 @@ public final class UsageStore {
     }
 
     public func stop() {
-        pollTask?.cancel()
+        collector.stop()
         clockTask?.cancel()
-        pollTask = nil
         clockTask = nil
-        changes = nil
-        if !accountSteps.isEmpty {
-            accountSteps = []
-            accountSweepAt = nil
-        }
     }
 
     /// Reads local data now unless a pass is already running, in which case the next pass reads it.
     public func refresh() async {
-        needsFetch = true
-        _ = await collect(force: true)
+        await collector.refresh()
+    }
+
+    /// Runs only the merge hook again on the provider's last report, for data the merge adds that changed since the pass.
+    /// Never overlaps a local poll: one in progress merges for it.
+    public func remerge() async {
+        await collector.remerge()
     }
 
     /// Installs a report directly (snapshots, tests) without going through the provider.
     public func replace(report: UsageReport) {
         self.report = report
+        collector.forgetLocalReport()
         checkedAt = nil
         lastError = nil
         now = Date()
     }
 
-    /// One pass of the collection pipeline: the local poll when it is due, then account steps within their budget.
-    /// Returns how long to wait before the next pass.
-    private func collect(force: Bool) async -> TimeInterval {
-        guard isAccessAllowed, !isCollecting else { return UsageRefresh.pollInterval }
-        if let pausedUntil, pausedUntil > Date() { return UsageRefresh.pollInterval }
-        pausedUntil = nil
-        isCollecting = true
-        defer { isCollecting = false }
-        let started = Date()
-        let consent = settings.settings.readCopilotQuota
-        if accountSteps.isEmpty, sweptWithCopilotQuota != consent
-            || accountSweepAt.map({ started.timeIntervalSince($0) >= UsageRefresh.accountInterval }) ?? true {
-            accountSweepAt = started
-            sweptWithCopilotQuota = consent
-            accountSteps = provider.accountRefreshSteps
-            // The sweep doubles as the fallback poll and picks up directories created since the last one.
-            changes?.update()
-            needsFetch = true
-        }
-        let localInterval = isIndexing ? UsageRefresh.indexingInterval : UsageRefresh.pollInterval
-        if force || fetchedAt.map({ started.timeIntervalSince($0) >= localInterval }) ?? true {
-            if shouldFetch(at: started) {
-                await fetch(at: started)
-            } else if started.timeIntervalSince(dataDate) >= 60 {
-                checkedAt = started
-            }
-        }
-        guard !accountSteps.isEmpty, !Task.isCancelled else { return localInterval }
-        let stepsStarted = Date()
-        repeat {
-            let step = accountSteps.removeFirst()
-            await step(Self.historyHours)
-        } while !accountSteps.isEmpty && !Task.isCancelled && Date().timeIntervalSince(stepsStarted) < UsageRefresh.accountStepBudget
-        needsFetch = true
-        let untilLocal = (fetchedAt ?? .distantPast).addingTimeInterval(localInterval).timeIntervalSinceNow
-        return max(0, min(accountSteps.isEmpty ? localInterval : 1, untilLocal))
-    }
-
-    /// Polls stay idle while nothing changed and no turn is running.
-    private func shouldFetch(at date: Date) -> Bool {
-        let changed = changes?.consumeChanges() ?? true
-        guard let report, !changed, !needsFetch, report.indexing == nil, fetchedAgents == settings.agents else { return true }
-        return report.hasActiveWork(at: date)
-    }
-
-    private func fetch(at date: Date) async {
-        needsFetch = false
-        isRefreshing = true
-        defer { isRefreshing = false }
-        do {
-            let fetched = try await provider.fetchUsage(agents: settings.agents, historyHours: Self.historyHours)
-            guard isAccessAllowed, !Task.isCancelled else { needsFetch = true; return }
-            settings.mergeDiscovered(fetched.discoveredAgents, activeQuotaPoolIDs: fetched.activeQuotaPoolIDs, accounts: fetched.accounts)
-            report = fetched
-            fetchedAt = date
-            fetchedAgents = settings.agents
-            checkedAt = nil
-            lastError = nil
-        } catch {
-            needsFetch = true
-            guard isAccessAllowed, !Task.isCancelled else { return }
-            fetchedAt = date
-            lastError = error.localizedDescription
-        }
-        now = Date()
+    /// A pass's merged report replaces the displayed one.
+    func collected(_ report: UsageReport) {
+        self.report = report
+        checkedAt = nil
+        lastError = nil
     }
 
     public func pause(for interval: TimeInterval) {
@@ -275,12 +198,6 @@ public final class UsageStore {
             ?? rows.first { $0.remainingPct != nil } ?? rows.first
     }
 
-    public var primaryInsights: UsageInsights {
-        guard let report else { return .empty }
-        if let id = primaryRow?.id, let scoped = report.insightsByAgent[id] { return scoped }
-        return report.insightsByAgent.isEmpty ? report.insights : .empty
-    }
-
     /// Status per enabled agent that has data, in glow order. Agents without a reading stay out of the glow.
     public var levels: [StatusLevel] {
         let quota = Dictionary(uniqueKeysWithValues: rows.compactMap { row in row.level.map { (row.id, $0) } })
@@ -303,8 +220,6 @@ public final class UsageStore {
 
     /// Includes the brief interval before the first refresh starts; a failed fetch ends loading.
     public var isLoading: Bool { isAccessAllowed && report == nil && !isPaused && (isRefreshing || lastError == nil) }
-
-    public var minRemainingPct: Double? { rows.filter(\.isCurrentAccount).compactMap(\.remainingPct).min() }
 
     /// The most consumed window of a signed-in account, shown in the menu bar.
     public var maxUsedPct: Double? { rows.filter(\.isCurrentAccount).compactMap(\.usedPct).max() }
@@ -384,13 +299,6 @@ public final class UsageStore {
         )
     }
 
-    /// Last `hours` buckets of one agent's history.
-    public func history(for agentId: String, lastHours hours: Int? = nil) -> [HistorySample] {
-        let all = report?.history(for: agentId) ?? []
-        guard let hours, all.count > hours else { return all }
-        return Array(all.suffix(hours))
-    }
-
     // MARK: Consumers (token spenders, e.g. model families)
 
     /// Token spend is independent of which remaining-quota windows the user monitors.
@@ -454,16 +362,6 @@ public final class UsageStore {
         return order.map { key in
             let rows = sections[key] ?? []
             return AccountSection(id: key, account: rows.first?.account, isCurrent: rows.first?.isCurrentAccount ?? true, rows: rows)
-        }
-    }
-
-    /// "周额度 · Claude 61% · ChatGPT 80%" source: first weekly reading per vendor.
-    public var weeklyByVendor: [(vendor: String, pct: Double)] {
-        var seen: Set<String> = []
-        return rows.compactMap { row in
-            guard let pct = row.weeklyRemainingPct, !seen.contains(row.agent.vendor) else { return nil }
-            seen.insert(row.agent.vendor)
-            return (row.agent.vendor, pct)
         }
     }
 }

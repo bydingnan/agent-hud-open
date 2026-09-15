@@ -220,10 +220,8 @@ final class UsageStoreTests: XCTestCase {
         await store.refresh()
         XCTAssertEqual(store.rows.map(\.id), ["claude-opus", "claude-sonnet", "chatgpt", "codex"])
         XCTAssertEqual(store.rows.map(\.level), [.ok, .warning, .ok, .critical])
-        XCTAssertEqual(store.minRemainingPct, 7)
+        XCTAssertEqual(store.maxUsedPct, 93)
         XCTAssertTrue(store.hasLiveSession)
-        XCTAssertEqual(store.weeklyByVendor.map(\.vendor), ["Claude", "ChatGPT"])
-        XCTAssertEqual(store.history(for: "claude-opus", lastHours: 24).count, 24)
     }
 
     func testAPIBillingReplacesQuotaRowAndFollowsAgentToggle() throws {
@@ -289,23 +287,13 @@ final class UsageStoreTests: XCTestCase {
         }
     }
 
-    func testSelectedWindowUsesItsOwnInsightsAndFallsBackWhenDisabled() {
+    func testSelectedWindowFallsBackWhenDisabled() {
         let store = makeStore()
-        let report = UsageReport(generatedAt: Date(), snapshots: [], sessions: [], history: [], activity: .empty,
-                                 insights: .empty, insightsByAgent: [
-                                    "claude-opus": UsageInsights(burnRatePctPerHour: 5, timeToExhaust: nil, weeklyCapHits: 1,
-                                                               weeklyWaitTotal: 0, weeklyWaitLongest: 0, weeklyWaitLongestAt: nil,
-                                                               weeklyShare: [:], windowSessionCount: 1, windowUsedPct: 30),
-                                    "codex": UsageInsights(burnRatePctPerHour: 2, timeToExhaust: nil, weeklyCapHits: 0,
-                                                         weeklyWaitTotal: 0, weeklyWaitLongest: 0, weeklyWaitLongestAt: nil,
-                                                         weeklyShare: [:], windowSessionCount: 1, windowUsedPct: 7)
-                                 ])
-        store.replace(report: report)
+        store.replace(report: UsageReport(generatedAt: Date(), snapshots: [], sessions: [], history: [], activity: .empty, insights: .empty))
         store.selectedQuotaId = "codex"
-        XCTAssertEqual(store.primaryInsights.burnRatePctPerHour, 2)
+        XCTAssertEqual(store.primaryRow?.id, "codex")
         store.settings.setAgent(id: "codex", enabled: false)
         XCTAssertEqual(store.primaryRow?.id, "claude-opus")
-        XCTAssertEqual(store.primaryInsights.burnRatePctPerHour, 5)
     }
 
     func testQuotaForecastUsesOnlyTheHoveredWindowsInsights() throws {
