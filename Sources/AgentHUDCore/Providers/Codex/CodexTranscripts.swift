@@ -128,7 +128,7 @@ public struct CodexTranscript: Codable, Sendable {
                 _ = finishTurn(payload["turn_id"] as? String, state: .ended, at: timestamp)
             case "user_message":
                 if task == nil, let text = payload["message"] as? String {
-                    task = ClaudeTranscriptParser.title(from: text)
+                    task = SessionTitle.from(text)
                 }
             default: break
             }

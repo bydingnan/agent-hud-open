@@ -1,26 +1,5 @@
 import Foundation
 
-/// Reusable, Sendable ISO-8601 parsing (Claude writes `2026-09-07T05:41:44.123Z` or `…00.182540+00:00`).
-public enum DateParsing {
-    private static let fractional = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
-    private static let whole = Date.ISO8601FormatStyle()
-
-    public static func iso8601(_ string: String) -> Date? {
-        if let date = try? fractional.parse(string) { return date }
-        if let date = try? whole.parse(string) { return date }
-        // Trim sub-millisecond digits (e.g. microseconds) that the format style rejects.
-        if let dot = string.firstIndex(of: "."),
-           let end = string[dot...].firstIndex(where: { !$0.isNumber && $0 != "." }) {
-            let fraction = string[string.index(after: dot)..<end]
-            if fraction.count > 3 {
-                let trimmed = String(string[..<dot]) + "." + fraction.prefix(3) + String(string[end...])
-                return try? fractional.parse(trimmed)
-            }
-        }
-        return nil
-    }
-}
-
 /// One rate-limit window.
 public struct ClaudeUsageWindow: Hashable, Sendable {
     /// 0…100, share of the window already consumed.

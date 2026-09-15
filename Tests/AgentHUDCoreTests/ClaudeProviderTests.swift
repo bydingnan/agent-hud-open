@@ -44,10 +44,10 @@ final class ClaudeTranscriptTests: XCTestCase {
     }
 
     func testTitleRules() {
-        XCTAssertEqual(ClaudeTranscriptParser.title(from: "  fix auth bug\nmore"), "fix auth bug")
-        XCTAssertNil(ClaudeTranscriptParser.title(from: "<command-name>/clear</command-name>"))
-        XCTAssertNil(ClaudeTranscriptParser.title(from: "   "))
-        XCTAssertEqual(ClaudeTranscriptParser.title(from: String(repeating: "a", count: 80))?.count, 60)
+        XCTAssertEqual(SessionTitle.from("  fix auth bug\nmore"), "fix auth bug")
+        XCTAssertNil(SessionTitle.from("<command-name>/clear</command-name>"))
+        XCTAssertNil(SessionTitle.from("   "))
+        XCTAssertEqual(SessionTitle.from(String(repeating: "a", count: 80))?.count, 60)
     }
 
     func testFastParserMatchesJSONParserOnRealShapes() throws {

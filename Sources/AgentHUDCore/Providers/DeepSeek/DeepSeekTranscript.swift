@@ -120,12 +120,12 @@ public struct DeepSeekTranscript: Codable, Sendable {
             }
         case "session/end-seed": turns = nil
         case "session/title":
-            if let text = data["title"] as? String { title = ClaudeTranscriptParser.title(from: text) }
+            if let text = data["title"] as? String { title = SessionTitle.from(text) }
         case "user/message":
             if title == nil, (data["source"] as? [String: Any])?["kind"] as? String == "user",
                let content = data["content"] as? [[String: Any]],
                let text = content.first(where: { $0["type"] as? String == "text" })?["text"] as? String {
-                title = ClaudeTranscriptParser.title(from: text)
+                title = SessionTitle.from(text)
             }
         case "llm/retry-started":
             if lastAttempt?.turn == data["turn"] as? Int && lastAttempt?.step == data["step"] as? Int { lastAttempt = nil }

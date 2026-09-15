@@ -48,7 +48,7 @@ enum TencentBuddySessions {
         func nested(_ keys: [String], _ field: String) throws -> Int? {
             guard let key = keys.first(where: { usage[$0] != .null }) else { return nil }
             let values = try (usage[key].arrayValue ?? [usage[key]]).compactMap { $0[field] == .null ? nil : try $0[field].optionalCounter() }
-            return values.isEmpty ? nil : try values.reduce(0) { try OpenAgentParser.sum($0, $1) }
+            return values.isEmpty ? nil : try values.reduce(0) { try TokenCount.sum($0, $1) }
         }
         let listed = try positive(["cache_read_input_tokens", "cacheReadInputTokens", "cacheTokens", "prompt_cache_hit_tokens", "cached_tokens"])
         let detailed = try nested(["inputTokensDetails", "input_tokens_details", "prompt_tokens_details"], "cached_tokens")
@@ -58,16 +58,16 @@ enum TencentBuddySessions {
         let write = try positive(["cache_creation_input_tokens", "cacheCreationInputTokens", "cachedWriteTokens", "prompt_cache_write_tokens"]) ?? 0
         let reasoning = try counts(["completion_thinking_tokens", "completionThinkingTokens", "reasoningTokens"]).first ?? 0
         let total = try counts(["total_tokens", "totalTokens"]).first
-        let inclusive = try listed == nil && detailed != nil || total == OpenAgentParser.sum(input, output)
+        let inclusive = try listed == nil && detailed != nil || total == TokenCount.sum(input, output)
         let fresh: Int
         if let miss = try counts(["cachedMissTokens", "cacheMissTokens"]).first {
-            fresh = inclusive ? miss : try OpenAgentParser.sum(miss, write)
+            fresh = inclusive ? miss : try TokenCount.sum(miss, write)
         } else if inclusive {
             guard cache <= input else { throw ProviderFailure.format }
             fresh = input - cache
-        } else { fresh = try OpenAgentParser.sum(input, write) }
-        let out = inclusive ? output : try OpenAgentParser.sum(output, reasoning)
-        return try OpenAgentParser.sum(fresh, out, cache) > 0 ? (fresh, out, cache) : nil
+        } else { fresh = try TokenCount.sum(input, write) }
+        let out = inclusive ? output : try TokenCount.sum(output, reasoning)
+        return try TokenCount.sum(fresh, out, cache) > 0 ? (fresh, out, cache) : nil
     }
 
     static func model(_ json: ProviderJSON) -> String? {

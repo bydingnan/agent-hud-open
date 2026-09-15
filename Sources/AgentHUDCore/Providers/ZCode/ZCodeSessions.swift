@@ -60,8 +60,8 @@ enum ZCodeSessions: LocalSessionLayout {
     /// otherwise the five columns are additive. In keeps cache writes, Cache is cache reads only.
     static func tokens(input: Int, output: Int, reasoning: Int, cacheRead: Int, cacheWrite: Int, total: Int?,
                        inclusiveWithoutTotal: Bool) throws -> (input: Int, output: Int, cache: Int) {
-        let inclusive = try total.map { try $0 == OpenAgentParser.sum(input, output) } ?? inclusiveWithoutTotal
-        guard inclusive else { return (try OpenAgentParser.sum(input, cacheWrite), try OpenAgentParser.sum(output, reasoning), cacheRead) }
+        let inclusive = try total.map { try $0 == TokenCount.sum(input, output) } ?? inclusiveWithoutTotal
+        guard inclusive else { return (try TokenCount.sum(input, cacheWrite), try TokenCount.sum(output, reasoning), cacheRead) }
         guard cacheRead <= input else { throw ProviderFailure.format }
         return (input - cacheRead, output, cacheRead)
     }

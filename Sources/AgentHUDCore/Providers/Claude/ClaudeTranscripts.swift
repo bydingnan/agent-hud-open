@@ -120,16 +120,6 @@ public enum ClaudeTranscriptParser {
     public static func parse(_ text: String) -> [TranscriptEvent] {
         text.split(separator: "\n", omittingEmptySubsequences: true).compactMap { parseLine(String($0)) }
     }
-
-    /// Session title: first real user prompt, first line, trimmed to 60 characters. Skips slash-command/meta lines.
-    public static func title(from text: String) -> String? {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, !trimmed.hasPrefix("<"), !trimmed.hasPrefix("[Request interrupted") else { return nil }
-        let firstLine = trimmed.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: true).first.map(String.init) ?? trimmed
-        let collapsed = firstLine.trimmingCharacters(in: .whitespaces)
-        guard !collapsed.isEmpty else { return nil }
-        return collapsed.count > 60 ? String(collapsed.prefix(59)) + "…" : collapsed
-    }
 }
 
 public enum ClaudeModelMapper {
@@ -241,7 +231,7 @@ public struct TranscriptAccumulator: Hashable, Sendable, Codable {
             startedAt = min(startedAt ?? event.timestamp, event.timestamp)
             lastActivityAt = max(lastActivityAt ?? event.timestamp, event.timestamp)
             if task == nil, event.role == .user, let text = event.text {
-                task = ClaudeTranscriptParser.title(from: text)
+                task = SessionTitle.from(text)
             }
             if !isSubagent, !event.isSidechain {
                 if event.isPrompt {

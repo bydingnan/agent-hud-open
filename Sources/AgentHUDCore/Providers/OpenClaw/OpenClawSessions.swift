@@ -68,7 +68,7 @@ enum OpenClawSessions: LocalSessionLayout {
             guard let at = ProviderDate.milliseconds(message["timestamp"]) ?? ProviderDate.iso(entry["timestamp"].stringValue) else { throw ProviderFailure.format }
             let input = try usage["input"].optionalCounter(), output = try usage["output"].optionalCounter()
             let read = try usage["cacheRead"].optionalCounter(), write = try usage["cacheWrite"].optionalCounter()
-            guard try OpenAgentParser.sum(input, output, read, write) > 0 else { return nil }
+            guard try TokenCount.sum(input, output, read, write) > 0 else { return nil }
             let identity: String
             if let response = message["responseId"].stringValue, !response.isEmpty {
                 identity = "response:" + RecordCoding.hash([provider, response])
@@ -78,7 +78,7 @@ enum OpenClawSessions: LocalSessionLayout {
             guard seen.insert(identity).inserted else { return nil }
             // Input excludes cache reads and writes; reasoning is already inside output.
             return ProviderEvent(id: identity, model: name ?? model ?? "Unknown", timestamp: at,
-                                 input: try OpenAgentParser.sum(input, write), output: output, cacheRead: read)
+                                 input: try TokenCount.sum(input, write), output: output, cacheRead: read)
         }
     }
 

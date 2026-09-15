@@ -70,10 +70,10 @@ enum HermesSessions: LocalSessionLayout {
             let key = rows ? (Int32(16)...20).map { ReadOnlySQLite.text(row, $0) ?? "" } : (Int32(7)...10).map { ReadOnlySQLite.text(row, $0) ?? "" } + [""]
             let offset: Int32 = rows ? 21 : 11
             let input = try count(row, offset), output = try count(row, offset + 1), read = try count(row, offset + 2), write = try count(row, offset + 3)
-            guard try OpenAgentParser.sum(input, output, read, write) > 0 else { return }
+            guard try TokenCount.sum(input, output, read, write) > 0 else { return }
             // Input excludes cache reads and writes; reasoning is already inside output.
             sessions[id]?.events.append(ProviderEvent(id: "usage:" + RecordCoding.hash([id] + key), model: key[0],
-                timestamp: rows ? seconds(row, 25) ?? started : started, input: try OpenAgentParser.sum(input, write), output: output, cacheRead: read))
+                timestamp: rows ? seconds(row, 25) ?? started : started, input: try TokenCount.sum(input, write), output: output, cacheRead: read))
         }
         return ProviderSessions(sessions: sessions.keys.sorted().compactMap { sessions[$0] })
     }
