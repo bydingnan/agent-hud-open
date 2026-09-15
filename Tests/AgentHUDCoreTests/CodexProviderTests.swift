@@ -1,3 +1,4 @@
+import AgentHUDSupport
 import XCTest
 @testable import AgentHUDCore
 
@@ -88,6 +89,88 @@ final class CodexProviderTests: XCTestCase {
         token(&guardian, input: 10000, cached: 0, output: 1000)
         XCTAssertEqual(guardian.usage.first?.input, 10000)
         XCTAssertEqual(guardian.usage.first?.output, 1000)
+    }
+
+    func testCodexRetainsEachSuccessfulTurnAndIgnoresCancellationTimeoutAndInheritedHistory() throws {
+        let start = Date(timeIntervalSince1970: 1_788_850_000)
+        var t = CodexTranscript()
+        ingest(&t, type: "session_meta", payload: ["id": "s", "source": "cli"], at: start)
+        ingest(&t, payload: ["type": "task_complete", "turn_id": "inherited"], at: start.addingTimeInterval(-10))
+        for (index, kind) in ["task_complete", "turn_aborted", "task_complete"].enumerated() {
+            let at = start.addingTimeInterval(Double(index * 10))
+            ingest(&t, payload: ["type": "task_started", "turn_id": "t\(index)"], at: at)
+            ingest(&t, payload: ["type": kind, "turn_id": "t\(index)"], at: at.addingTimeInterval(3))
+        }
+        XCTAssertEqual(t.completions?.count, 2)
+        XCTAssertEqual(t.completions?.map { $0.completedAt.timeIntervalSince($0.startedAt!) }, [3, 3])
+        ingest(&t, payload: ["type": "task_complete", "turn_id": "t2"], at: start.addingTimeInterval(23))
+        XCTAssertEqual(t.completions?.count, 2, "replayed line has the same event ID")
+        ingest(&t, payload: ["type": "task_started", "turn_id": "stale"], at: start.addingTimeInterval(30))
+        XCTAssertFalse(t.isLive(now: start.addingTimeInterval(200), modifiedAt: start))
+        XCTAssertEqual(t.completions?.count, 2, "inactivity produces no completion")
+        let restored = try JSONDecoder().decode(CodexTranscript.self, from: JSONEncoder().encode(t))
+        XCTAssertEqual(restored.completions, t.completions)
+        var oldCache = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(t)) as? [String: Any])
+        oldCache.removeValue(forKey: "completions"); oldCache.removeValue(forKey: "turnStartedAt"); oldCache.removeValue(forKey: "turnID")
+        XCTAssertNil(try JSONDecoder().decode(CodexTranscript.self, from: JSONSerialization.data(withJSONObject: oldCache)).completions)
+    }
+
+    func testSubagentsNeverProduceUserFacingCompletions() {
+        let start = Date(timeIntervalSince1970: 1_788_850_000)
+        var t = CodexTranscript()
+        ingest(&t, type: "session_meta", payload: ["id": "child", "source": ["subagent": ["other": "guardian"]]], at: start)
+        ingest(&t, payload: ["type": "task_complete"], at: start.addingTimeInterval(1))
+        XCTAssertNil(t.completions)
+    }
+
+    func testLateCompletionDoesNotEndTheNextTurn() {
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        var value = CodexTranscript()
+        ingest(&value, type: "session_meta", payload: ["id": "session", "source": "cli"], at: start)
+        ingest(&value, payload: ["type": "task_started", "turn_id": "first"], at: start.addingTimeInterval(1))
+        ingest(&value, payload: ["type": "task_started", "turn_id": "second"], at: start.addingTimeInterval(10))
+        ingest(&value, payload: ["type": "task_complete", "turn_id": "first"], at: start.addingTimeInterval(5))
+        XCTAssertEqual(value.sessionTurns.map(\.state), [.completed, .running])
+        XCTAssertEqual(value.sessionTurns.last?.turnID, "second")
+        XCTAssertTrue(value.isLive(now: start.addingTimeInterval(11), modifiedAt: start.addingTimeInterval(10)))
+        ingest(&value, payload: ["type": "task_complete"], at: start.addingTimeInterval(12))
+        XCTAssertEqual(value.sessionTurns.last?.state, .running, "An unassociated completion cannot finish an identified turn")
+        ingest(&value, payload: ["type": "turn_aborted", "turn_id": "second"], at: start.addingTimeInterval(15))
+        XCTAssertEqual(value.sessionTurns.last?.state, .ended)
+        XCTAssertFalse(value.isLive(now: start.addingTimeInterval(16), modifiedAt: start.addingTimeInterval(15)))
+    }
+
+    func testOnlyExplicitIdentifiedTurnsAreReportedAndRetainSourceTime() throws {
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        var value = CodexTranscript()
+        ingest(&value, type: "session_meta", payload: ["id": "session", "source": "cli"], at: start)
+        ingest(&value, payload: ["type": "user_message", "message": "example"], at: start.addingTimeInterval(1))
+        XCTAssertTrue(value.sessionTurns.isEmpty)
+        ingest(&value, payload: ["type": "task_started"], at: start.addingTimeInterval(2))
+        XCTAssertTrue(value.sessionTurns.isEmpty)
+        ingest(&value, payload: ["type": "task_started", "turn_id": "identified"], at: start.addingTimeInterval(3))
+        ingest(&value, payload: ["type": "agent_message", "message": "working"], at: start.addingTimeInterval(8))
+        let before = try XCTUnwrap(value.sessionTurns.last)
+        XCTAssertEqual(before.observedAtMs, RecordCoding.milliseconds(start.addingTimeInterval(8)))
+        let restored = try JSONDecoder().decode(CodexTranscript.self, from: JSONEncoder().encode(value))
+        XCTAssertEqual(restored.sessionTurns, value.sessionTurns)
+        ingest(&value, payload: ["type": "task_complete", "turn_id": "identified"], at: start.addingTimeInterval(12))
+        let ended = try XCTUnwrap(value.sessionTurns.last)
+        XCTAssertEqual(ended.id, before.id)
+        ingest(&value, payload: ["type": "task_complete", "turn_id": "identified"], at: start.addingTimeInterval(14))
+        XCTAssertEqual(value.sessionTurns.last, ended)
+    }
+
+    func testInheritedAndSubagentTurnsAreNotReported() {
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        var value = CodexTranscript()
+        ingest(&value, type: "session_meta", payload: ["id": "session", "source": "cli"], at: start.addingTimeInterval(10))
+        ingest(&value, payload: ["type": "task_started", "turn_id": "inherited"], at: start.addingTimeInterval(1))
+        XCTAssertTrue(value.sessionTurns.isEmpty)
+        var child = CodexTranscript()
+        ingest(&child, type: "session_meta", payload: ["id": "child", "source": ["subagent": ["thread_spawn": [:]]]], at: start)
+        ingest(&child, payload: ["type": "task_started", "turn_id": "child-turn"], at: start.addingTimeInterval(1))
+        XCTAssertTrue(child.sessionTurns.isEmpty)
     }
 
     func testIncrementalStoreHandlesPartialLineAndArchiveDuplicate() async throws {
@@ -252,6 +335,9 @@ final class CodexProviderTests: XCTestCase {
     }
     private func ingest(_ t: inout CodexTranscript, type: String = "event_msg", payload: [String: Any], at: String = "2026-09-07T09:00:00Z") {
         t.ingest(Data(line(type: type, payload: payload, at: at).utf8))
+    }
+    private func ingest(_ t: inout CodexTranscript, type: String = "event_msg", payload: [String: Any], at date: Date) {
+        ingest(&t, type: type, payload: payload, at: date.ISO8601Format())
     }
     private func token(_ t: inout CodexTranscript, input: Int, cached: Int, output: Int, at: String = "2026-09-07T09:00:00Z") {
         ingest(&t, payload: ["type":"token_count", "info":["total_token_usage":["input_tokens":input,"cached_input_tokens":cached,"output_tokens":output]]], at: at)

@@ -138,6 +138,25 @@ final class ChartDataTests: XCTestCase {
         XCTAssertNil(ChartData.tokenColumn(at: Date(), in: []))
     }
 
+    func testCacheDimensionEnrichesUsageWithoutDuplicatingInputAndOutput() {
+        let now = Date(timeIntervalSince1970: 1_788_850_000)
+        let old = UsageEvent(timestamp: now.addingTimeInterval(-30), agentId: "codex-model:test", tokensIn: 100, tokensOut: 20)
+        let enriched = UsageEvent(timestamp: old.timestamp, agentId: old.agentId, tokensIn: 100, tokensOut: 20, cacheReadTokens: 800)
+        XCTAssertEqual(UsageAggregation.usageUnion([[old, old], [enriched, enriched]]), [enriched, enriched])
+        let lessCache = UsageEvent(timestamp: old.timestamp, agentId: old.agentId, tokensIn: 100, tokensOut: 20, cacheReadTokens: 100)
+        XCTAssertEqual(UsageAggregation.usageUnion([[old, old], [enriched, lessCache], [lessCache, enriched]]).map(\.cacheReadTokens), [100, 800])
+        let usage = [UsageBucket(start: Date(timeIntervalSince1970: (enriched.timestamp.timeIntervalSince1970 / 900).rounded(.down) * 900),
+                                 agentId: enriched.agentId, tokensIn: 100, tokensOut: 20, cacheReadTokens: 800)]
+        for (dimensions, expected) in [(TokenDimensions.input, 100), (.output, 20), (.cache, 800), (.fresh, 120), (.all, 920)] {
+            let columns = ChartData.tokenBars(usage: usage, agentIds: [old.agentId], range: .hours5,
+                now: now, dimensions: dimensions)
+            XCTAssertEqual(columns.reduce(0) { $0 + $1.total }, expected)
+            let grid = UsageAnalytics.activityGrid(usage: usage, since: now.addingTimeInterval(-3600),
+                calendar: .current, dimensions: dimensions)
+            XCTAssertEqual(grid.tokens.flatMap { $0 }.reduce(0, +), expected)
+        }
+    }
+
     func testDailyBucketsUseLocalMidnightAndKeepExactRangeBoundaries() {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "Asia/Shanghai")!

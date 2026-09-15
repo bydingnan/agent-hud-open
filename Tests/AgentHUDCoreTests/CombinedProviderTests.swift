@@ -113,4 +113,16 @@ final class CombinedProviderTests: XCTestCase {
         let count = await history.count
         XCTAssertEqual(count, 3, "the reset balance uses the existing quota query and cache")
     }
+
+    func testCodexProviderAndCombinedReportPreserveResetObservationWithoutWindows() async throws {
+        let limits = try JSONDecoder().decode(CodexRateLimits.self,
+            from: Data(#"{"rateLimitsByLimitId":{},"rateLimitResetCredits":{"availableCount":3}}"#.utf8))
+        let observed = now.addingTimeInterval(-120)
+        let source = CodexUsageProvider(readLimits: { limits }, transcripts: CodexTranscriptStore(roots: []),
+                                        history: QuotaHistoryStore(), clock: { observed })
+        let combined = CombinedUsageProvider([.init("Codex", source)])
+        let result = try await combined.fetchAccountAndLocalUsage(agents: [], historyHours: 24)
+        XCTAssertTrue(result.snapshots.isEmpty)
+        XCTAssertEqual(result.codexResetCreditsObservedAt, observed)
+    }
 }

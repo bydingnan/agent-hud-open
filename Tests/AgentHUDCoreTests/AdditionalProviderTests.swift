@@ -201,7 +201,15 @@ final class AdditionalProviderTests: XCTestCase, @unchecked Sendable {
         XCTAssertNil(try AntigravityProtoReader.parseTurn([0x0a, 0xff]))
     }
 
-
+    func testGrokLogPrecedenceIsResolvedBeforeRecording() {
+        func event(_ id: String, priority: Int, tokens: Int) -> UsageEvent {
+            .init(timestamp: now, agentId: "grok-model:x", tokensIn: tokens, tokensOut: 1, eventID: id,
+                origin: .init(group: "grok:session", priority: priority))
+        }
+        let resolved = SessionContributions.canonical([(id: "grok:session", events: [event("old-turn-total", priority: 1, tokens: 100),
+                                                                                    event("new-inference", priority: 2, tokens: 40)])])
+        XCTAssertEqual(resolved["grok:session"]?.map(\.key), ["new-inference"], "only the authoritative log reaches the ledger")
+    }
 
     func testUsageIdentityKeepsCorrectionsAndDistinctEqualRequests() {
         func event(_ id: String?, output: Int = 20, cache: Int = 0) -> UsageEvent {
@@ -217,7 +225,9 @@ final class AdditionalProviderTests: XCTestCase, @unchecked Sendable {
         XCTAssertEqual(legacy[0].cacheReadTokens, 5)
     }
 
-
+    func testEqualEventsWithinOneSourceKeepTheirMultiplicity() {
+        XCTAssertEqual(UsageAggregation.eventUnion([[1, 1, 2], [1, 2, 3]]), [1, 1, 2, 3])
+    }
 
     func testGrokProcessModelIsNotInheritedAcrossPIDReuse() throws {
         let url = try file("unified.jsonl", """

@@ -70,7 +70,34 @@ final class CompletionHooksTests: XCTestCase, @unchecked Sendable {
         XCTAssertNil(try CompletionHooks.completion(source: .antigravity, payload: json(payload), now: now))
     }
 
-
+    func testCursorInboxStripsUnneededDataAndDoesNotReplay() async throws {
+        let directory = try directory()
+        var payload: [String: Any] = ["conversation_id": "s", "generation_id": "g", "hook_event_name": "stop",
+            "status": "completed", "model_id": "cursor-test", "workspace_roots": ["/work/project"],
+            "user_email": "private@example.test", "prompt": "private fixture text"]
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        try CompletionHooks.record(source: .cursor, data: data, now: now, directory: directory)
+        try CompletionHooks.record(source: .cursor, data: data, now: now.addingTimeInterval(1), directory: directory)
+        let events = try CompletionHooks.read(source: .cursor, since: now.addingTimeInterval(-1), directory: directory)
+        XCTAssertEqual(events.count, 1)
+        XCTAssertEqual(events[0].completedAt, now)
+        let saved = try String(contentsOf: directory.appendingPathComponent("cursor/\(events[0].id).json"), encoding: .utf8)
+        XCTAssertFalse(saved.contains("private"))
+        for state in ["error", "aborted", "unknown"] {
+            payload["status"] = state
+            XCTAssertNil(try CompletionHooks.completion(source: .cursor, payload: json(payload), now: now))
+        }
+        let provider = AdditionalUsageProvider(source: .cursor, readQuota: { throw ProviderFailure.login("Cursor") },
+            readSessions: { _ in ProviderSessions() }, history: QuotaHistoryStore(),
+            readCompletions: { _ in events }, clock: { self.now })
+        let report = try await provider.fetchAccountAndLocalUsage(agents: [], historyHours: 168)
+        let agents: [AgentDescriptor] = []
+        var tracker = IslandEventTracker(startedAt: now.addingTimeInterval(-1))
+        XCTAssertEqual(tracker.update(report: report, agents: agents, now: now).completions.count, 1)
+        XCTAssertTrue(tracker.update(report: report, agents: agents, now: now).completions.isEmpty)
+        var restarted = IslandEventTracker(startedAt: now.addingTimeInterval(1))
+        XCTAssertTrue(restarted.update(report: report, agents: agents, now: now.addingTimeInterval(2)).completions.isEmpty)
+    }
 
     func testAutomaticInstallationDoesNotTakeOverAnotherHost() throws {
         let home = try directory()

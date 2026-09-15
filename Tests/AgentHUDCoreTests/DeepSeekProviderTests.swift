@@ -120,6 +120,55 @@ final class DeepSeekProviderTests: XCTestCase {
         }
     }
 
+    func testDeepSeekOnlyCompletedReasonEmitsAndSeedDoesNotReplay() throws {
+        let start = Date(timeIntervalSince1970: 1_788_850_000)
+        for reason in ["completed", "aborted", "error", "blocked", "interrupted", "max-tokens", "unknown"] {
+            var t = DeepSeekTranscript()
+            try feed(&t, json(["type": "session", "version": 0, "id": "s", "createdAt": start.timeIntervalSince1970 * 1000, "seedLength": 2]))
+            try feed(&t, json(["type": "turn/end", "seq": 1, "time": start.timeIntervalSince1970 * 1000, "data": ["reason": ["kind": "completed"]]]))
+            XCTAssertNil(t.completions)
+            try feed(&t, json(["type": "turn/start", "seq": 2, "time": start.timeIntervalSince1970 * 1000, "data": ["turn": 1]]))
+            let end = json(["type": "turn/end", "seq": 3, "time": start.addingTimeInterval(4).timeIntervalSince1970 * 1000,
+                            "data": ["reason": ["kind": reason], "turn": 1]])
+            try feed(&t, end); try feed(&t, end)
+            XCTAssertEqual(t.completions?.count ?? 0, reason == "completed" ? 1 : 0, reason)
+            XCTAssertEqual(try JSONDecoder().decode(DeepSeekTranscript.self, from: JSONEncoder().encode(t)).completions, t.completions)
+        }
+    }
+
+    func testProviderReportsRunningAndCompletedTurns() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let nowMs: Int64 = 1_800_000_000_000
+        let file = directory.appendingPathComponent("session.jsonl"), start = nowMs - 10_000
+        let beginning = """
+        {"type":"session","version":0,"id":"deepseek-fixture","createdAt":\(start - 1000),"cwd":"/fixture"}
+        {"type":"turn/start","seq":0,"time":\(start),"data":{"turn":1}}
+        {"type":"session/title","seq":1,"time":\(start),"data":{"title":"DeepSeek activity fixture"}}
+        {"type":"text-chunks","seq0":2,"time0":\(start),"data":{"turn":1,"dt":[1000,1000],"texts":["private","text","chunks"]}}
+        """
+        try (beginning + "\n").write(to: file, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: Double(nowMs) / 1000)], ofItemAtPath: file.path)
+        let provider = DeepSeekUsageProvider(directory: directory, transcripts: DeepSeekTranscriptStore(root: directory),
+            clock: { Date(timeIntervalSince1970: Double(nowMs) / 1000) })
+        let report = try await provider.fetchAccountAndLocalUsage(agents: [], historyHours: 24)
+        let active = try XCTUnwrap(report.turns.first)
+        XCTAssertEqual(active.provider, "deepseek")
+        XCTAssertEqual(report.sessions.first { $0.id == active.sessionID }?.task, "DeepSeek activity fixture")
+        XCTAssertEqual(active.state, .running)
+        XCTAssertEqual(active.startedAtMs, start)
+        XCTAssertEqual(active.observedAtMs, start + 2000)
+        try (beginning + "\n" + #"{"type":"turn/end","seq":5,"time":NOW,"data":{"turn":1,"reason":{"kind":"completed"}}}"#.replacingOccurrences(of: "NOW", with: String(nowMs)) + "\n")
+            .write(to: file, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: Double(nowMs + 1) / 1000)], ofItemAtPath: file.path)
+        let finalReport = try await provider.fetchAccountAndLocalUsage(agents: [], historyHours: 24)
+        let finished = try XCTUnwrap(finalReport.turns.first)
+        XCTAssertEqual(finished.id, active.id)
+        XCTAssertEqual(finished.state, .completed)
+        XCTAssertEqual(finished.startedAtMs, start)
+        XCTAssertEqual(finished.observedAtMs, nowMs)
+    }
+
     func testProviderRefreshesProcessEvidenceForAnUnchangedQuietLog() async throws {
         let dir = try temporaryDirectory(), now = now
         defer { try? FileManager.default.removeItem(at: dir) }

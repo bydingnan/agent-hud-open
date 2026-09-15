@@ -253,6 +253,138 @@ final class ClaudeTranscriptTests: XCTestCase {
         let none = await store.sessions(modifiedSince: Date().addingTimeInterval(3600))
         XCTAssertEqual(none.count, 0)
     }
+
+    private func claude(_ type: String, at: Date, message: [String: Any], extra: [String: Any] = [:]) -> String {
+        var object: [String: Any] = ["type": type, "sessionId": "claude-s", "cwd": "/Users/me/proj", "message": message,
+                                     "timestamp": ISO8601DateFormatter().string(from: at)]
+        object.merge(extra) { _, new in new }
+        return String(decoding: try! JSONSerialization.data(withJSONObject: object, options: .sortedKeys), as: UTF8.self)
+    }
+    private func claudeAssistant(_ stop: Any, id: String, at: Date, model: String = "claude-fable-5-1", block: String = "text",
+                                 extra: [String: Any] = [:]) -> String {
+        claude("assistant", at: at, message: ["id": id, "role": "assistant", "model": model, "stop_reason": stop,
+            "content": [["type": block, block: "done"]], "usage": ["input_tokens": 3, "output_tokens": 2]], extra: extra)
+    }
+
+    func testClaudeEndTurnEmitsOncePerMessageAndIgnoresToolUseInterruptionsMetaAndSubagents() throws {
+        let start = Date(timeIntervalSince1970: 1_788_850_000)
+        let prompt = claude("user", at: start, message: ["role": "user", "content": "Fix the parser bug"])
+        let toolCall = claudeAssistant("tool_use", id: "msg_1", at: start.addingTimeInterval(2))
+        let toolResult = claude("user", at: start.addingTimeInterval(3), message: ["role": "user", "content": [["type": "tool_result", "tool_use_id": "t1", "content": "ok"]]])
+        let meta = claude("user", at: start.addingTimeInterval(4), message: ["role": "user", "content": "<local-command-stdout>x</local-command-stdout>"], extra: ["isMeta": true])
+        let finalLines = [claudeAssistant("end_turn", id: "msg_2", at: start.addingTimeInterval(5), block: "thinking"),
+                          claudeAssistant("end_turn", id: "msg_2", at: start.addingTimeInterval(5))]
+        let interrupted = [claude("user", at: start.addingTimeInterval(10), message: ["role": "user", "content": "Again"]),
+                           claudeAssistant("tool_use", id: "msg_3", at: start.addingTimeInterval(11)),
+                           claude("user", at: start.addingTimeInterval(12), message: ["role": "user", "content": "[Request interrupted by user for tool use]"])]
+        let failed = claudeAssistant("end_turn", id: "msg_4", at: start.addingTimeInterval(13), model: "<synthetic>")
+        let sidechain = claudeAssistant("end_turn", id: "msg_5", at: start.addingTimeInterval(14), extra: ["isSidechain": true])
+        let cutoff = claudeAssistant("stop_sequence", id: "msg_6", at: start.addingTimeInterval(20))
+        let lines = [prompt, toolCall, toolResult, meta] + finalLines + interrupted + [failed, sidechain, cutoff]
+        let text = lines.joined(separator: "\n") + "\n"
+        var t = TranscriptAccumulator(path: "/x/claude-s.jsonl", isSubagent: false)
+        t.ingest(FastTranscriptParser.parse(Data(text.utf8)))
+        let session = try XCTUnwrap(t.build())
+        XCTAssertEqual(session.completions.map(\.id), [RecordCoding.hash(["Claude", "claude-s", "msg_2"]), RecordCoding.hash(["Claude", "claude-s", "msg_6"])])
+        let first = session.completions[0]
+        XCTAssertEqual(first.vendor, "Claude")
+        XCTAssertEqual(first.sessionID, "claude-s")
+        XCTAssertEqual(first.task, "Fix the parser bug")
+        XCTAssertEqual(first.model, "Fable 5.1")
+        XCTAssertEqual(first.startedAt, start, "the turn starts at the typed prompt, not at tool results or command output")
+        XCTAssertEqual(first.completedAt, start.addingTimeInterval(5))
+        var slow = TranscriptAccumulator(path: "/x/claude-s.jsonl", isSubagent: false)
+        slow.ingest(ClaudeTranscriptParser.parse(text))
+        XCTAssertEqual(slow.build()?.completions, session.completions, "both parsers see the same turns")
+        var child = TranscriptAccumulator(path: "/x/subagents/agent-1.jsonl", isSubagent: true)
+        child.ingest(FastTranscriptParser.parse(Data(text.utf8)))
+        XCTAssertEqual(child.build()?.completions, [])
+        let encoded = try JSONEncoder().encode(t)
+        XCTAssertEqual(try JSONDecoder().decode(TranscriptAccumulator.self, from: encoded).build()?.completions, session.completions)
+        var oldCache = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        oldCache.removeValue(forKey: "completions"); oldCache.removeValue(forKey: "turnStartedAt")
+        XCTAssertEqual(try JSONDecoder().decode(TranscriptAccumulator.self, from: JSONSerialization.data(withJSONObject: oldCache)).build()?.completions, [])
+        t.ingest(FastTranscriptParser.parse(Data((finalLines.joined(separator: "\n") + "\n").utf8)))
+        XCTAssertEqual(t.build()?.completions.count, 2, "replayed lines keep the same event ID")
+        t.compactIfFinished(now: start.addingTimeInterval(3 * 86400))
+        XCTAssertEqual(t.build()?.completions, [], "an idle file keeps no completions in the cache")
+    }
+
+    func testClaudePromptToolCompletionAndInterruptionDriveTheTurnState() throws {
+        let now: Int64 = 1_800_000_000_000
+        let base = Date(timeIntervalSince1970: Double(now) / 1000)
+        func event(_ offset: Double, role: TranscriptEvent.Role = .assistant, prompt: String? = nil, stop: String? = nil, id: String? = nil, sidechain: Bool = false) -> TranscriptEvent {
+            .init(timestamp: base.addingTimeInterval(offset), role: role, model: "claude-test", inputTokens: 0,
+                cacheCreationTokens: 0, cacheReadTokens: 0, outputTokens: 0, text: prompt, sessionId: "claude-session", cwd: nil,
+                messageId: id, stopReason: stop, isSidechain: sidechain, isPrompt: role == .user && prompt != nil)
+        }
+        var accumulator = TranscriptAccumulator(path: "/fixture/claude-session.jsonl", isSubagent: false)
+        accumulator.ingest([event(0, role: .user, prompt: "Build"), event(10, stop: "tool_use")])
+        let running = try XCTUnwrap(accumulator.build()?.turn)
+        XCTAssertEqual(running.state, .running)
+        XCTAssertEqual(running.startedAtMs, now)
+        XCTAssertEqual(running.observedAtMs, now + 10_000)
+        accumulator.ingest([event(20, stop: "end_turn", id: "done")])
+        let finished = try XCTUnwrap(accumulator.build()?.turn)
+        XCTAssertEqual(finished.turnID, running.turnID)
+        XCTAssertEqual(finished.state, .completed)
+        XCTAssertEqual(finished.observedAtMs, now + 20_000)
+        accumulator = try JSONDecoder().decode(TranscriptAccumulator.self, from: JSONEncoder().encode(accumulator))
+        accumulator.ingest([event(30, role: .user, prompt: "Next"), event(31, stop: "end_turn", id: "done"), event(32, stop: "end_turn", id: "child", sidechain: true)])
+        XCTAssertEqual(accumulator.build()?.turn?.state, .running, "a delayed duplicate or child completion must not stop new work")
+        accumulator.ingest([event(40, role: .user, prompt: "[Request interrupted by user]")])
+        XCTAssertEqual(accumulator.build()?.turn?.state, .ended)
+        XCTAssertEqual(accumulator.build()?.turn?.startedAtMs, now + 30_000)
+    }
+
+    /// A final Claude response whose usage includes cached input.
+    static func endTurn(_ id: String, at date: Date) -> String {
+        #"{"sessionId":"s","type":"assistant","message":{"id":"\#(id)","role":"assistant","model":"claude-test","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":100,"output_tokens":20,"cache_read_input_tokens":800}},"timestamp":"\#(date.ISO8601Format())","entrypoint":"claude-desktop"}"#
+    }
+
+    func testCompletionTimestampUsesLastBlockAcrossBatchesAndRestarts() throws {
+        let now = Date(timeIntervalSince1970: 1_788_850_000)
+        let prompt = #"{"sessionId":"s","type":"user","message":{"role":"user","content":"Test"},"timestamp":"\#(now.ISO8601Format())"}"#
+        var acc = TranscriptAccumulator(path: "/s.jsonl", isSubagent: false)
+        var counted = acc.ingest(FastTranscriptParser.parse(Data((prompt + "\n" + Self.endTurn("msg_one", at: now.addingTimeInterval(10))).utf8))).count
+        acc = try JSONDecoder().decode(TranscriptAccumulator.self, from: JSONEncoder().encode(acc))
+        counted += acc.ingest(FastTranscriptParser.parse(Data(Self.endTurn("msg_one", at: now.addingTimeInterval(80)).utf8))).count
+        counted += acc.ingest(FastTranscriptParser.parse(Data(Self.endTurn("msg_one", at: now.addingTimeInterval(10)).utf8))).count
+        let completion = try XCTUnwrap(acc.build()?.completions.first)
+        XCTAssertEqual(acc.build()?.completions.count, 1)
+        XCTAssertEqual(completion.startedAt, now)
+        XCTAssertEqual(completion.completedAt, now.addingTimeInterval(80))
+        XCTAssertEqual(counted, 1, "blocks of one response count once, also after a restart")
+        XCTAssertEqual(acc.build()?.cacheReadTokens, 800)
+    }
+
+    func testLedgerResumesAfterAppendedLinesAndARestart() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let logs = directory.appendingPathComponent("projects")
+        try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = logs.appendingPathComponent("s.jsonl"), ledgerURL = directory.appendingPathComponent("usage-ledger.sqlite")
+        let date = Date()
+        let first = Self.endTurn("msg_one", at: date) + "\n"
+        try first.write(to: file, atomically: true, encoding: .utf8)
+        let transcripts = ClaudeTranscriptStore(roots: [logs], ledger: try UsageLedger(url: ledgerURL))
+        _ = await transcripts.index(modifiedSince: .distantPast)
+        let handle = try FileHandle(forWritingTo: file)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data((Self.endTurn("msg_two", at: date.addingTimeInterval(1)) + "\n").utf8))
+        try handle.close()
+        try FileManager.default.setAttributes([.modificationDate: date.addingTimeInterval(5)], ofItemAtPath: file.path)
+        let updated = await transcripts.index(modifiedSince: .distantPast)
+        XCTAssertEqual(updated.sessions.first?.tokensOut, 40)
+        let scan = await transcripts.lastScan
+        XCTAssertEqual(scan.bytesRead, Int(try FileManager.default.attributesOfItem(atPath: file.path)[.size] as! UInt64) - first.utf8.count,
+                       "only the appended line is read")
+        let reopened = ClaudeTranscriptStore(roots: [logs], ledger: try UsageLedger(url: ledgerURL))
+        let recovered = await reopened.index(modifiedSince: .distantPast)
+        XCTAssertEqual(recovered.sessions.first?.tokensOut, 40)
+        let usage = await reopened.usage(since: .distantPast)
+        XCTAssertEqual(usage.reduce(0) { $0 + $1.tokensOut }, 40)
+    }
 }
 
 final class UsageAnalyticsTests: XCTestCase {
@@ -626,6 +758,36 @@ final class ClaudeCodeProviderTests: XCTestCase {
         } catch {
             XCTFail("unexpected \(error)")
         }
+    }
+
+    func testQuotaFailureAndMissingEngineStillReportLocalCompletions() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let date = Date()
+        try (ClaudeTranscriptTests.endTurn("msg_one", at: date) + "\n").write(to: directory.appendingPathComponent("s.jsonl"), atomically: true, encoding: .utf8)
+        let script = directory.appendingPathComponent("engine")
+        try "#!/bin/sh\necho called >> calls\nread line\necho boom >&2\nexit 1\n".write(to: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+        // The engine exits as soon as it has read the request; the deadline only bounds a stalled launch.
+        let engine = ClaudeEngineUsageClient(executable: script, workingDirectory: directory, timeout: 10)
+        for client in [engine, nil] {
+            let history = QuotaHistoryStore(), transcripts = ClaudeTranscriptStore(root: directory)
+            let provider = ClaudeCodeProvider(engine: client, transcripts: transcripts, history: history)
+            for _ in 0..<2 {
+                await provider.refreshAccountUsage(historyHours: 721)
+                let result = try await provider.fetchUsage(agents: [], historyHours: 721)
+                XCTAssertEqual(result.completions.count, 1)
+                XCTAssertEqual(result.sessions.map(\.client), ["Claude Code Desktop"])
+                let recorded = await transcripts.usage(since: .distantPast)
+                XCTAssertEqual(recorded.first?.cacheReadTokens, 800)
+                XCTAssertNotNil(result.notice)
+                XCTAssertTrue(result.snapshots.isEmpty)
+            }
+            let count = await history.count
+            XCTAssertEqual(count, 0)
+        }
+        XCTAssertEqual(try String(contentsOf: directory.appendingPathComponent("calls"), encoding: .utf8), "called\n")
     }
 }
 

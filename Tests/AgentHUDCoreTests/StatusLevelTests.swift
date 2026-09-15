@@ -25,6 +25,17 @@ final class StatusLevelTests: XCTestCase {
         XCTAssertEqual(StatusLevel.resolve(remainingPct: 15, warnPct: 40, critPct: 15), .critical)
     }
 
+    func testFixedQuotaAndBalancePolicy() {
+        XCTAssertEqual(AlertPolicy.quotaLevel(remaining: 31), .ok)
+        XCTAssertEqual(AlertPolicy.quotaLevel(remaining: 30), .warning)
+        XCTAssertEqual(AlertPolicy.quotaLevel(remaining: 11), .warning)
+        XCTAssertEqual(AlertPolicy.quotaLevel(remaining: 10), .critical)
+        XCTAssertEqual(AlertPolicy.balanceLevel(remaining: 10, currency: "CNY"), .warning)
+        XCTAssertEqual(AlertPolicy.balanceLevel(remaining: 2, currency: "USD"), .warning)
+        XCTAssertEqual(AlertPolicy.balanceLevel(remaining: 0, currency: "USD"), .critical)
+        XCTAssertNil(AlertPolicy.balanceLevel(remaining: 2, currency: "EUR"))
+    }
+
     func testPaletteHexValues() {
         XCTAssertEqual(StatusPalette.color(for: .ok).hexString, "#3ddc84")
         XCTAssertEqual(StatusPalette.color(for: .warning).hexString, "#ffd23f")

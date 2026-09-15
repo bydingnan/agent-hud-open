@@ -29,6 +29,15 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(Settings.self, from: Data("{}".utf8)), Settings())
     }
 
+    func testUnknownPreferencesAreIgnoredAndNeverEncoded() throws {
+        // Deliberately wrong types prove unknown values are not decoded or validated.
+        let settings = try JSONDecoder().decode(Settings.self, from: Data(#"{"notifyOnCompletion":"obsolete","mutedAlertVendors":42,"agentThresholds":false,"balanceWarningThresholds":false,"macNotificationsEnabled":[]}"#.utf8))
+        XCTAssertEqual(settings, Settings())
+        let agent = try JSONDecoder().decode(AgentDescriptor.self, from: Data(#"{"id":"a","vendor":"Claude","model":"5h","source":"","enabled":true,"connected":true,"warnPct":false,"critPct":false,"quotaThresholdOverride":false,"balanceThresholdOverride":false}"#.utf8))
+        let encoded = try JSONSerialization.jsonObject(with: JSONEncoder().encode(agent)) as! [String: Any]
+        XCTAssertEqual(Set(encoded.keys), ["id", "vendor", "model", "source", "enabled", "connected"])
+    }
+
     func testRoundTrip() throws {
         let original = Settings().with {
             $0.appearance = .light
@@ -91,6 +100,93 @@ final class AgentDescriptorTests: XCTestCase {
         XCTAssertFalse(a.enabled)
         XCTAssertEqual(a.source, DemoData.agents[0].source)
         XCTAssertEqual(a.displayName, "Claude · Opus 4.5")
+    }
+}
+
+final class AgentSettingsTests: XCTestCase {
+    func testAccountDetailsUseObservedPlansAndAPIProvidersWithoutGuessing() {
+        let now = Date()
+        let sources = [SourceStatus(id: "cursor", name: "Cursor", detail: "technical details", state: .installed),
+                       SourceStatus(id: "deepseek", name: "DeepSeek", detail: "", state: .notDetected)]
+        let report = UsageReport(generatedAt: now, snapshots: [], sessions: [], history: [], activity: .empty,
+            insights: .empty, subscriptions: ["kimi-plan": "Allegretto"], services: [
+                .init(client: "OpenCode", provider: "Anthropic", product: .api),
+                .init(client: "OpenCode", provider: "OpenAI", product: .api),
+                .init(client: "OpenCode", provider: "Anthropic", product: .api),
+                .init(client: "OpenCode", provider: "Kimi", product: .plan, accountID: "kimi-plan"),
+                .init(client: "Pi", provider: "GLM", product: .plan),
+            ])
+        let groups = AgentSettingsGroup.make(sources: sources, agents: [], report: report)
+        XCTAssertEqual(groups.first { $0.id == "OpenCode" }?.apiProviders, ["Anthropic", "OpenAI"])
+        XCTAssertEqual(groups.first { $0.id == "OpenCode" }?.plans, ["Kimi · Allegretto"])
+        for id in ["Cursor", "DeepSeek", "Pi"] {
+            XCTAssertEqual(groups.first { $0.id == id }?.plans, [])
+            XCTAssertEqual(groups.first { $0.id == id }?.apiProviders, [])
+        }
+    }
+
+    func testAPIBillingBelongsToProviderAndOnlyIdenticalAccountsMerge() {
+        func pool(_ scope: String) -> BillingPool {
+            .init(provider: "Anthropic", realm: "Global", product: .api, scope: scope, evidence: .account, entitlement: "api")
+        }
+        let shared = pool("shared"), other = pool("other")
+        let agents = [AgentDescriptor(id: "open", vendor: "OpenCode", model: "Model A", source: "", enabled: true, billingPool: shared),
+                      AgentDescriptor(id: "pi", vendor: "Pi", model: "Model B", source: "", enabled: true, billingPool: shared)]
+        let groups = AgentSettingsGroup.make(sources: [], agents: agents)
+        XCTAssertEqual(groups.map(\.id), ["Anthropic", "OpenCode", "Pi"])
+        XCTAssertEqual(groups.first?.apiProviders, ["Anthropic"])
+        XCTAssertEqual(groups.first { $0.id == "OpenCode" }?.apiProviders, ["Anthropic"])
+        XCTAssertEqual(groups.first { $0.id == "Pi" }?.apiProviders, ["Anthropic"])
+        XCTAssertTrue(groups.first { $0.id == "Pi" }!.agents.isEmpty)
+        func billing(_ client: String, _ account: BillingPool, _ at: Double, _ amount: Decimal) -> APIBilling {
+            .init(vendor: client, balances: [.init(currency: "USD", total: amount, granted: 0, toppedUp: amount)],
+                  isAvailable: true, updatedAt: Date(timeIntervalSince1970: at), costs: [], notice: nil, billingPool: account)
+        }
+        let merged = CombinedUsageProvider.mergeBilling([billing("OpenCode", shared, 1, 10), billing("Pi", shared, 2, 8),
+                                                         billing("Pi", other, 3, 20)])
+        XCTAssertEqual(merged.count, 2)
+        XCTAssertEqual(Set(merged.map(\.vendor)), ["Anthropic"])
+        XCTAssertEqual(merged.first { $0.billingPool == shared }?.balances.first?.total, 8)
+        XCTAssertTrue(merged.first { $0.billingPool == shared }!.contains(agents[1]))
+        XCTAssertFalse(merged.first { $0.billingPool == other }!.contains(agents[1]))
+    }
+
+    func testServiceDetailsSurviveOldCacheAndFailedReadings() throws {
+        let report = UsageReport(generatedAt: Date(), snapshots: [], sessions: [], history: [], activity: .empty,
+            insights: .empty, services: [.init(client: "Pi", provider: "OpenAI", product: .api)])
+        var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(report)) as? [String: Any])
+        legacy.removeValue(forKey: "services")
+        let empty = try JSONDecoder().decode(UsageReport.self, from: JSONSerialization.data(withJSONObject: legacy))
+        XCTAssertNil(empty.services)
+        let retained = empty.retainingReadings(from: report)
+        XCTAssertEqual(retained.services, report.services)
+        XCTAssertEqual(try JSONDecoder().decode(UsageReport.self, from: JSONEncoder().encode(retained)).services, report.services)
+    }
+
+    func testGroupsIncludeSourcesWithoutWindowsAndPreserveWindowOrder() {
+        let sources = [
+            SourceStatus(id: "claude-code", name: "Claude", detail: "", state: .ready(plan: "max_20x")),
+            SourceStatus(id: "cursor", name: "Cursor", detail: "", state: .notDetected),
+            SourceStatus(id: "codex-cli", name: "Codex", detail: "", state: .installed),
+            SourceStatus(id: "chatgpt", name: "ChatGPT 聊天额度", detail: "", state: .needsAuthorization),
+        ]
+        let agents = [
+            AgentDescriptor(id: "cx", vendor: "Codex", model: "5h", source: "", enabled: true),
+            AgentDescriptor(id: "c1", vendor: "Claude", model: "5h", source: "", enabled: true),
+            AgentDescriptor(id: "c2", vendor: "Claude", model: "Weekly", source: "", enabled: false),
+            AgentDescriptor(id: "chatgpt", vendor: "ChatGPT", model: "Plus", source: "", enabled: false),
+        ]
+        let groups = AgentSettingsGroup.make(sources: sources, agents: agents)
+        XCTAssertEqual(groups.map(\.id), ["Codex", "Claude", "ChatGPT", "Cursor"])
+        XCTAssertEqual(groups[1].agents.map(\.id), ["c1", "c2"])
+        XCTAssertEqual(groups[1].displayedCount, 1)
+        XCTAssertEqual(groups[1].agents.count, 2)
+        XCTAssertEqual(groups[2].source?.id, "chatgpt")
+        XCTAssertEqual(groups[3].displayedCount, 0)
+        XCTAssertTrue(groups[3].agents.isEmpty)
+        let hidden = AgentSettingsGroup.make(sources: sources, agents: agents.map { $0.with(enabled: false) })
+        XCTAssertEqual(hidden.map(\.displayedCount), [0, 0, 0, 0])
+        XCTAssertEqual(hidden[1].agents.count, 2)
     }
 }
 

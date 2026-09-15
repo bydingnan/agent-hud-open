@@ -228,8 +228,14 @@ final class OpenAgentProviderTests: XCTestCase {
         XCTAssertNil(sqlite.events[0].attribution?.pool)
     }
 
-
-
+    func testSameRequestCannotMergeAcrossPools() {
+        let a = credential().pool, b = credential(key: "another-account").pool
+        func event(_ pool: BillingPool) -> UsageEvent {
+            .init(timestamp: now, agentId: "model", tokensIn: 1, tokensOut: 2, eventID: "request",
+                  attribution: .init(client: "Pi", providerID: "kimi-code", pool: pool, estimatedUSD: 0.01))
+        }
+        XCTAssertEqual(UsageAggregation.usageUnion([[event(a)], [event(a)], [event(b)]]).count, 2)
+    }
 
     func testKimiNativeRegionalSlotsAndExplicitAPIEndpointsStaySeparate() throws {
         let home = try temp()
@@ -349,6 +355,20 @@ final class OpenAgentProviderTests: XCTestCase {
         XCTAssertEqual(result.consumerIdsByQuota[id], ["Pi", "Kimi", "OpenCode"])
     }
 
+    func testAPIBalancesKeepTheLatestObservationAndCurrency() {
+        let api = BillingPool(provider: "GLM", realm: "CN", product: .api, scope: "a", evidence: .account, entitlement: "api")
+        let period = Date(timeIntervalSince1970: (now.timeIntervalSince1970 / 900).rounded(.down) * 900)
+        let old = APIBilling(vendor: "GLM", balances: [.init(currency: "CNY", total: 10, granted: 0, toppedUp: 10)], isAvailable: true,
+            updatedAt: now.addingTimeInterval(-1), costs: [CostBucket(start: period, amounts: ["CNY": 1])], notice: nil, billingPool: api)
+        let latest = APIBilling(vendor: "GLM", balances: [.init(currency: "CNY", total: 8, granted: 0, toppedUp: 8)], isAvailable: true,
+            updatedAt: now, costs: [CostBucket(start: period, amounts: ["CNY": 2])], notice: nil, billingPool: api)
+        let merged = CombinedUsageProvider.mergeBilling([old, latest])
+        XCTAssertEqual(merged.count, 1)
+        XCTAssertEqual(merged[0].balances.first?.total, 8) // Current balance is never added to an older observation.
+        XCTAssertEqual(merged[0].costs.count, 1)
+        XCTAssertEqual(merged[0].estimatedCost(currency: "CNY"), 2)
+        XCTAssertNil(merged[0].estimatedCost(currency: "USD"))
+    }
 
     func testPiProviderIDsHaveClientSpecificBillingMeaningAndOAuthStaysReadOnly() throws {
         XCTAssertNil(OpenAgentCredentials.service(provider: "zai", client: .opencode))
