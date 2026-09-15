@@ -4,10 +4,90 @@ import XCTest
 final class UsageRefreshTests: XCTestCase, @unchecked Sendable {
     private actor CountingProvider: UsageProvider {
         private(set) var fetches = 0
+        private(set) var hours: (fetch: [Int], account: [Int]) = ([], [])
         func fetchUsage(agents: [AgentDescriptor], historyHours: Int) async throws -> UsageReport {
             fetches += 1
+            hours.fetch.append(historyHours)
             return DemoUsageProvider.report(agents: agents, historyHours: historyHours, now: Date())
         }
+        func refreshAccountUsage(historyHours: Int) async { hours.account.append(historyHours) }
+    }
+
+    @MainActor
+    private func store(_ provider: CountingProvider, hooks: UsageCollectionHooks) -> UsageStore {
+        let suite = "UsageRefreshTests.\(UUID())", defaults = UserDefaults(suiteName: suite)!
+        addTeardownBlock { defaults.removePersistentDomain(forName: suite) }
+        return UsageStore(provider: provider, settings: SettingsStore(defaults: defaults), hooks: hooks)
+    }
+
+    @MainActor
+    func testPublishAndMergeHooksFinishInsideThePass() async throws {
+        let gate = AsyncStream<Void>.makeStream()
+        defer { gate.continuation.finish() }
+        let published = expectation(description: "publish started")
+        var publishes: [UsageReport] = [], merges: [UsageReport] = []
+        let provider = CountingProvider()
+        let store = store(provider, hooks: UsageCollectionHooks(publish: { report in
+            publishes.append(report)
+            if publishes.count == 1 { published.fulfill(); for await _ in gate.stream { break } }
+        }, merge: { report in
+            merges.append(report)
+            return UsageReport(generatedAt: report.generatedAt, snapshots: report.snapshots, sessions: report.sessions, history: [],
+                               activity: .empty, insights: .empty, notice: "merged", discoveredAgents: report.discoveredAgents)
+        }))
+        let pass = Task { @MainActor in await store.refresh() }
+        await fulfillment(of: [published], timeout: 2)
+        await store.refresh()
+        await store.remerge()
+        let during = await provider.fetches
+        XCTAssertEqual(during, 1, "a refresh while the publish hook runs waits for the next pass")
+        XCTAssertTrue(merges.isEmpty, "a remerge requested during the pass is served by the pass's own merge")
+        XCTAssertNil(store.report, "nothing is displayed before the hooks return")
+        gate.continuation.finish()
+        await pass.value
+        XCTAssertEqual(merges.count, 1)
+        XCTAssertNil(merges[0].notice, "the merge hook receives the provider's report")
+        XCTAssertEqual(store.report?.notice, "merged")
+        await store.refresh()
+        let after = await provider.fetches
+        XCTAssertEqual(after, 2)
+        XCTAssertEqual(publishes.count, 2)
+    }
+
+    @MainActor
+    func testRemergeRunsOnlyTheMergeHookOnTheLastProviderReport() async throws {
+        var label = "first", publishes = 0
+        let provider = CountingProvider()
+        let store = store(provider, hooks: UsageCollectionHooks(publish: { _ in publishes += 1 }, merge: { report in
+            UsageReport(generatedAt: report.generatedAt, snapshots: [], sessions: [], history: [], activity: .empty, insights: .empty,
+                        notice: (report.notice ?? "") + label)
+        }))
+        await store.remerge()
+        XCTAssertNil(store.report, "no provider report yet")
+        await store.refresh()
+        label = "second"
+        await store.remerge()
+        let fetches = await provider.fetches
+        XCTAssertEqual(fetches, 1)
+        XCTAssertEqual(publishes, 1)
+        XCTAssertEqual(store.report?.notice, "second", "the merge starts again from the provider's report")
+        store.replace(report: UsageReport(generatedAt: Date(), snapshots: [], sessions: [], history: [], activity: .empty, insights: .empty))
+        await store.remerge()
+        XCTAssertNil(store.report?.notice, "an installed report is not merged over")
+    }
+
+    @MainActor
+    func testHostChoosesTheHistoryWindow() async throws {
+        var hours = 24
+        let provider = CountingProvider()
+        let store = store(provider, hooks: UsageCollectionHooks(historyHours: { hours }))
+        await store.refresh()
+        hours = 721
+        await store.refresh()
+        let asked = await provider.hours
+        XCTAssertEqual(asked.fetch, [24, 721])
+        XCTAssertEqual(asked.account, [24], "the account step runs in the first pass")
+        XCTAssertEqual(UsageCollectionHooks().historyHours(), UsageStore.historyHours)
     }
 
     @MainActor
