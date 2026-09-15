@@ -204,7 +204,6 @@ public struct ClaudeCodeProvider: UsageProvider, LedgerRecording {
             sessions: listed,
             notice: notice,
             discoveredAgents: discovered,
-            subscriptionType: subscription,
             consumers: consumers,
             indexing: indexing,
             insightsByAgent: insightsByAgent,

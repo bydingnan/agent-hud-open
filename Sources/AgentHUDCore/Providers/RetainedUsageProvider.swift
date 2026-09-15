@@ -44,7 +44,7 @@ extension UsageReport {
     /// Turns and completions only matter as they happen, and a restart never reports earlier ones, so the copy leaves them out.
     var restartCopy: UsageReport {
         UsageReport(generatedAt: generatedAt, snapshots: snapshots, sessions: sessions,
-                    notice: notice, discoveredAgents: discoveredAgents, subscriptionType: subscriptionType, consumers: consumers, usage: usage,
+                    notice: notice, discoveredAgents: discoveredAgents, consumers: consumers, usage: usage,
                     indexing: indexing, insightsByAgent: insightsByAgent, subscriptions: subscriptions, sourceNotices: sourceNotices,
                     consumerIdsByQuota: consumerIdsByQuota, billing: billing, codexResetCredits: codexResetCredits,
                     codexResetCreditsObservedAt: codexResetCreditsObservedAt, services: services, activeQuotaPoolIDs: activeQuotaPoolIDs,
@@ -87,7 +87,6 @@ extension UsageReport {
             sessions: retainedSessions,
             notice: notice,
             discoveredAgents: UsageAggregation.consumersUnion([discoveredAgents, previous.discoveredAgents.filter(isRetained)]),
-            subscriptionType: subscriptionType ?? previous.subscriptionType,
             consumers: UsageAggregation.consumersUnion([consumers, previous.consumers.filter(isActive)]),
             // Recorded usage outlives a failed refresh in the ledger, so the new report's periods are complete.
             usage: usage,

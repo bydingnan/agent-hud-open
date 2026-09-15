@@ -65,7 +65,6 @@ final class SubscriptionTests: XCTestCase {
             transcripts: .init(roots: []), history: .init(), accountProfileURL: profileURL
         )
         let report = try await provider.fetchAccountAndLocalUsage(agents: [], historyHours: 1)
-        XCTAssertEqual(report.subscriptionType, "max")
         XCTAssertEqual(report.subscriptions["Claude"], "max_20x")
         let account = try XCTUnwrap(ProviderAccount.identified(provider: "Claude", user: "user-1", workspace: "org-1"))
         XCTAssertEqual(report.snapshot(for: account.windowID(ClaudeUsage.sessionRowId))?.remainingPct, 79)

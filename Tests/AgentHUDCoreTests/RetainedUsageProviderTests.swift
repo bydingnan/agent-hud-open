@@ -90,7 +90,7 @@ final class RetainedUsageProviderTests: XCTestCase {
         let current = try XCTUnwrap(String(data: JSONEncoder().encode(saved), encoding: .utf8))
         let insights = #"{"weeklyCapHits":1,"weeklyWaitTotal":0,"weeklyWaitLongest":0,"weeklyShare":{},"windowSessionCount":2,"windowUsedPct":28}"#
         let earlier = #""history":[{"agentId":"codex","hourStart":0,"remainingStart":90,"remainingEnd":80,"tokens":0}],"#
-            + #""activity":{"tokensByModel":[]},"insights":"# + insights + ","
+            + #""activity":{"tokensByModel":[]},"insights":"# + insights + #","subscriptionType":"max","#
         try Data(("{" + earlier + current.dropFirst()).utf8).write(to: file)
         XCTAssertEqual(RetainedUsageProvider(provider: SequenceProvider([]), cacheURL: file).initialReport, saved)
         XCTAssertEqual(try JSONDecoder().decode(UsageInsights.self, from: Data(insights.utf8)).weeklyCapHits, 1)

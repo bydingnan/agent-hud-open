@@ -555,7 +555,7 @@ final class ClaudeCodeProviderTests: XCTestCase {
         )
         let report = try await provider.fetchAccountAndLocalUsage(agents: DefaultAgents.list, historyHours: 48)
         XCTAssertNil(report.notice)
-        XCTAssertEqual(report.subscriptionType, "max")
+        XCTAssertEqual(report.subscriptions, ["Claude": "max"])
 
         XCTAssertEqual(report.snapshots.map(\.agentId), ["claude-session", "claude-weekly", "claude-weekly-opus"].map(account.windowID), "one row per quota window")
         XCTAssertEqual(report.discoveredAgents.map(\.model), ["window.session", "window.weekly", "window.weekly.Opus"])
@@ -623,7 +623,7 @@ final class ClaudeCodeProviderTests: XCTestCase {
         )
         let report = try await provider.fetchAccountAndLocalUsage(agents: DefaultAgents.list, historyHours: 48)
         XCTAssertNil(report.notice)
-        XCTAssertEqual(report.subscriptionType, "max")
+        XCTAssertEqual(report.subscriptions, ["Claude": "max"])
         let account = ProviderAccount.unresolved(provider: "Claude", home: "")
         XCTAssertEqual(report.discoveredAgents.map(\.id), ["claude-session", "claude-weekly"].map(account.windowID))
         XCTAssertEqual(report.consumers.map(\.id), ["claude-model:claude-fable-5-1"])

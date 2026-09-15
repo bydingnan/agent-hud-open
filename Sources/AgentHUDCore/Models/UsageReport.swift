@@ -53,8 +53,6 @@ public struct UsageReport: Hashable, Codable, Sendable {
     public let notice: String?
     /// Agent rows the provider found in local data (e.g. Claude model families); the settings store merges them.
     public let discoveredAgents: [AgentDescriptor]
-    /// "max", "pro", … when the engine reported it.
-    public let subscriptionType: String?
     /// Things that spend tokens (model families), as opposed to quota windows. Sessions and token charts key on these.
     public let consumers: [AgentDescriptor]
     /// Token totals in 15-minute periods, ordered by start, after overlapping logs were resolved. Charts sum these periods.
@@ -90,7 +88,6 @@ public struct UsageReport: Hashable, Codable, Sendable {
         sessions: [LiveSession],
         notice: String? = nil,
         discoveredAgents: [AgentDescriptor] = [],
-        subscriptionType: String? = nil,
         consumers: [AgentDescriptor]? = nil,
         usage: [UsageBucket] = [],
         indexing: IndexProgress? = nil,
@@ -118,7 +115,7 @@ public struct UsageReport: Hashable, Codable, Sendable {
         self.codexResetCreditsObservedAt = codexResetCreditsObservedAt
         self.billing = billing
         self.insightsByAgent = insightsByAgent
-        self.subscriptions = subscriptions.isEmpty ? subscriptionType.map { ["Claude": $0] } ?? [:] : subscriptions
+        self.subscriptions = subscriptions
         self.sourceNotices = sourceNotices
         self.consumerIdsByQuota = consumerIdsByQuota
         self.indexing = indexing
@@ -127,7 +124,6 @@ public struct UsageReport: Hashable, Codable, Sendable {
         self.sessions = sessions
         self.notice = notice
         self.discoveredAgents = discoveredAgents
-        self.subscriptionType = subscriptionType
         self.consumers = consumers ?? discoveredAgents
         self.usage = usage
     }
