@@ -41,8 +41,8 @@ final class AgentSettingsInteractionTests: XCTestCase {
             .init(id: "kimi", name: "Kimi", detail: "", state: .ready(plan: "Allegretto")),
             .init(id: "glm", name: "GLM", detail: "", state: .notDetected),
         ]
-        store.replace(report: UsageReport(generatedAt: Date(), snapshots: [], sessions: [], activity: .empty,
-            insights: .empty, subscriptions: ["kimi-plan": "Allegretto"], billing: [DemoData.deepSeekBilling(now: Date())], services: [
+        store.replace(report: UsageReport(generatedAt: Date(), snapshots: [], sessions: [],
+            subscriptions: ["kimi-plan": "Allegretto"], billing: [DemoData.deepSeekBilling(now: Date())], services: [
                 .init(client: "OpenCode", provider: "Anthropic", product: .api),
                 .init(client: "OpenCode", provider: "OpenAI", product: .api),
                 .init(client: "OpenCode", provider: "Kimi", product: .plan, accountID: "kimi-plan"),

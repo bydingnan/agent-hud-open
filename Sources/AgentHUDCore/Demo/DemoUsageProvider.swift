@@ -33,8 +33,6 @@ public struct DemoUsageProvider: UsageProvider {
             generatedAt: now,
             snapshots: DemoData.snapshots(now: now),
             sessions: DemoData.sessions(now: now),
-            activity: UsageAnalytics.activityGrid(usage: usage, since: now.addingTimeInterval(-7 * 86400), calendar: .current),
-            insights: DemoData.insights(now: now),
             consumers: consumers,
             usage: usage,
             subscriptions: ["Claude": "max_20x", "Codex": "prolite"],

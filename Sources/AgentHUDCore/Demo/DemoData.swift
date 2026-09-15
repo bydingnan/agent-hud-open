@@ -83,10 +83,7 @@ public enum DemoData {
             weeklyCapHits: 3,
             weeklyWaitTotal: 1 * 3600 + 52 * 60,
             weeklyWaitLongest: 58 * 60,
-            weeklyWaitLongestAt: tuesday,
-            weeklyShare: ["claude-opus": 0.46, "claude-sonnet": 0.24, "chatgpt": 0.18, "codex": 0.12],
-            windowSessionCount: 6,
-            windowUsedPct: 28
+            weeklyWaitLongestAt: tuesday
         )
     }
 }

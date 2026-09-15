@@ -1,7 +1,7 @@
 import Foundation
 
 /// Real data for the Claude rows.
-/// Quota: the Claude Code engine's SDK control protocol (`get_usage`). Sessions/tokens/heatmap: local transcripts.
+/// Quota: the Claude Code engine's SDK control protocol (`get_usage`). Sessions and tokens: local transcripts.
 /// Burn rate and caps: persisted quota samples.
 public struct ClaudeCodeProvider: UsageProvider, LedgerRecording {
     public static let liveThreshold: TimeInterval = 120
@@ -16,7 +16,6 @@ public struct ClaudeCodeProvider: UsageProvider, LedgerRecording {
     private let accountProfileURL: URL?
     /// `ClientHome.key` of the configuration directory, separating unidentified logins of different homes.
     private let home: String
-    private let calendar: Calendar
     private let clock: @Sendable () -> Date
 
     public init(
@@ -25,7 +24,6 @@ public struct ClaudeCodeProvider: UsageProvider, LedgerRecording {
         history: QuotaHistoryStore,
         accountProfileURL: URL? = nil,
         home: String = "",
-        calendar: Calendar = .current,
         clock: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.engine = engine
@@ -33,7 +31,6 @@ public struct ClaudeCodeProvider: UsageProvider, LedgerRecording {
         self.history = history
         self.accountProfileURL = accountProfileURL
         self.home = home
-        self.calendar = calendar
         self.clock = clock
     }
 
@@ -81,7 +78,6 @@ public struct ClaudeCodeProvider: UsageProvider, LedgerRecording {
         let indexed = await transcripts.index(modifiedSince: cutoff)
         let sessions = indexed.sessions
         let indexing = indexed.pending > 0 ? IndexProgress(done: sessions.count, total: sessions.count + indexed.pending) : nil
-        let weekUsage = await transcripts.usage(since: weekAgo)
         let observations: [(modelId: String, seenAt: Date)] = sessions.flatMap { session in
             session.modelsSeen.map { (modelId: $0.key, seenAt: $0.value) }
         }
@@ -175,10 +171,7 @@ public struct ClaudeCodeProvider: UsageProvider, LedgerRecording {
             weeklyCapHits: cap.hits,
             weeklyWaitTotal: cap.totalWait,
             weeklyWaitLongest: cap.longestWait,
-            weeklyWaitLongestAt: cap.longestAt,
-            weeklyShare: UsageAnalytics.weeklyShare(usage: weekUsage),
-            windowSessionCount: sessions.filter { !$0.isSubagent && $0.lastActivityAt >= windowStart }.count,
-            windowUsedPct: utilization
+            weeklyWaitLongestAt: cap.longestAt
         )
 
         var insightsByAgent: [String: UsageInsights] = account == nil ? [:] : [sessionRowId: insights]
@@ -191,9 +184,7 @@ public struct ClaudeCodeProvider: UsageProvider, LedgerRecording {
                 burnRatePctPerHour: rowBurn?.pctPerHour,
                 timeToExhaust: rowBurn?.timeToExhaust(remainingPct: row.window.remainingPct),
                 weeklyCapHits: rowCap.hits, weeklyWaitTotal: rowCap.totalWait,
-                weeklyWaitLongest: rowCap.longestWait, weeklyWaitLongestAt: rowCap.longestAt,
-                weeklyShare: insights.weeklyShare, windowSessionCount: insights.windowSessionCount,
-                windowUsedPct: row.window.utilizationPct
+                weeklyWaitLongest: rowCap.longestWait, weeklyWaitLongestAt: rowCap.longestAt
             )
         }
         let consumerIds = Set(consumers.map(\.id) + listed.map(\.agentId))
@@ -211,8 +202,6 @@ public struct ClaudeCodeProvider: UsageProvider, LedgerRecording {
             generatedAt: now,
             snapshots: snapshots,
             sessions: listed,
-            activity: UsageAnalytics.activityGrid(usage: weekUsage, since: weekAgo, calendar: calendar),
-            insights: insights,
             notice: notice,
             discoveredAgents: discovered,
             subscriptionType: subscription,

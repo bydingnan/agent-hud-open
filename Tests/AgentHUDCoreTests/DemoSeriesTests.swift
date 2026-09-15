@@ -39,7 +39,6 @@ final class DemoUsageProviderTests: XCTestCase {
         XCTAssertEqual(report.snapshots.count, DemoData.agents.count)
         XCTAssertEqual(report.sessions.filter(\.isLive).count, 2)
         XCTAssertEqual(report.snapshot(for: "codex")?.remainingPct, 7)
-        XCTAssertEqual(report.insights.weeklyShare.values.reduce(0, +), 1, accuracy: 1e-9)
     }
 
     func testDifferentRangesProduceDifferentLengths() async throws {

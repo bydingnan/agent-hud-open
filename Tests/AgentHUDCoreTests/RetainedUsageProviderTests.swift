@@ -71,7 +71,7 @@ final class RetainedUsageProviderTests: XCTestCase {
         let id = pool.windowID("weekly")
         let usage = UsageBucket(start: now, agentId: "pi-model", tokensIn: 10, tokensOut: 20)
         let saved = UsageReport(generatedAt: now, snapshots: [.init(agentId: id, remainingPct: 90, updatedAt: now)],
-            sessions: [], activity: .empty, insights: .empty,
+            sessions: [],
             discoveredAgents: [.init(id: id, vendor: "Kimi", model: "7d", source: "Pi", enabled: true, billingPool: pool)],
             consumers: [.init(id: "pi-model", vendor: "Pi", model: "model", source: "local", enabled: true)],
             usage: [usage], subscriptions: [pool.id: "Allegretto"],
@@ -88,9 +88,12 @@ final class RetainedUsageProviderTests: XCTestCase {
         let file = directory.appendingPathComponent("report.json")
         let saved = report(at: now, remaining: 64, balance: 12, credits: 2)
         let current = try XCTUnwrap(String(data: JSONEncoder().encode(saved), encoding: .utf8))
+        let insights = #"{"weeklyCapHits":1,"weeklyWaitTotal":0,"weeklyWaitLongest":0,"weeklyShare":{},"windowSessionCount":2,"windowUsedPct":28}"#
         let earlier = #""history":[{"agentId":"codex","hourStart":0,"remainingStart":90,"remainingEnd":80,"tokens":0}],"#
+            + #""activity":{"tokensByModel":[]},"insights":"# + insights + ","
         try Data(("{" + earlier + current.dropFirst()).utf8).write(to: file)
         XCTAssertEqual(RetainedUsageProvider(provider: SequenceProvider([]), cacheURL: file).initialReport, saved)
+        XCTAssertEqual(try JSONDecoder().decode(UsageInsights.self, from: Data(insights.utf8)).weeklyCapHits, 1)
     }
 
     @MainActor
@@ -114,9 +117,9 @@ final class RetainedUsageProviderTests: XCTestCase {
         let session = LiveSession(id: "pi:old", agentId: agent.id, task: "old task", terminal: nil,
             startedAt: old, pctOfWindow: nil, tokensIn: 10, tokensOut: 2, observedAt: old)
         let previous = UsageReport(generatedAt: old, snapshots: [], sessions: [session],
-            activity: .empty, insights: .empty, consumers: [agent])
+            consumers: [agent])
         let incoming = UsageReport(generatedAt: current, snapshots: [], sessions: [],
-            activity: .empty, insights: .empty, sourceNotices: ["Pi": "local read failed"])
+            sourceNotices: ["Pi": "local read failed"])
         let provider = RetainedUsageProvider(provider: SequenceProvider([previous, incoming]))
         _ = try await provider.fetchUsage(agents: [], historyHours: 24)
         let retained = try await provider.fetchUsage(agents: [], historyHours: 24)
@@ -136,8 +139,7 @@ final class RetainedUsageProviderTests: XCTestCase {
         let descriptor = AgentDescriptor(id: "codex", vendor: "Codex", model: "5h", source: "", enabled: true)
         return UsageReport(generatedAt: date,
             snapshots: remaining.map { [.init(agentId: "codex", remainingPct: $0, resetAt: now.addingTimeInterval(60), updatedAt: date)] } ?? [],
-            sessions: [], activity: UsageAnalytics.activityGrid(usage: [UsageBucket](), since: date, calendar: .current),
-            insights: .empty, discoveredAgents: [descriptor], subscriptions: remaining == nil ? [:] : ["Codex": "Pro"],
+            sessions: [], discoveredAgents: [descriptor], subscriptions: remaining == nil ? [:] : ["Codex": "Pro"],
             sourceNotices: remaining == nil ? ["Codex": "offline"] : [:],
             billing: [.init(vendor: "DeepSeek", balances: balance.map { [.init(currency: "CNY", total: $0, granted: 0, toppedUp: $0)] } ?? [],
                 isAvailable: balance.map { $0 > 0 }, updatedAt: balance == nil ? nil : date, costs: [], notice: nil)],

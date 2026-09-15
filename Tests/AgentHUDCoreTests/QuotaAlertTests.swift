@@ -160,10 +160,9 @@ final class QuotaAlertTests: XCTestCase {
 
     private func report(_ snapshots: [UsageSnapshot], exhaustIn: Double? = nil, notices: [String: String] = [:]) -> UsageReport {
         let insights = UsageInsights(burnRatePctPerHour: nil, timeToExhaust: exhaustIn, weeklyCapHits: 0,
-                                     weeklyWaitTotal: 0, weeklyWaitLongest: 0, weeklyWaitLongestAt: nil,
-                                     weeklyShare: [:], windowSessionCount: 0, windowUsedPct: 0)
+                                     weeklyWaitTotal: 0, weeklyWaitLongest: 0, weeklyWaitLongestAt: nil)
         return UsageReport(generatedAt: snapshots.last?.updatedAt ?? start, snapshots: snapshots, sessions: [],
-                           activity: .empty, insights: .empty, insightsByAgent: [agent.id: insights], sourceNotices: notices)
+                           insightsByAgent: [agent.id: insights], sourceNotices: notices)
     }
 
     private func feed(_ tracker: inout QuotaAlertTracker, remaining: Double, elapsed: Double,

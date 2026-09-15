@@ -155,7 +155,6 @@ actor OpenAgentUsageProvider: UsageProvider, LedgerRecording {
         for result in quotas where result.isActive { activePools[result.credential.pool.provider, default: []].insert(result.credential.pool.id) }
         await record(local, since: since)
         let events = local.sessions.flatMap(\.events)
-        let week = await usage(since: now.addingTimeInterval(-7 * 86400))
         var consumers: [String: AgentDescriptor] = [:]
         for item in local.sessions {
             for event in item.events {
@@ -219,13 +218,11 @@ actor OpenAgentUsageProvider: UsageProvider, LedgerRecording {
                 let caps = UsageAnalytics.capStats(samples: readings, now: now)
                 insights[window.id] = UsageInsights(burnRatePctPerHour: burn?.pctPerHour,
                     timeToExhaust: burn?.timeToExhaust(remainingPct: window.remaining), weeklyCapHits: caps.hits,
-                    weeklyWaitTotal: caps.totalWait, weeklyWaitLongest: caps.longestWait, weeklyWaitLongestAt: caps.longestAt,
-                    weeklyShare: [:], windowSessionCount: 0, windowUsedPct: 100 - window.remaining)
+                    weeklyWaitTotal: caps.totalWait, weeklyWaitLongest: caps.longestWait, weeklyWaitLongestAt: caps.longestAt)
             }
         }
         return UsageReport(generatedAt: now, snapshots: snapshots, sessions: live,
-            activity: UsageAnalytics.activityGrid(usage: week, since: now.addingTimeInterval(-7 * 86400), calendar: .current),
-            insights: .empty, notice: notices.isEmpty ? nil : notices.keys.sorted().map { "\($0): \(notices[$0]!)" }.joined(separator: " · "),
+            notice: notices.isEmpty ? nil : notices.keys.sorted().map { "\($0): \(notices[$0]!)" }.joined(separator: " · "),
             discoveredAgents: descriptors, consumers: consumers.values.sorted { $0.id < $1.id },
             indexing: local.indexing, insightsByAgent: insights, subscriptions: plans, sourceNotices: notices, consumerIdsByQuota: links,
             completions: local.sessions.flatMap(\.completions), turns: local.sessions.flatMap(\.turns), services: services,

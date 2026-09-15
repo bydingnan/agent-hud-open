@@ -63,23 +63,12 @@ public struct CombinedUsageProvider: UsageProvider {
         // The ledger holds every recorded source, including one whose refresh just failed; other providers report periods themselves.
         let usage = ((try? await ledger.buckets(since: min(weekAgo, now.addingTimeInterval(-Double(historyHours) * 3600)))) ?? [])
             + results.filter { !(sources[$0.0].provider is any LedgerRecording) }.flatMap { $0.1?.usage ?? [] }
-        let week = usage.filter { $0.overlaps(DateInterval(start: weekAgo, end: now)) }
-        var totals: [String: Int] = [:]
-        for bucket in week {
-            totals[bucket.agentId, default: 0] += bucket.total
-        }
-        let sum = totals.values.reduce(0, +)
         let progress = reports.compactMap(\.indexing)
         return UsageReport(generatedAt: now, snapshots: Dictionary(grouping: reports.flatMap(\.snapshots), by: \.agentId).values.compactMap { $0.max { $0.updatedAt < $1.updatedAt } }.sorted { $0.agentId < $1.agentId },
                            sessions: reports.flatMap(\.sessions).sorted { a, b in
                                if a.isLive != b.isLive { return a.isLive }
                                return (a.endedAt ?? a.startedAt) > (b.endedAt ?? b.startedAt)
                            },
-                           activity: UsageAnalytics.activityGrid(usage: week, since: weekAgo, calendar: .current),
-                           insights: UsageInsights(burnRatePctPerHour: nil, timeToExhaust: nil, weeklyCapHits: 0,
-                                                  weeklyWaitTotal: 0, weeklyWaitLongest: 0, weeklyWaitLongestAt: nil,
-                                                  weeklyShare: sum > 0 ? totals.mapValues { Double($0) / Double(sum) } : [:],
-                                                  windowSessionCount: reports.reduce(0) { $0 + $1.insights.windowSessionCount }, windowUsedPct: 0),
                            notice: notices.isEmpty ? nil : notices.keys.sorted().map { "\($0): \(notices[$0]!)" }.joined(separator: " · "),
                            discoveredAgents: UsageAggregation.consumersUnion(reports.map(\.discoveredAgents)), consumers: UsageAggregation.consumersUnion(reports.map(\.consumers)),
                            usage: usage.sorted { ($0.start, $0.account ?? "", $0.agentId) < ($1.start, $1.account ?? "", $1.agentId) },

@@ -341,7 +341,7 @@ final class OpenAgentProviderTests: XCTestCase {
         let pool = credential().pool, id = pool.windowID("weekly")
         let agent = AgentDescriptor(id: id, vendor: "Kimi", model: "Weekly", source: "fixture", enabled: true, billingPool: pool)
         func report(remaining: Double, at: Date, client: String, eventID: String) -> UsageReport {
-            .init(generatedAt: at, snapshots: [.init(agentId: id, remainingPct: remaining, updatedAt: at)], sessions: [], activity: .empty, insights: .empty,
+            .init(generatedAt: at, snapshots: [.init(agentId: id, remainingPct: remaining, updatedAt: at)], sessions: [],
                   discoveredAgents: [agent], consumerIdsByQuota: [id: [client]])
         }
         let a = report(remaining: 80, at: now.addingTimeInterval(-1), client: "Pi", eventID: "same")

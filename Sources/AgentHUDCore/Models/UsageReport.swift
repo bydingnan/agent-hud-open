@@ -1,6 +1,6 @@
 import Foundation
 
-/// Aggregates shown on the stats window. A real provider derives these from history; the demo supplies them directly.
+/// Metrics of one quota window, derived from its stored readings: burn rate, forecast and this week's cap hits.
 public struct UsageInsights: Hashable, Codable, Sendable {
     public let burnRatePctPerHour: Double?
     /// Seconds until this quota window is exhausted at its current-cycle average rate.
@@ -9,10 +9,6 @@ public struct UsageInsights: Hashable, Codable, Sendable {
     public let weeklyWaitTotal: TimeInterval
     public let weeklyWaitLongest: TimeInterval
     public let weeklyWaitLongestAt: Date?
-    /// agentId → fraction of this week's consumption (sums to ~1).
-    public let weeklyShare: [String: Double]
-    public let windowSessionCount: Int
-    public let windowUsedPct: Double
 
     public init(
         burnRatePctPerHour: Double?,
@@ -20,10 +16,7 @@ public struct UsageInsights: Hashable, Codable, Sendable {
         weeklyCapHits: Int,
         weeklyWaitTotal: TimeInterval,
         weeklyWaitLongest: TimeInterval,
-        weeklyWaitLongestAt: Date?,
-        weeklyShare: [String: Double],
-        windowSessionCount: Int,
-        windowUsedPct: Double
+        weeklyWaitLongestAt: Date?
     ) {
         self.burnRatePctPerHour = burnRatePctPerHour
         self.timeToExhaust = timeToExhaust
@@ -31,15 +24,7 @@ public struct UsageInsights: Hashable, Codable, Sendable {
         self.weeklyWaitTotal = weeklyWaitTotal
         self.weeklyWaitLongest = weeklyWaitLongest
         self.weeklyWaitLongestAt = weeklyWaitLongestAt
-        self.weeklyShare = weeklyShare
-        self.windowSessionCount = windowSessionCount
-        self.windowUsedPct = windowUsedPct
     }
-
-    public static let empty = UsageInsights(
-        burnRatePctPerHour: nil, timeToExhaust: nil, weeklyCapHits: 0, weeklyWaitTotal: 0,
-        weeklyWaitLongest: 0, weeklyWaitLongestAt: nil, weeklyShare: [:], windowSessionCount: 0, windowUsedPct: 0
-    )
 }
 
 /// Background indexing of local logs: how many sessions are ready out of the total to scan.
@@ -64,8 +49,6 @@ public struct UsageReport: Hashable, Codable, Sendable {
     public let completions: [SessionCompletion]
     /// Explicit current/recent turn observations; archived session activity is not a substitute.
     public let turns: [SessionTurn]
-    public let activity: ActivityGrid
-    public let insights: UsageInsights
     /// Short note for the UI when quota data is missing or degraded ("等待 Claude Code 上报额度").
     public let notice: String?
     /// Agent rows the provider found in local data (e.g. Claude model families); the settings store merges them.
@@ -105,8 +88,6 @@ public struct UsageReport: Hashable, Codable, Sendable {
         generatedAt: Date,
         snapshots: [UsageSnapshot],
         sessions: [LiveSession],
-        activity: ActivityGrid,
-        insights: UsageInsights,
         notice: String? = nil,
         discoveredAgents: [AgentDescriptor] = [],
         subscriptionType: String? = nil,
@@ -144,8 +125,6 @@ public struct UsageReport: Hashable, Codable, Sendable {
         self.generatedAt = generatedAt
         self.snapshots = snapshots
         self.sessions = sessions
-        self.activity = activity
-        self.insights = insights
         self.notice = notice
         self.discoveredAgents = discoveredAgents
         self.subscriptionType = subscriptionType

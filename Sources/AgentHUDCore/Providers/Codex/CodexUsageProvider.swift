@@ -45,7 +45,7 @@ public actor CodexUsageProvider: UsageProvider, LedgerRecording {
     }
 
     public func fetchUsage(agents: [AgentDescriptor], historyHours: Int) async throws -> UsageReport {
-        let now = clock(), calendar = Calendar.current
+        let now = clock()
         let weekAgo = now.addingTimeInterval(-7 * 86400)
         let indexed = await transcripts.index(since: min(weekAgo, now.addingTimeInterval(-Double(historyHours) * 3600)))
         let limits: CodexRateLimits?, failure: String?
@@ -56,7 +56,6 @@ public actor CodexUsageProvider: UsageProvider, LedgerRecording {
         case nil: (limits, failure) = (nil, nil)
         }
         let windows = limits?.rows(home: home) ?? []
-        let week = await transcripts.usage(since: weekAgo)
         let models = Set(indexed.sessions.flatMap(\.transcript.models)).sorted()
         let consumers = models.map { AgentDescriptor(id: "codex-model:\($0)", vendor: "Codex", model: $0,
                                                      source: L10n.sourceCodexAppServer, enabled: true) }
@@ -66,7 +65,6 @@ public actor CodexUsageProvider: UsageProvider, LedgerRecording {
                           weeklyResetAt: row.weekly?.resetAt, updatedAt: fetchedAt)
         }
         var byAgent: [String: UsageInsights] = [:]
-        let sessionCount = indexed.sessions.filter { !$0.transcript.isSubagent }.count
         for (row, snapshot) in zip(windows, snapshots) {
             let samples = await history.samples(agentId: row.id, since: min(weekAgo, snapshot.cycle?.start ?? weekAgo))
             let burn = UsageAnalytics.burnRate(samples: samples, cycle: snapshot.cycle, now: now)
@@ -74,8 +72,7 @@ public actor CodexUsageProvider: UsageProvider, LedgerRecording {
             byAgent[row.id] = UsageInsights(burnRatePctPerHour: burn?.pctPerHour,
                                             timeToExhaust: burn?.timeToExhaust(remainingPct: row.window.remainingPct),
                                             weeklyCapHits: caps.hits, weeklyWaitTotal: caps.totalWait,
-                                            weeklyWaitLongest: caps.longestWait, weeklyWaitLongestAt: caps.longestAt,
-                                            weeklyShare: [:], windowSessionCount: sessionCount, windowUsedPct: row.window.usedPercent)
+                                            weeklyWaitLongest: caps.longestWait, weeklyWaitLongestAt: caps.longestAt)
         }
         let sessions = indexed.sessions.filter { !$0.transcript.isSubagent }.sorted { a, b in
             let al = a.transcript.isLive(now: now, modifiedAt: a.modifiedAt), bl = b.transcript.isLive(now: now, modifiedAt: b.modifiedAt)
@@ -97,11 +94,6 @@ public actor CodexUsageProvider: UsageProvider, LedgerRecording {
         let quotaIds = Set(windows.map(\.id) + agents.filter { $0.vendor == "Codex" }.map(\.id))
         let consumerIdsByQuota = Dictionary(uniqueKeysWithValues: quotaIds.map { ($0, consumerIds) })
         return UsageReport(generatedAt: now, snapshots: snapshots, sessions: sessions,
-                           activity: UsageAnalytics.activityGrid(usage: week, since: weekAgo, calendar: calendar),
-                           insights: UsageInsights(burnRatePctPerHour: nil, timeToExhaust: nil, weeklyCapHits: 0,
-                                                  weeklyWaitTotal: 0, weeklyWaitLongest: 0, weeklyWaitLongestAt: nil,
-                                                  weeklyShare: UsageAnalytics.weeklyShare(usage: week),
-                                                  windowSessionCount: sessionCount, windowUsedPct: 0),
                            notice: notice, discoveredAgents: windows.map(\.descriptor), consumers: consumers,
                            indexing: indexed.indexing, insightsByAgent: byAgent,
                            subscriptions: limits?.plan.map { ["Codex": $0] } ?? [:], sourceNotices: notice.map { ["Codex": $0] } ?? [:],

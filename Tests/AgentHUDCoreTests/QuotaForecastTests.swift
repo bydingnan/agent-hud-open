@@ -92,7 +92,6 @@ final class QuotaForecastTests: XCTestCase {
 
     private func insights(rate: BurnRate, remaining: Double) -> UsageInsights {
         UsageInsights(burnRatePctPerHour: rate.pctPerHour, timeToExhaust: rate.timeToExhaust(remainingPct: remaining),
-                      weeklyCapHits: 0, weeklyWaitTotal: 0, weeklyWaitLongest: 0, weeklyWaitLongestAt: nil,
-                      weeklyShare: [:], windowSessionCount: 0, windowUsedPct: 100 - remaining)
+                      weeklyCapHits: 0, weeklyWaitTotal: 0, weeklyWaitLongest: 0, weeklyWaitLongestAt: nil)
     }
 }

@@ -108,8 +108,7 @@ final class AgentSettingsTests: XCTestCase {
         let now = Date()
         let sources = [SourceStatus(id: "cursor", name: "Cursor", detail: "technical details", state: .installed),
                        SourceStatus(id: "deepseek", name: "DeepSeek", detail: "", state: .notDetected)]
-        let report = UsageReport(generatedAt: now, snapshots: [], sessions: [], activity: .empty,
-            insights: .empty, subscriptions: ["kimi-plan": "Allegretto"], services: [
+        let report = UsageReport(generatedAt: now, snapshots: [], sessions: [], subscriptions: ["kimi-plan": "Allegretto"], services: [
                 .init(client: "OpenCode", provider: "Anthropic", product: .api),
                 .init(client: "OpenCode", provider: "OpenAI", product: .api),
                 .init(client: "OpenCode", provider: "Anthropic", product: .api),
@@ -152,8 +151,7 @@ final class AgentSettingsTests: XCTestCase {
     }
 
     func testServiceDetailsSurviveOldCacheAndFailedReadings() throws {
-        let report = UsageReport(generatedAt: Date(), snapshots: [], sessions: [], activity: .empty,
-            insights: .empty, services: [.init(client: "Pi", provider: "OpenAI", product: .api)])
+        let report = UsageReport(generatedAt: Date(), snapshots: [], sessions: [], services: [.init(client: "Pi", provider: "OpenAI", product: .api)])
         var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(report)) as? [String: Any])
         legacy.removeValue(forKey: "services")
         let empty = try JSONDecoder().decode(UsageReport.self, from: JSONSerialization.data(withJSONObject: legacy))
@@ -330,7 +328,7 @@ final class UsageStoreTests: XCTestCase {
 
         let billing = DemoData.deepSeekBilling(now: Date())
         store.replace(report: UsageReport(generatedAt: Date(), snapshots: [], sessions: [],
-                                         activity: .empty, insights: .empty, billing: [billing]))
+                                         billing: [billing]))
         XCTAssertEqual(store.rowGroups.map(\.vendor), ["Claude"])
         XCTAssertEqual(store.enabledBilling, [billing])
 
@@ -343,7 +341,7 @@ final class UsageStoreTests: XCTestCase {
 
         let unavailable = APIBilling(vendor: "DeepSeek", balances: [], isAvailable: nil, updatedAt: nil, costs: [], notice: "offline")
         store.replace(report: UsageReport(generatedAt: Date(), snapshots: [], sessions: [],
-                                         activity: .empty, insights: .empty, billing: [unavailable]))
+                                         billing: [unavailable]))
         XCTAssertEqual(store.enabledBilling, [unavailable], "a balance error stays in the cost card")
         XCTAssertEqual(store.rows.map(\.id), [claude.id])
     }
@@ -368,7 +366,7 @@ final class UsageStoreTests: XCTestCase {
             UsageBucket(start: hour, agentId: id, tokensIn: tokens, tokensOut: 0)
         }
         store.replace(report: UsageReport(generatedAt: Date(), snapshots: [], sessions: [],
-            activity: .empty, insights: .empty, consumers: DemoData.agents, usage: usage))
+            consumers: DemoData.agents, usage: usage))
 
         func total() -> Int { store.tokenColumns.reduce(0) { $0 + $1.total } }
         XCTAssertEqual(total(), 1200, "quota settings do not exclude token spenders")
@@ -385,7 +383,7 @@ final class UsageStoreTests: XCTestCase {
 
     func testSelectedWindowFallsBackWhenDisabled() {
         let store = makeStore()
-        store.replace(report: UsageReport(generatedAt: Date(), snapshots: [], sessions: [], activity: .empty, insights: .empty))
+        store.replace(report: UsageReport(generatedAt: Date(), snapshots: [], sessions: []))
         store.selectedQuotaId = "codex"
         XCTAssertEqual(store.primaryRow?.id, "codex")
         store.settings.setAgent(id: "codex", enabled: false)
@@ -400,11 +398,10 @@ final class UsageStoreTests: XCTestCase {
         }
         func insights(hours: Double) -> UsageInsights {
             UsageInsights(burnRatePctPerHour: 20 / hours, timeToExhaust: hours * 3600, weeklyCapHits: 0,
-                          weeklyWaitTotal: 0, weeklyWaitLongest: 0, weeklyWaitLongestAt: nil,
-                          weeklyShare: [:], windowSessionCount: 0, windowUsedPct: 80)
+                          weeklyWaitTotal: 0, weeklyWaitLongest: 0, weeklyWaitLongestAt: nil)
         }
-        store.replace(report: UsageReport(generatedAt: now, snapshots: snapshots, sessions: [], activity: .empty,
-            insights: insights(hours: 4), insightsByAgent: ["claude-opus": insights(hours: 1), "codex": insights(hours: 2.5)]))
+        store.replace(report: UsageReport(generatedAt: now, snapshots: snapshots, sessions: [],
+            insightsByAgent: ["claude-opus": insights(hours: 1), "codex": insights(hours: 2.5)]))
         store.selectedQuotaId = "codex"
         XCTAssertEqual(try XCTUnwrap(store.quotaForecastHint(for: "claude-opus")), "耗尽 ~1小时")
         XCTAssertEqual(try XCTUnwrap(store.quotaForecastHint(for: "codex")), "耗尽 ~2小时30分")
@@ -440,7 +437,7 @@ final class UsageStoreTests: XCTestCase {
                         startedAt: now.addingTimeInterval(-60), pctOfWindow: nil, tokensIn: 10, tokensOut: 20)
         }
         store.replace(report: UsageReport(generatedAt: now, snapshots: [], sessions: sessions,
-            activity: .empty, insights: .empty, consumers: consumers,
+            consumers: consumers,
             subscriptions: ["Claude": "max", "Codex": "pro"], consumerIdsByQuota: [
                 "claude-session": [opus.id, sonnet.id], "claude-weekly-opus": [opus.id], "codex-weekly": [codex.id],
             ]))
@@ -479,7 +476,7 @@ final class UsageStoreTests: XCTestCase {
             session("week", startedHoursAgo: 96, endedHoursAgo: 72),
             session("older", startedHoursAgo: 240, endedHoursAgo: 200),
             session("future", startedHoursAgo: -24),
-        ], activity: .empty, insights: .empty))
+        ]))
         XCTAssertEqual(store.statsRange, .hours24)
         XCTAssertEqual(store.statsSessions.map(\.id), ["running", "recent", "today"])
         store.setStatsRange(.hours5)

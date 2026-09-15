@@ -87,13 +87,4 @@ public enum UsageAnalytics {
         }
         return ActivityGrid(tokensByModel: cells)
     }
-
-    /// Share of tokens per agent (sums to 1 when there is any usage).
-    public static func weeklyShare(usage: [UsageBucket]) -> [String: Double] {
-        var totals: [String: Int] = [:]
-        for bucket in usage { totals[bucket.agentId, default: 0] += bucket.total }
-        let sum = totals.values.reduce(0, +)
-        guard sum > 0 else { return [:] }
-        return totals.mapValues { Double($0) / Double(sum) }
-    }
 }

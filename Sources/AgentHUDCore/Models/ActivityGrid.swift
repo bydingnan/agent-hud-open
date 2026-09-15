@@ -1,7 +1,7 @@
 import Foundation
 
 /// 7 × 24 model token counts, rows Monday → Sunday, columns hour 0 → 23.
-public struct ActivityGrid: Hashable, Codable, Sendable {
+public struct ActivityGrid: Hashable, Sendable {
     public let tokensByModel: [[[String: Int]]]
 
     public init(tokensByModel: [[[String: Int]]]) {
@@ -17,6 +17,4 @@ public struct ActivityGrid: Hashable, Codable, Sendable {
         let peak = max(1, tokens.flatMap { $0 }.max() ?? 0)
         return tokens.map { $0.map { Double($0) / Double(peak) } }
     }
-
-    public static let empty = ActivityGrid(tokensByModel: Array(repeating: Array(repeating: [:], count: 24), count: 7))
 }

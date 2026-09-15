@@ -30,10 +30,9 @@ final class IslandHoverTests: XCTestCase {
         }
         func insights(rate: Double, remaining: Double) -> UsageInsights {
             UsageInsights(burnRatePctPerHour: rate, timeToExhaust: BurnRate(pctPerHour: rate).timeToExhaust(remainingPct: remaining),
-                          weeklyCapHits: 0, weeklyWaitTotal: 0, weeklyWaitLongest: 0, weeklyWaitLongestAt: nil,
-                          weeklyShare: [:], windowSessionCount: 0, windowUsedPct: 100 - remaining)
+                          weeklyCapHits: 0, weeklyWaitTotal: 0, weeklyWaitLongest: 0, weeklyWaitLongestAt: nil)
         }
-        store.replace(report: UsageReport(generatedAt: now, snapshots: snapshots, sessions: [], activity: .empty, insights: .empty,
+        store.replace(report: UsageReport(generatedAt: now, snapshots: snapshots, sessions: [],
             insightsByAgent: ["session": insights(rate: 30, remaining: 67), "weekly": insights(rate: 1, remaining: 80)],
             codexResetCredits: DemoData.codexResetCredits(now: now)))
 

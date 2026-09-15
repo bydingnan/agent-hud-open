@@ -121,7 +121,6 @@ actor AdditionalUsageProvider: UsageProvider, LedgerRecording {
         // Account-wide imports are the same on every machine signed into the account, so their totals are kept per account.
         let usageAccount = local.sessions.contains(where: \.accountWide) ? (quota.isSignedIn ? account.id : "provider:" + source.vendor.lowercased()) : nil
         await record(local, account: usageAccount, since: since, now: now)
-        let week = await usage(since: weekAgo)
         let consumers = Set(local.sessions.flatMap(\.events).map(\.model)).sorted().map {
             AgentDescriptor(id: "\(source.rawValue)-model:\($0)", vendor: source.vendor, model: $0,
                             source: L10n.sourceAdditionalUsage, enabled: true)
@@ -149,8 +148,7 @@ actor AdditionalUsageProvider: UsageProvider, LedgerRecording {
             let caps = UsageAnalytics.capStats(samples: readings.filter { $0.timestamp >= weekAgo }, now: now)
             insights[snapshot.agentId] = UsageInsights(burnRatePctPerHour: burn?.pctPerHour,
                 timeToExhaust: burn?.timeToExhaust(remainingPct: snapshot.remainingPct), weeklyCapHits: caps.hits,
-                weeklyWaitTotal: caps.totalWait, weeklyWaitLongest: caps.longestWait, weeklyWaitLongestAt: caps.longestAt,
-                weeklyShare: [:], windowSessionCount: sessions.count, windowUsedPct: 100 - snapshot.remainingPct)
+                weeklyWaitTotal: caps.totalWait, weeklyWaitLongest: caps.longestWait, weeklyWaitLongestAt: caps.longestAt)
         }
         let notice = [quotaNotice, local.notice, hookNotice].compactMap { $0 }.joined(separator: " · ")
         let descriptors = windows.map {
@@ -159,7 +157,6 @@ actor AdditionalUsageProvider: UsageProvider, LedgerRecording {
         let consumerIDs = Set(consumers.map(\.id))
         let quotaIDs = Set(windows.map(\.id) + agents.filter { $0.vendor == source.vendor }.map(\.id))
         return UsageReport(generatedAt: now, snapshots: snapshots, sessions: sessions,
-            activity: UsageAnalytics.activityGrid(usage: week, since: weekAgo, calendar: .current), insights: .empty,
             notice: notice.isEmpty ? nil : notice, discoveredAgents: descriptors, consumers: consumers,
             indexing: local.indexing, insightsByAgent: insights, subscriptions: quota.plan.map { [source.vendor: $0] } ?? [:],
             sourceNotices: notice.isEmpty ? [:] : [source.vendor: notice],

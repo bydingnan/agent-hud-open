@@ -53,7 +53,6 @@ public actor DeepSeekUsageProvider: UsageProvider, LedgerRecording {
         case nil: (balance, balanceAt, balanceNotice) = (nil, nil, nil)
         }
         let installed = DeepSeekLocator.isInstalled(directory: directory)
-        let week = await transcripts.usage(since: weekAgo)
         let models = Set(indexed.sessions.flatMap { [$0.transcript.model] + $0.transcript.models }).sorted()
         let consumers = models.map { AgentDescriptor(id: "deepseek-model:\($0)", vendor: "DeepSeek", model: $0,
                                                      source: L10n.sourceDeepSeekSessions, enabled: true) }
@@ -84,11 +83,6 @@ public actor DeepSeekUsageProvider: UsageProvider, LedgerRecording {
         let billing = APIBilling(vendor: "DeepSeek", balances: balance?.balances ?? [], isAvailable: balance?.isAvailable,
                                  updatedAt: balanceAt, costs: costs.buckets, sessionCosts: sessionCosts, notice: balanceNotice)
         return UsageReport(generatedAt: now, snapshots: [], sessions: sessions,
-                           activity: UsageAnalytics.activityGrid(usage: week, since: weekAgo, calendar: .current),
-                           insights: UsageInsights(burnRatePctPerHour: nil, timeToExhaust: nil, weeklyCapHits: 0,
-                                                  weeklyWaitTotal: 0, weeklyWaitLongest: 0, weeklyWaitLongestAt: nil,
-                                                  weeklyShare: UsageAnalytics.weeklyShare(usage: week),
-                                                  windowSessionCount: sessions.count, windowUsedPct: 0),
                            notice: notice.isEmpty ? nil : notice, discoveredAgents: installed ? discovered : [], consumers: consumers,
                            indexing: indexed.indexing,
                            sourceNotices: notice.isEmpty ? [:] : ["DeepSeek": notice], billing: installed ? [billing] : [],

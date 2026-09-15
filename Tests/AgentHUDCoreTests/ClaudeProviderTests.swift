@@ -457,16 +457,6 @@ final class UsageAnalyticsTests: XCTestCase {
         XCTAssertEqual(UsageAnalytics.capStats(samples: [], now: now), .none)
     }
 
-    func testWeeklyShare() {
-        let usage = [
-            UsageBucket(start: now, agentId: "a", tokensIn: 30, tokensOut: 0),
-            UsageBucket(start: now, agentId: "b", tokensIn: 10, tokensOut: 0),
-        ]
-        let share = UsageAnalytics.weeklyShare(usage: usage)
-        XCTAssertEqual(share["a"] ?? 0, 0.75, accuracy: 1e-9)
-        XCTAssertEqual(share["b"] ?? 0, 0.25, accuracy: 1e-9)
-        XCTAssertEqual(UsageAnalytics.weeklyShare(usage: [UsageBucket]()), [:])
-    }
 }
 
 final class QuotaHistoryStoreTests: XCTestCase {
@@ -607,14 +597,10 @@ final class ClaudeCodeProviderTests: XCTestCase {
             Date(timeIntervalSince1970: (DateParsing.iso8601(iso.format(now.addingTimeInterval(offset)))!.timeIntervalSince1970 / 900).rounded(.down) * 900)
         })
         XCTAssertEqual(Set(opus.map(\.start)), periods, "each response lands in the 15-minute period of its line")
-        XCTAssertEqual(report.insights.windowUsedPct, 28)
-        XCTAssertEqual(report.insights.windowSessionCount, 2)
-        XCTAssertEqual(report.insights.weeklyShare["claude-model:claude-opus-4-5"] ?? 0, 0.75, accuracy: 1e-9)
-        XCTAssertEqual(try XCTUnwrap(report.insights.burnRatePctPerHour), 4, accuracy: 1e-6)
+        XCTAssertEqual(try XCTUnwrap(report.insightsByAgent[account.windowID("claude-session")]?.burnRatePctPerHour), 4, accuracy: 1e-6)
         XCTAssertEqual(try XCTUnwrap(report.insightsByAgent[account.windowID("claude-weekly")]?.burnRatePctPerHour), 39.0 / 120, accuracy: 1e-6,
                        "the weekly forecast includes readings older than the selected 48-hour statistics range")
         XCTAssertEqual(try XCTUnwrap(report.insightsByAgent[account.windowID("claude-weekly-opus")]?.burnRatePctPerHour), 51.0 / 48, accuracy: 1e-6)
-        XCTAssertEqual(report.activity.rows.count, 7)
         _ = try await provider.fetchAccountAndLocalUsage(agents: DefaultAgents.list, historyHours: 48)
         let stored = await history.samples(agentId: account.windowID(ClaudeUsage.sessionRowId), since: .distantPast)
         XCTAssertEqual(stored.count, 2, "each engine observation appends one sample; a poll served from the cache does not")

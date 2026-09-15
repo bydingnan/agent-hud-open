@@ -15,7 +15,7 @@ final class CombinedProviderTests: XCTestCase {
     private func report(_ id: String, tokens: Int) -> UsageReport {
         let bucket = UsageBucket(start: now.addingTimeInterval(-3600), agentId: id, tokensIn: tokens, tokensOut: 0)
         return UsageReport(generatedAt: now, snapshots: [UsageSnapshot(agentId: id, remainingPct: 80, updatedAt: now)],
-                           sessions: [], activity: .empty, insights: .empty, usage: [bucket],
+                           sessions: [], usage: [bucket],
                            consumerIdsByQuota: [id: ["\(id)-model"]])
     }
 
@@ -54,19 +54,24 @@ final class CombinedProviderTests: XCTestCase {
         let combined = try await provider.fetchAccountAndLocalUsage(agents: [], historyHours: 48)
         XCTAssertEqual(combined.snapshots, codex.snapshots)
         XCTAssertEqual(combined.sourceNotices, ["Claude": "signed out"])
-        XCTAssertEqual(combined.insights.weeklyShare["codex"], 1)
+        XCTAssertEqual(combined.usage, codex.usage)
     }
 
+    @MainActor
     func testWeeklyShareCombinesRawTokensAcrossVendors() async throws {
         let provider = CombinedUsageProvider([.init("Claude", Source(report: report("claude", tokens: 100))),
                                               .init("Codex", Source(report: report("codex", tokens: 300)))])
         let combined = try await provider.fetchAccountAndLocalUsage(agents: [], historyHours: 48)
-        XCTAssertEqual(combined.insights.weeklyShare["claude"], 0.25)
-        XCTAssertEqual(combined.insights.weeklyShare["codex"], 0.75)
         XCTAssertEqual(combined.consumerIdsByQuota, ["claude": ["claude-model"], "codex": ["codex-model"]])
-        XCTAssertEqual(combined.activity.rows.flatMap { $0 }.filter { $0 > 0 }, [1])
-        XCTAssertEqual(combined.activity.tokens.flatMap { $0 }.filter { $0 > 0 }, [400], "hover totals include every vendor")
-        XCTAssertEqual(combined.activity.tokensByModel.flatMap { $0 }.filter { !$0.isEmpty }, [["claude": 100, "codex": 300]])
+        let suite = "CombinedProviderTests.\(UUID())", defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = UsageStore(provider: provider, settings: SettingsStore(defaults: defaults))
+        store.replace(report: combined)
+        XCTAssertEqual(store.weeklyTokenShare, ["claude": 0.25, "codex": 0.75])
+        XCTAssertEqual(store.statsActivity.rows.flatMap { $0 }.filter { $0 > 0 }, [1])
+        XCTAssertEqual(store.statsActivity.tokens.flatMap { $0 }.filter { $0 > 0 }, [400], "hover totals include every vendor")
+        XCTAssertEqual(store.statsActivity.tokensByModel.flatMap { $0 }.filter { !$0.isEmpty }, [["claude": 100, "codex": 300]])
+        store.stop()
     }
 
     func testRecordedUsageSurvivesAFailedRefresh() async throws {
