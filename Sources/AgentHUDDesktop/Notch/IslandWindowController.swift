@@ -5,7 +5,7 @@ import SwiftUI
 /// immediately and lets SwiftUI grow the shape out of the notch; closing shrinks the shape first, then the panel.
 @MainActor
 final class IslandWindowController {
-    let panel: NotchPanel
+    let panel: OverlayPanel
     private let hosting: TrackingHostingView
     private var measurement: NSHostingView<AnyView>?
 
@@ -14,7 +14,7 @@ final class IslandWindowController {
     }
 
     init(frame: CGRect, rootView: IslandRootView) {
-        panel = NotchPanel(frame: frame, level: NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1), acceptsMouse: true)
+        panel = OverlayPanel(frame: frame, level: NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1), acceptsMouse: true)
         panel.title = "Agent HUD Island"
         hosting = TrackingHostingView(rootView: rootView)
         hosting.sizingOptions = []

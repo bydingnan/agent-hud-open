@@ -90,7 +90,7 @@ Agent HUD Open is a Swift package with three libraries and one executable. `Agen
 | Collection pipeline and hooks | `Sources/AgentHUDCore/Store/UsageCollector.swift` |
 | Stores and data directory | `Sources/AgentHUDCore/Store/UsageStore.swift`, `SettingsStore.swift`, `QuotaHistoryStore.swift`, `AppSupport.swift` |
 | Application object, launch options, host pages | `Sources/AgentHUDDesktop/App/DesktopApplication.swift`, `LaunchOptions.swift`, `Settings/DesktopSettingsPage.swift` |
-| Island alerts: decision and presentation | `Sources/AgentHUDCore/Logic/IslandEvents.swift`, `QuotaAlerts.swift`; `Sources/AgentHUDDesktop/Notch/NotchController.swift`, `IslandAlert.swift` |
+| Island alerts: decision and presentation | `Sources/AgentHUDCore/Logic/IslandEvents.swift`, `QuotaAlerts.swift`; `Sources/AgentHUDDesktop/Notch/IslandController.swift`, `IslandAlert.swift` |
 | Standalone entry and commands | `Sources/AgentHUDOpenApp/main.swift` |
 | Build, boundary check, CI | `scripts/build-app.sh`, `scripts/check-source-boundaries.py`, `.github/workflows/ci.yml` |
 

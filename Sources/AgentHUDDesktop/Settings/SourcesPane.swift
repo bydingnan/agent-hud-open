@@ -99,7 +99,7 @@ struct AgentSettingsCard: View {
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                         ForEach(group.plans, id: \.self) { plan in
-                            SubscriptionBadge(plan: plan, theme: theme)
+                            PlanBadge(plan: plan, theme: theme)
                         }
                         ForEach(group.accounts) { account in
                             AccountSummary(account: account, theme: theme)
@@ -148,7 +148,7 @@ private struct AccountSummary: View {
     var body: some View {
         HStack(spacing: 6) {
             if let plan = account.planLabel {
-                SubscriptionBadge(plan: plan, theme: theme)
+                PlanBadge(plan: plan, theme: theme)
             }
             Text(account.displayName)
                 .font(.ui(11)).foregroundStyle(account.isCurrent ? theme.secondary : theme.tertiary)

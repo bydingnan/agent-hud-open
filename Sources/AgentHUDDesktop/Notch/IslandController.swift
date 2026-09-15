@@ -3,7 +3,7 @@ import AgentHUDCore
 
 /// Coordinates the glow window, the island window and the hover state machine.
 @MainActor
-final class NotchController {
+final class IslandController {
     static let expandedWidth: CGFloat = 540
     static let defaultPanelHeight: CGFloat = 326
     static let expandedRadius: CGFloat = 26
@@ -12,7 +12,7 @@ final class NotchController {
     static let alertDetailWidth: CGFloat = 400
 
     /// Height of the open panel; follows the content reported by `IslandRootView`.
-    private var panelHeight: CGFloat = NotchController.defaultPanelHeight
+    private var panelHeight: CGFloat = IslandController.defaultPanelHeight
     private var alertDetailHeight: CGFloat = 300
     private var expandedSize: CGSize { CGSize(width: Self.expandedWidth, height: panelHeight) }
 

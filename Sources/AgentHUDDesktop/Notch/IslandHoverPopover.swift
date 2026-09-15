@@ -27,7 +27,7 @@ final class IslandHoverAnchorView<Content: View>: NSView {
     private var pointerLocation: CGPoint?
     private var content: Content
     /// Most rows are never hovered, so the panel and its hosting view wait for the first show.
-    private var popup: (panel: NotchPanel, details: NSHostingView<Content>)?
+    private var popup: (panel: OverlayPanel, details: NSHostingView<Content>)?
 
     init(content: Content) {
         self.content = content
@@ -81,9 +81,9 @@ final class IslandHoverAnchorView<Content: View>: NSView {
         popup.panel.orderFrontRegardless()
     }
 
-    private func makePopup() -> (panel: NotchPanel, details: NSHostingView<Content>) {
+    private func makePopup() -> (panel: OverlayPanel, details: NSHostingView<Content>) {
         let details = NSHostingView(rootView: content)
-        let panel = NotchPanel(frame: .zero, level: .popUpMenu, acceptsMouse: false)
+        let panel = OverlayPanel(frame: .zero, level: .popUpMenu, acceptsMouse: false)
         panel.title = "Island hover details"
         panel.hasShadow = true
         panel.appearance = NSAppearance(named: .darkAqua)

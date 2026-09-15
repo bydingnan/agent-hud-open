@@ -26,8 +26,8 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     var subtitle: String {
         switch self {
         case .general: return L10n.text("设置外观、语言和启动方式。", "Appearance, language and startup preferences.")
-        case .sources: return L10n.text("管理实时状态、订阅与显示窗口。", "Manage live status, subscriptions and visible windows.")
-        case .display: return L10n.text("自定义刘海光晕与面板内容，更改自动生效。", "Customize your notch and panel. Changes apply automatically.")
+        case .sources: return L10n.text("管理实时状态、套餐与显示窗口。", "Manage live status, plans and visible windows.")
+        case .display: return L10n.text("自定义灵动岛光晕与面板内容，更改自动生效。", "Customize your notch and panel. Changes apply automatically.")
         }
     }
 

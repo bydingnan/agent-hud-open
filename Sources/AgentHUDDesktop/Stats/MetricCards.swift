@@ -1,7 +1,7 @@
 import SwiftUI
 import AgentHUDCore
 
-/// One compact metric tile per agent, with each subscription's own window selection.
+/// One compact metric tile per agent, with each plan's own window selection.
 struct MetricCards: View {
     let store: UsageStore
     let theme: Theme

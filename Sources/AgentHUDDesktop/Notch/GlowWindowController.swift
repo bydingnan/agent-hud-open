@@ -6,7 +6,7 @@ import AgentHUDCore
 /// The canvas spans the display height and stays fixed during expansion; only the layers inside move.
 @MainActor
 final class GlowWindowController {
-    let panel: NotchPanel
+    let panel: OverlayPanel
     private let host = NSView()
     let glowLayer = CALayer()
     let shadowLayer = CALayer()
@@ -49,7 +49,7 @@ final class GlowWindowController {
     }
 
     init(geometry: NotchGeometry) {
-        panel = NotchPanel(frame: Self.panelFrame(for: geometry), level: .statusBar, acceptsMouse: false)
+        panel = OverlayPanel(frame: Self.panelFrame(for: geometry), level: .statusBar, acceptsMouse: false)
         panel.setAccessibilityElement(false)
         panel.setAccessibilityHidden(true)
         host.wantsLayer = true

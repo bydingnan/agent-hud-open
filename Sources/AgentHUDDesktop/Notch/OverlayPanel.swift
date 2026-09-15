@@ -1,8 +1,8 @@
 import AppKit
 
-/// Borderless, non-activating overlay used for both the glow and the island.
+/// Borderless, non-activating overlay used for the glow, the island and its hover popups.
 /// Lives above the menu bar on every Space, including full-screen apps, and never takes focus.
-final class NotchPanel: NSPanel {
+final class OverlayPanel: NSPanel {
     init(frame: CGRect, level: NSWindow.Level, acceptsMouse: Bool) {
         super.init(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         self.level = level

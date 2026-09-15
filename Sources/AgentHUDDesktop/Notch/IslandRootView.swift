@@ -20,7 +20,7 @@ struct IslandRootView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     static let expandedTopRadius: CGFloat = NotchGeometry.expandedTopRadius
-    static let expandedBottomRadius: CGFloat = NotchController.expandedRadius
+    static let expandedBottomRadius: CGFloat = IslandController.expandedRadius
 
     static var placeholder: IslandRootView {
         IslandRootView(store: nil, isOpen: false, collapsedSize: CGSize(width: 216, height: 32),
@@ -33,7 +33,7 @@ struct IslandRootView: View {
             let bounds = proxy.size
             let visible = isOpen || alert != nil
             let size = visible ? (presentationSize ?? bounds) : collapsedSize
-            let shape = NotchShape(
+            let shape = IslandShape(
                 topRadius: isOpen ? Self.expandedTopRadius : collapsedTopRadius,
                 bottomRadius: isOpen ? Self.expandedBottomRadius : max(collapsedBottomRadius, alert == nil ? 0 : 14)
             )
@@ -60,7 +60,7 @@ struct IslandRootView: View {
                 .padding(.horizontal, 24)
                 .padding(.top, collapsedSize.height + 16)
                 .padding(.bottom, 22)
-                .frame(width: NotchController.alertDetailWidth)
+                .frame(width: IslandController.alertDetailWidth)
                 .fixedSize(horizontal: false, vertical: true)
                 .background(GeometryReader { proxy in Color.clear.preference(key: PanelHeightKey.self, value: proxy.size.height) })
                 .onPreferenceChange(PanelHeightKey.self, perform: onContentHeight)
@@ -68,7 +68,7 @@ struct IslandRootView: View {
         } else if isOpen, let store {
             HoverPanelView(store: store, onOpenStats: onOpenStats, onOpenSettings: onOpenSettings,
                            alert: alert, onOpenAlert: onOpenAlert)
-                .frame(width: NotchController.expandedWidth, alignment: .top)
+                .frame(width: IslandController.expandedWidth, alignment: .top)
                 .fixedSize(horizontal: false, vertical: true)
                 .onPreferenceChange(PanelHeightKey.self, perform: onContentHeight)
                 .transition(detailTransition)

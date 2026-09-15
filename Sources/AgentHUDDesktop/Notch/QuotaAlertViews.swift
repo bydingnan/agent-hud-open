@@ -17,16 +17,16 @@ struct QuotaAlertCompactView: View {
                     Text(alert.agent.displayVendor)
                         .font(.ui(13, .semibold)).foregroundStyle(.white).lineLimit(1)
                 }
-                .frame(width: NotchController.alertWingWidth, alignment: .leading)
+                .frame(width: IslandController.alertWingWidth, alignment: .leading)
                 Color.clear.frame(width: cameraWidth)
                 HStack(spacing: 7) {
                     QuotaEventSymbol(alert: alert, size: 12)
                     Text(copy.compactTitle)
                         .font(.tabular(12, .medium)).foregroundStyle(.white.opacity(0.92)).lineLimit(1)
                 }
-                .frame(width: NotchController.alertWingWidth, alignment: .trailing)
+                .frame(width: IslandController.alertWingWidth, alignment: .trailing)
             }
-            .padding(.horizontal, NotchController.alertSidePadding)
+            .padding(.horizontal, IslandController.alertSidePadding)
             .frame(height: height)
             .contentShape(Rectangle())
         }
@@ -107,7 +107,7 @@ struct QuotaAlertDetailView: View {
 }
 
 /// An event in the normal panel adds a quiet line, not a nested notification card.
-struct QuotaAlertView: View {
+struct QuotaAlertInlineView: View {
     let alert: QuotaAlert
     let onOpen: () -> Void
 

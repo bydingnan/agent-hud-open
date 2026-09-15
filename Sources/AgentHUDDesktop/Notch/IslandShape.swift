@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// The notch silhouette: top corners flare outward with concave curves (where the notch meets the screen edge),
+/// The island silhouette: top corners flare outward with concave curves (where the notch meets the screen edge),
 /// bottom corners are convex. `rect` includes the flares, so the vertical sides sit `topRadius` in from the edges.
-struct NotchShape: Shape, Animatable {
+struct IslandShape: Shape, Animatable {
     var topRadius: CGFloat
     var bottomRadius: CGFloat
 

@@ -9,7 +9,7 @@ struct GlowPane: View {
     var body: some View {
         let current = settings.settings
         let grid = current.glowStyle != .blur
-        SettingsSection(title: L10n.text("刘海光晕", "Notch glow"), theme: theme) {
+        SettingsSection(title: L10n.text("灵动岛光晕", "Notch glow"), theme: theme) {
             SettingsPreview {
                 Color.clear.frame(height: 112)
                     .overlay(alignment: .top) {
@@ -49,7 +49,7 @@ struct GlowPane: View {
                 SettingsDivider(theme: theme)
                 SettingsToggleRow(
                     label: L10n.text("仅向外扩散", "Outward only"),
-                    subtitle: L10n.text("贴近刘海的边缘更浓，向外逐渐变淡。", "Keep the rim defined and fade gently outward."),
+                    subtitle: L10n.text("贴近灵动岛的边缘更浓，向外逐渐变淡。", "Keep the rim defined and fade gently outward."),
                     isOn: settings.binding(\.glowOutwardOnly)
                 )
             }
@@ -72,7 +72,7 @@ struct GlowPane: View {
         if !grid && effect == .breathe {
             return L10n.text("Agent 运行时自动呼吸，空闲时保持静态光晕。", "The glow breathes while an agent is running, and rests when it is idle.")
         }
-        return density + L10n.text("上方预览会一直播放所选动效；刘海上只在 Agent 运行时播放。", "The preview always plays the selected effect; the notch plays it only while an agent is running.")
+        return density + L10n.text("上方预览会一直播放所选动效；灵动岛上只在 Agent 运行时播放。", "The preview always plays the selected effect; the notch plays it only while an agent is running.")
     }
 
     private func percentBinding(_ keyPath: WritableKeyPath<AgentHUDCore.Settings, Double>) -> Binding<Double> {

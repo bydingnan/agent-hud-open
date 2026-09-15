@@ -42,9 +42,9 @@ final class IslandHoverTests: XCTestCase {
                            collapsedBottomRadius: 12, lightBorder: false, onOpenStats: {})
         }
         let measured = NSHostingView(rootView: HoverPanelView(store: store, onOpenStats: {})
-            .frame(width: NotchController.expandedWidth).fixedSize(horizontal: false, vertical: true))
-        let size = CGSize(width: NotchController.expandedWidth + 2 * NotchGeometry.expandedTopRadius, height: measured.fittingSize.height)
-        let window = NotchPanel(frame: CGRect(origin: CGPoint(x: -20000, y: -20000), size: size), level: .statusBar, acceptsMouse: true)
+            .frame(width: IslandController.expandedWidth).fixedSize(horizontal: false, vertical: true))
+        let size = CGSize(width: IslandController.expandedWidth + 2 * NotchGeometry.expandedTopRadius, height: measured.fittingSize.height)
+        let window = OverlayPanel(frame: CGRect(origin: CGPoint(x: -20000, y: -20000), size: size), level: .statusBar, acceptsMouse: true)
         let hosting = NSHostingView(rootView: root(open: true))
         hosting.sizingOptions = []
         hosting.frame = CGRect(origin: .zero, size: size)

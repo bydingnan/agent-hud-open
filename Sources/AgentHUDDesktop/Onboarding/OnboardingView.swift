@@ -75,7 +75,7 @@ struct SourceRow: View {
                 HStack(spacing: 8) {
                     Text(source.name).font(.ui(13, .semibold))
                     if let plan = source.planLabel {
-                        SubscriptionBadge(plan: plan, theme: theme)
+                        PlanBadge(plan: plan, theme: theme)
                     }
                 }
             }

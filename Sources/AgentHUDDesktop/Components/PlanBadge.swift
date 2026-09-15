@@ -1,7 +1,7 @@
 import SwiftUI
 import AgentHUDCore
 
-struct SubscriptionBadge: View {
+struct PlanBadge: View {
     let plan: String
     let theme: Theme
 
@@ -14,6 +14,6 @@ struct SubscriptionBadge: View {
             .background(theme.inputBackground, in: Capsule())
             .overlay(Capsule().stroke(theme.cardBorder, lineWidth: 1))
             .fixedSize()
-            .accessibilityLabel(L10n.text("订阅", "Subscription") + " " + plan)
+            .accessibilityLabel(L10n.text("套餐", "Plan") + " " + plan)
     }
 }

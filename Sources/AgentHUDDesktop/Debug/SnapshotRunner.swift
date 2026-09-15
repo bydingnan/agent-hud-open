@@ -511,21 +511,21 @@ struct IslandScene: View {
         if showsAlertDetails, let alert {
             let hosting = NSHostingView(rootView: IslandAlertDetailView(alert: alert, onOpen: {})
                 .padding(.horizontal, 24).padding(.top, 54).padding(.bottom, 22)
-                .frame(width: NotchController.alertDetailWidth).fixedSize(horizontal: false, vertical: true))
+                .frame(width: IslandController.alertDetailWidth).fixedSize(horizontal: false, vertical: true))
             return hosting.fittingSize.height
         }
         let hosting = NSHostingView(rootView: HoverPanelView(store: store, onOpenStats: {}, alert: alert)
-            .frame(width: NotchController.expandedWidth).fixedSize(horizontal: false, vertical: true))
+            .frame(width: IslandController.expandedWidth).fixedSize(horizontal: false, vertical: true))
         return max(80, hosting.fittingSize.height)
     }
 
     var body: some View {
         let cameraWidth: CGFloat = alert == nil ? 380 : 216
         let closedHeight: CGFloat = alert == nil ? 44 : 38
-        let islandSize = open ? CGSize(width: showsAlertDetails ? NotchController.alertDetailWidth : NotchController.expandedWidth, height: panelHeight)
-            : alert != nil ? CGSize(width: cameraWidth + 2 * (NotchController.alertWingWidth + NotchController.alertSidePadding), height: closedHeight)
+        let islandSize = open ? CGSize(width: showsAlertDetails ? IslandController.alertDetailWidth : IslandController.expandedWidth, height: panelHeight)
+            : alert != nil ? CGSize(width: cameraWidth + 2 * (IslandController.alertWingWidth + IslandController.alertSidePadding), height: closedHeight)
             : CGSize(width: cameraWidth, height: closedHeight)
-        let radius: CGFloat = open ? NotchController.expandedRadius : 14
+        let radius: CGFloat = open ? IslandController.expandedRadius : 14
         let flare = open ? NotchGeometry.expandedTopRadius : NotchGeometry.collapsedTopRadius
         ZStack(alignment: .top) {
             LinearGradient(

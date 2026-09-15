@@ -17,15 +17,15 @@ struct IslandAlertCompactView: View {
                     HStack(spacing: 8) {
                         AgentLogo(vendor: event.vendor, size: 17)
                         Text(event.vendor).font(.ui(13, .semibold)).lineLimit(1)
-                    }.frame(width: NotchController.alertWingWidth, alignment: .leading)
+                    }.frame(width: IslandController.alertWingWidth, alignment: .leading)
                     Color.clear.frame(width: cameraWidth)
                     HStack(spacing: 7) {
                         CompletionSymbol(eventID: event.id)
                         Text(L10n.text("已完成", "Completed")).font(.ui(12, .medium))
-                    }.frame(width: NotchController.alertWingWidth, alignment: .trailing)
+                    }.frame(width: IslandController.alertWingWidth, alignment: .trailing)
                 }
                 .foregroundStyle(.white)
-                .padding(.horizontal, NotchController.alertSidePadding).frame(height: height)
+                .padding(.horizontal, IslandController.alertSidePadding).frame(height: height)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -78,7 +78,7 @@ struct IslandAlertInlineView: View {
     let onOpen: () -> Void
     var body: some View {
         switch alert {
-        case .quota(let event): QuotaAlertView(alert: event, onOpen: onOpen)
+        case .quota(let event): QuotaAlertInlineView(alert: event, onOpen: onOpen)
         case .completion(let event):
             Button(action: onOpen) {
                 HStack(spacing: 10) {

@@ -17,7 +17,7 @@ final class IslandAnimationTests: XCTestCase {
         settings.update { $0.collapseDelayMs = 5000; $0.showIslandQuota = true; $0.showIslandTokens = false }
         let store = UsageStore(provider: DemoUsageProvider(), settings: settings)
         store.replace(report: DemoUsageProvider.report(agents: settings.agents, historyHours: UsageStore.historyHours, now: Date()))
-        let controller = NotchController(store: store, settings: settings)
+        let controller = IslandController(store: store, settings: settings)
         let window = controller.island.panel
         defer { window.orderOut(nil); controller.glow.panel.orderOut(nil) }
         await settle(0.1)
@@ -39,7 +39,7 @@ final class IslandAnimationTests: XCTestCase {
 
         func measure() -> CGFloat {
             NSHostingView(rootView: HoverPanelView(store: store, onOpenStats: {})
-                .frame(width: NotchController.expandedWidth).fixedSize(horizontal: false, vertical: true)).fittingSize.height.rounded()
+                .frame(width: IslandController.expandedWidth).fixedSize(horizontal: false, vertical: true)).fittingSize.height.rounded()
         }
 
         let expectedHeight = measure()
@@ -85,10 +85,10 @@ final class IslandAnimationTests: XCTestCase {
             let maximum = Settings.glowSizeRange.upperBound
 
             func update(height: CGFloat, animated: Bool) {
-                let island = geometry.expandedFrame(size: CGSize(width: NotchController.expandedWidth, height: height))
+                let island = geometry.expandedFrame(size: CGSize(width: IslandController.expandedWidth, height: height))
                 let glow = GlowGeometry.compute(islandWidth: island.width, islandHeight: island.height,
-                    islandRadius: NotchController.expandedRadius, range: maximum, blur: maximum)
-                controller.update(geometry: geometry, island: island, islandRadius: NotchController.expandedRadius,
+                    islandRadius: IslandController.expandedRadius, range: maximum, blur: maximum)
+                controller.update(geometry: geometry, island: island, islandRadius: IslandController.expandedRadius,
                     glow: glow, outwardOnly: true, appearance: .idle(), animated: animated)
             }
 
@@ -105,7 +105,7 @@ final class IslandAnimationTests: XCTestCase {
 
             update(height: screenHeight - 80, animated: false)
             try checkClipping()
-            update(height: NotchController.defaultPanelHeight, animated: true)
+            update(height: IslandController.defaultPanelHeight, animated: true)
             await settle(0.1)
             try checkClipping()
             update(height: screenHeight - 80, animated: true)

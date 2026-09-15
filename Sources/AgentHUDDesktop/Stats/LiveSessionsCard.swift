@@ -121,7 +121,7 @@ struct SessionRow: View {
                 .foregroundStyle(theme.secondary)
                 .frame(width: 90, alignment: .leading)
             Text(quotaOrCost)
-                .help(L10n.text("订阅显示额度占比；API 显示本会话费用估算", "Subscriptions show quota share; APIs show the estimated session cost"))
+                .help(L10n.text("套餐显示额度占比；API 显示本会话费用估算", "Plans show quota share; APIs show the estimated session cost"))
                 .font(.tabular(10, .semibold))
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)

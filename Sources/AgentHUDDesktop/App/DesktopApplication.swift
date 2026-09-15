@@ -22,7 +22,7 @@ public final class DesktopApplication {
     private let additionalSettingsPages: [DesktopSettingsPage]
     private let onIslandEvents: ((IslandEventTracker.Update, UsageReport, Date) -> Void)?
     private var islandEvents = IslandEventTracker()
-    private var notch: NotchController?
+    private var notch: IslandController?
     private var statusItem: StatusItemController?
     private lazy var settingsWindow = SettingsWindowController(
         settings: settings, store: store, additionalPages: additionalSettingsPages
@@ -53,7 +53,7 @@ public final class DesktopApplication {
 
     public func start() {
         applyAppearance()
-        let notch = NotchController(store: store, settings: settings)
+        let notch = IslandController(store: store, settings: settings)
         notch.onOpenStats = { [weak self] in self?.showStats() }
         notch.onOpenSettings = { [weak self] in self?.showSettings() }
         self.notch = notch
