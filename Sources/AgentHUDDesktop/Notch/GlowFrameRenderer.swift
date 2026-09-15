@@ -48,7 +48,7 @@ final class GlowFrameRenderer {
     /// Cell centres in bitmap points (origin bottom-left), snapped to device pixels.
     private let centers: [CGPoint]
     private let glyphs: GlyphSet?
-    private let brailleDots: [[(bit: Int, dot: GlowMatrix.Cell)]]
+    private let brailleDots: [[GlowMatrix.Cell]]
 
     init(_ key: Key) {
         self.key = key
@@ -80,7 +80,7 @@ final class GlowFrameRenderer {
         }
         glyphs = GlyphSet(style: key.pattern.style, size: pitch, density: key.pattern.density)
         brailleDots = key.pattern.style == .braille
-            ? matrix.cells.map { matrix.brailleDots(of: $0, glow: key.glow, islandRadius: key.islandRadius) }
+            ? matrix.cells.map { matrix.brailleDots(of: $0, glow: key.glow, islandRadius: key.islandRadius).map(\.dot) }
             : []
     }
 
@@ -259,7 +259,7 @@ final class GlowFrameRenderer {
             let alpha = 0.45 + 0.55 * motion.value(cell).squareRoot()
             let bucket = paletteIndex(for: cell, motion) * steps + min(steps - 1, Int(((alpha - 0.45) / 0.55 * Double(steps - 1)).rounded()))
             var path = paths[bucket]
-            for (bit, dot) in brailleDots[index] {
+            for dot in brailleDots[index] {
                 let value = motion.value(dot)
                 guard value >= GlowMatrix.cutoff, 0.1 + 0.9 * value > GlowMotion.ditherThreshold(column: dot.column, row: dot.row) else { continue }
                 let x = (dot.x * scale).rounded() / scale

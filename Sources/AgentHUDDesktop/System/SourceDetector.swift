@@ -2,8 +2,8 @@ import Foundation
 import AgentHUDCore
 
 /// Cheap, prompt-free detection of local agent installs for the first-launch screen.
-public enum SourceDetector {
-    public static func resolve(_ sources: [SourceStatus], report: UsageReport?) -> [SourceStatus] {
+enum SourceDetector {
+    static func resolve(_ sources: [SourceStatus], report: UsageReport?) -> [SourceStatus] {
         guard let report else { return sources }
         return sources.map { source in
             let vendor: String
@@ -33,7 +33,7 @@ public enum SourceDetector {
         }
     }
 
-    public static func detect(fileManager: FileManager = .default) -> [SourceStatus] {
+    static func detect(fileManager: FileManager = .default) -> [SourceStatus] {
         let home = fileManager.homeDirectoryForCurrentUser
         let engine = ClaudeEngineLocator.find(home: home, fileManager: fileManager)
         let claudeReady = engine != nil || fileManager.fileExists(atPath: home.appendingPathComponent(".claude/projects").path)

@@ -119,8 +119,7 @@ final class StatsWindowController: HostedWindowController {
         super.init(
             size: CGSize(width: preferred.width, height: min(preferred.height, visible - 24)),
             title: Self.title,
-            resizable: true,
-            content: StatsView(store: store)
+            resizable: true
         )
         window?.minSize = CGSize(width: StatsWindowLayout.minimumWidth, height: 480)
         setContent(StatsView(store: store, onIdealHeightChange: { [weak self] height in

@@ -12,16 +12,11 @@ final class SettingsWindowController: HostedWindowController {
         if let contentWidth = additionalPages.compactMap(\.preferredContentWidth).max() {
             size.width = max(size.width, contentWidth + SettingsWindowLayout.sidebarWidth + 40)
         }
-        super.init(
-            size: size,
-            title: Self.title,
-            resizable: true,
-            content: SettingsView(settings: settings, store: store, navigation: navigation,
-                                  additionalPages: additionalPages)
-        )
+        super.init(size: size, title: Self.title, resizable: true)
         // Custom controls handle their own drags; only the title bar should move this window.
         window?.isMovableByWindowBackground = false
         window?.minSize = SettingsWindowLayout.minimum
+        setContent(SettingsView(settings: settings, store: store, navigation: navigation, additionalPages: additionalPages))
     }
 
     private static var title: String { AppResources.applicationName + L10n.text(" 设置", " Settings") }

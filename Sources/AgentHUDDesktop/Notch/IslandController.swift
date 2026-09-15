@@ -69,8 +69,6 @@ final class IslandController {
         island.show()
     }
 
-    var isOpen: Bool { machine.isOpen }
-
     /// What the island's frame and glow are computed from. Pause expiry and session liveness read the store's clock,
     /// which ticks every ten seconds, so the values are compared and a tick that changes none of them leaves the island
     /// alone; the panel's countdowns observe the clock themselves.

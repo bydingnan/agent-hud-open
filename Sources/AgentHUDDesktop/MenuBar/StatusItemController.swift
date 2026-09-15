@@ -5,7 +5,6 @@ struct MenuActions {
     var toggleGlow: () -> Void = {}
     var openSettings: () -> Void = {}
     var openStats: () -> Void = {}
-    var additional: [DesktopMenuAction] = []
     var quit: () -> Void = {}
 }
 
@@ -109,11 +108,6 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         ))
         menu.addItem(.separator())
         menu.addItem(action(L10n.text("设置…", "Settings…"), key: ",", modifiers: [.command], selector: #selector(openSettings)))
-        for (index, entry) in actions.additional.enumerated() {
-            let item = action(entry.title(), key: "", modifiers: [], selector: #selector(performAdditional(_:)))
-            item.tag = index
-            menu.addItem(item)
-        }
         menu.addItem(action(L10n.text("退出", "Quit"), key: "q", modifiers: [.command], selector: #selector(quit)))
     }
 
@@ -159,10 +153,6 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         item.view = MenuRowView(title: title, value: shortcut, image: nil,
                                 font: .menuFont(ofSize: 13), minimumWidth: Self.menuWidth)
         return item
-    }
-
-    @objc private func performAdditional(_ sender: NSMenuItem) {
-        actions.additional[sender.tag].action()
     }
 
     // MARK: Selectors

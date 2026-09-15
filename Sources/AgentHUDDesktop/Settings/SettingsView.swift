@@ -118,7 +118,7 @@ struct SettingsView: View {
 
     private var tab: SettingsTab? { SettingsTab(rawValue: navigation.pageID) }
     private var additionalPage: DesktopSettingsPage? { additionalPages.first { $0.id == navigation.pageID } }
-    private var pageTitle: String { tab?.label ?? additionalPage?.heading?() ?? additionalPage?.title() ?? "" }
+    private var pageTitle: String { tab?.label ?? additionalPage?.title() ?? "" }
     private var pageSubtitle: String { tab?.subtitle ?? additionalPage?.subtitle() ?? "" }
 
     @ViewBuilder
@@ -199,20 +199,20 @@ struct SettingsSidebar: View {
 }
 
 /// One titled group for settings content.
-public struct SettingsSection<Content: View>: View {
+struct SettingsSection<Content: View>: View {
     let title: String
     var subtitle: String? = nil
     let theme: Theme
     @ViewBuilder let content: () -> Content
 
-    public init(title: String, subtitle: String? = nil, theme: Theme, @ViewBuilder content: @escaping () -> Content) {
+    init(title: String, subtitle: String? = nil, theme: Theme, @ViewBuilder content: @escaping () -> Content) {
         self.title = title
         self.subtitle = subtitle
         self.theme = theme
         self.content = content
     }
 
-    public var body: some View {
+    var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 5) {
                 Text(title).font(.ui(15, .semibold))

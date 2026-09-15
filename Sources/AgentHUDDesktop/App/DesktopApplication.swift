@@ -1,24 +1,12 @@
 import AppKit
 import AgentHUDCore
 
-@MainActor
-public struct DesktopMenuAction {
-    public var title: () -> String
-    public var action: () -> Void
-
-    public init(title: @escaping () -> String, action: @escaping () -> Void) {
-        self.title = title
-        self.action = action
-    }
-}
-
 /// Owns the local desktop presentation and observes the supplied usage store.
 @MainActor
 public final class DesktopApplication {
     public let settings: SettingsStore
     public let store: UsageStore
     private let options: DesktopLaunchOptions
-    private let additionalMenuActions: [DesktopMenuAction]
     private let additionalSettingsPages: [DesktopSettingsPage]
     private let onIslandEvents: ((IslandEventTracker.Update, UsageReport, Date) -> Void)?
     private var islandEvents = IslandEventTracker()
@@ -33,13 +21,11 @@ public final class DesktopApplication {
     /// `onIslandEvents` receives every island event check after the island has presented it, including checks that
     /// found nothing, with the report and time the check used.
     public init(options: DesktopLaunchOptions, settings: SettingsStore, store: UsageStore,
-                additionalMenuActions: [DesktopMenuAction] = [],
                 additionalSettingsPages: [DesktopSettingsPage] = [],
                 onIslandEvents: ((IslandEventTracker.Update, UsageReport, Date) -> Void)? = nil) {
         self.options = options
         self.settings = settings
         self.store = store
-        self.additionalMenuActions = additionalMenuActions
         self.additionalSettingsPages = additionalSettingsPages
         self.onIslandEvents = onIslandEvents
         onboardingWindow = OnboardingWindowController(settings: settings, store: store,
@@ -62,7 +48,6 @@ public final class DesktopApplication {
             toggleGlow: { [weak self] in self?.toggleGlow() },
             openSettings: { [weak self] in self?.showSettings() },
             openStats: { [weak self] in self?.showStats() },
-            additional: additionalMenuActions,
             quit: { NSApp.terminate(nil) }
         )
         self.statusItem = statusItem

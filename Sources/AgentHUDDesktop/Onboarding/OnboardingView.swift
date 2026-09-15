@@ -99,7 +99,7 @@ final class OnboardingWindowController: HostedWindowController {
         self.settings = settings
         self.store = store
         self.sources = sources
-        super.init(size: CGSize(width: 440, height: 560), title: AppResources.applicationName, fitToContent: true, content: Color.clear)
+        super.init(size: CGSize(width: 440, height: 560), title: AppResources.applicationName)
     }
 
     /// Detection runs each time the window is shown so the list reflects the machine right now.

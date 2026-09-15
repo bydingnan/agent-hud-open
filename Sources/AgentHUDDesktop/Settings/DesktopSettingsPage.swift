@@ -5,7 +5,6 @@ import SwiftUI
 public struct DesktopSettingsPage: Identifiable {
     public let id: String
     public var title: () -> String
-    public var heading: (() -> String)?
     public var subtitle: () -> String
     public var symbol: String
     public var color: Color
@@ -13,13 +12,11 @@ public struct DesktopSettingsPage: Identifiable {
     let content: () -> AnyView
 
     public init<Content: View>(id: String, title: @escaping () -> String,
-                               heading: (() -> String)? = nil,
                                subtitle: @escaping () -> String, symbol: String, color: Color,
                                preferredContentWidth: CGFloat? = nil,
                                @ViewBuilder content: @escaping () -> Content) {
         self.id = id
         self.title = title
-        self.heading = heading
         self.subtitle = subtitle
         self.symbol = symbol
         self.color = color

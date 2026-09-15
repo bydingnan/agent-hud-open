@@ -19,27 +19,25 @@ enum WindowFactory {
     }
 }
 
-/// Hosts one SwiftUI root view in a factory window.
-public class HostedWindowController: NSWindowController, NSWindowDelegate {
-    private let hosting: NSHostingView<AnyView>
+/// Hosts one SwiftUI root view in a factory window. Subclasses pass the view to `setContent` after initialisation, so
+/// it can call back into the controller.
+class HostedWindowController: NSWindowController, NSWindowDelegate {
+    private let hosting = NSHostingView(rootView: AnyView(EmptyView()))
     private let baseSize: CGSize
 
-    public init<Content: View>(size: CGSize, title: String, resizable: Bool = false, fitToContent: Bool = false, content: Content) {
+    init(size: CGSize, title: String, resizable: Bool = false) {
         let window = WindowFactory.make(size: size, title: title, resizable: resizable)
         baseSize = size
-        hosting = NSHostingView(rootView: AnyView(content.ignoresSafeArea()))
         hosting.sizingOptions = []
         hosting.frame = CGRect(origin: .zero, size: window.contentLayoutRect.size)
         hosting.autoresizingMask = [.width, .height]
         window.contentView = hosting
         super.init(window: window)
         window.delegate = self
-        setContent(content, fitToContent: fitToContent)
-        window.center()
     }
 
     @available(*, unavailable)
-    public required init?(coder: NSCoder) {
+    required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported")
     }
 
@@ -55,7 +53,7 @@ public class HostedWindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
-    public func show() {
+    func show() {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         if let window, !window.isVisible { window.center() }
@@ -63,7 +61,7 @@ public class HostedWindowController: NSWindowController, NSWindowDelegate {
         window?.makeKeyAndOrderFront(nil)
     }
 
-    public func windowWillClose(_ notification: Notification) {
+    func windowWillClose(_ notification: Notification) {
         // The closing window is still visible during this callback. Minimized windows
         // remain open and must keep the app available in the Dock and app switcher.
         let hasOtherOpenWindow = NSApp.windows.contains {

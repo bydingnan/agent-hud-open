@@ -45,9 +45,4 @@ struct NotchGeometry: Equatable {
     func expandedFrame(size: CGSize) -> CGRect {
         CGRect(x: centerX - size.width / 2, y: top - size.height, width: size.width, height: size.height)
     }
-
-    /// Expanded island window: content area plus the top flares.
-    func expandedWindowFrame(size: CGSize) -> CGRect {
-        expandedFrame(size: size).insetBy(dx: -Self.expandedTopRadius, dy: 0)
-    }
 }

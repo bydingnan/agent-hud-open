@@ -79,7 +79,7 @@ Continuous integration checks source boundaries, runs unit tests, builds the app
 | `AgentHUDDesktop` | Native menu bar, notch, settings, and statistics UI |
 | `AgentHUDOpen` | Standalone macOS executable |
 
-The libraries can also be consumed through Swift Package Manager. `DesktopApplication(options:settings:store:additionalMenuActions:additionalSettingsPages:)` takes a `SettingsStore` and `UsageStore` plus optional host menu actions and settings pages, and `showSettings(pageID:)` opens one of those pages; the host owns any additional services. See [architecture](docs/architecture.md#host-integration).
+The libraries can also be consumed through Swift Package Manager. `DesktopApplication(options:settings:store:additionalSettingsPages:onIslandEvents:)` takes a `SettingsStore` and `UsageStore` plus optional host settings pages and an alert relay, and `showSettings(pageID:)` opens one of those pages; the host owns any additional services. See [architecture](docs/architecture.md#host-integration).
 
 ## Documentation
 
