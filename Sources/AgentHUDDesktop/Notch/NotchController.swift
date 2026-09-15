@@ -63,16 +63,7 @@ final class NotchController {
                 self?.apply(animated: false)
             }
         })
-        observeChanges({ [weak self] in
-            guard let self else { return }
-            _ = self.store.rows
-            _ = self.store.sessions
-            _ = self.store.pausedUntil
-            _ = self.store.glowHidden
-            _ = self.store.now
-            _ = self.settings.settings
-            _ = self.settings.agents
-        }, onChange: { [weak self] in
+        observeChanges({ [weak self] in self?.inputs }, onChange: { [weak self] in
             self?.apply(animated: true)
         })
 
@@ -81,6 +72,24 @@ final class NotchController {
     }
 
     var isOpen: Bool { machine.isOpen }
+
+    /// What the island's frame and glow are computed from. Pause expiry and session liveness read the store's clock,
+    /// which ticks every ten seconds, so the values are compared and a tick that changes none of them leaves the island
+    /// alone; the panel's countdowns observe the clock themselves.
+    private struct Inputs: Equatable {
+        let rows: [AgentRow]
+        let sessions: [LiveSession]
+        let isPaused: Bool
+        let glowHidden: Bool
+        let appearance: GlowAppearance
+        let settings: AgentHUDCore.Settings
+        let agents: [AgentDescriptor]
+    }
+
+    private var inputs: Inputs {
+        Inputs(rows: store.rows, sessions: store.sessions, isPaused: store.isPaused, glowHidden: store.glowHidden,
+               appearance: store.glowAppearance(light: systemIsLight), settings: settings.settings, agents: settings.agents)
+    }
 
     // MARK: Hover
 
