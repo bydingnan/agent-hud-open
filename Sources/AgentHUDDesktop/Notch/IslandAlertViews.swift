@@ -52,7 +52,7 @@ struct IslandAlertDetailView: View {
                     Spacer()
                     CompletionSymbol(eventID: event.id)
                     Text(L10n.text("本轮已完成", "Turn completed"))
-                        .font(.ui(11)).foregroundStyle(Color(hex: 0x6cd8ac))
+                        .font(.ui(11)).foregroundStyle(Color(IslandAlert.calmAccent))
                 }
                 Text(event.task).font(.ui(15, .medium)).lineLimit(4).fixedSize(horizontal: false, vertical: true)
                 HStack {
@@ -66,7 +66,7 @@ struct IslandAlertDetailView: View {
                     Text(L10n.text("查看会话记录", "View sessions"))
                         .font(.ui(12, .semibold)).foregroundStyle(.black)
                         .frame(maxWidth: .infinity).frame(height: 32)
-                        .background(Color(hex: 0x6cd8ac), in: RoundedRectangle(cornerRadius: 7))
+                        .background(Color(IslandAlert.calmAccent), in: RoundedRectangle(cornerRadius: 7))
                 }.buttonStyle(.plain)
             }.foregroundStyle(.white)
         }
@@ -103,7 +103,7 @@ private struct CompletionSymbol: View {
 
     var body: some View {
         Image(systemName: "checkmark.circle.fill")
-            .font(.system(size: 16, weight: .semibold)).foregroundStyle(Color(hex: 0x6cd8ac))
+            .font(.system(size: 16, weight: .semibold)).foregroundStyle(Color(IslandAlert.calmAccent))
             .symbolEffect(.bounce.byLayer, options: .nonRepeating, value: animationTrigger)
             .symbolEffectsRemoved(reduceMotion)
             .task(id: eventID) {

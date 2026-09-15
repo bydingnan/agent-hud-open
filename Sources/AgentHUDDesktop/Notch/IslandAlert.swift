@@ -21,7 +21,10 @@ enum IslandAlert: Identifiable {
         if case .quota(let event) = self { return event.kind == .exhaustion }
         return false
     }
-    var accent: RGBA { RGBA(hex: isWarning ? 0xe9a16d : 0x6cd8ac) }
+    /// Completed turns and resets share the calm accent; a window running out uses the warm one.
+    var accent: RGBA { isWarning ? Self.warningAccent : Self.calmAccent }
+    static let calmAccent = RGBA(hex: 0x6cd8ac)
+    static let warningAccent = RGBA(hex: 0xe9a16d)
 }
 
 /// Keeps one alert on the island at a time; later alerts wait in arrival order. An alert expires `visibleDuration`

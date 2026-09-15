@@ -164,7 +164,7 @@ private struct QuotaEventSymbol: View {
 
 private struct QuotaAlertCopy {
     let alert: QuotaAlert
-    var accent: Color { Color(hex: alert.kind == .reset ? 0x6cd8ac : 0xe9a16d) }
+    var accent: Color { Color(IslandAlert.quota(alert).accent) }
     var used: String { TokenFormat.percent(max(0, 100 - alert.snapshot.remainingPct)) }
     var remaining: String { TokenFormat.percent(alert.snapshot.remainingPct) }
     var exhaustion: String {
