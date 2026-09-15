@@ -6,7 +6,7 @@ Which client logos the application bundles, where each one came from, how it is 
 
 ## Lobe Icons
 
-Claude, OpenAI (shown as ChatGPT), Antigravity, DeepSeek and Grok come from [Lobe Icons](https://github.com/lobehub/lobe-icons), package `@lobehub/icons-static-png` version `1.97.0`.
+Claude, OpenAI (shown as ChatGPT), Antigravity, DeepSeek, Grok, GitHub Copilot, OpenClaw, Hermes Agent and CodeBuddy come from [Lobe Icons](https://github.com/lobehub/lobe-icons), package `@lobehub/icons-static-png` version `1.97.0`.
 
 | Bundled file | Original file in the package |
 | --- | --- |
@@ -15,12 +15,16 @@ Claude, OpenAI (shown as ChatGPT), Antigravity, DeepSeek and Grok come from [Lob
 | `antigravity.png` | `light/antigravity-color.png` |
 | `deepseek.png` | `light/deepseek-color.png` |
 | `grok.png` | `light/grok.png` |
+| `copilot.png` | `light/githubcopilot.png` |
+| `openclaw.png` | `light/openclaw-color.png` |
+| `hermes.png` | `light/hermesagent.png` |
+| `codebuddy.png` | `light/codebuddy-color.png` |
 
-The PNG files are unchanged (640 × 640); only the names differ: the `-color` suffix is dropped and `openai.png` is stored as `chatgpt.png`. Codex rows reuse the ChatGPT artwork under their own name. Claude, Antigravity and DeepSeek keep their source colors; the OpenAI mark is stored as shipped and tinted green (`#10A37F`) at render time for ChatGPT; Grok's monochrome mark is rendered as a template image, so it follows the foreground color in light and dark appearance. The package's MIT license is bundled as `LobeIcons-LICENSE.txt`.
+The PNG files are unchanged (640 × 640); only the names differ: the `-color` suffix is dropped, and `openai.png`, `githubcopilot.png` and `hermesagent.png` are stored as `chatgpt.png`, `copilot.png` and `hermes.png`. Codex rows reuse the ChatGPT artwork under their own name. Claude, Antigravity, DeepSeek, OpenClaw and CodeBuddy keep their source colors; the OpenAI mark is stored as shipped and tinted green (`#10A37F`) at render time for ChatGPT; the monochrome Grok, GitHub Copilot and Hermes Agent marks are rendered as template images, so they follow the foreground color in light and dark appearance. The package's MIT license is bundled as `LobeIcons-LICENSE.txt`.
 
-## Cursor, OpenCode, Kimi, GLM and Pi
+## Cursor, OpenCode, Kimi, GLM, Pi, ZCode and WorkBuddy
 
-These five use the clients' official artwork instead of SF Symbols.
+These seven use the clients' official artwork instead of SF Symbols.
 
 | Client | Source | Bundled file | Rendering |
 | --- | --- | --- | --- |
@@ -29,12 +33,14 @@ These five use the clients' official artwork instead of SF Symbols.
 | Kimi | [Official branding guide](https://moonshotai.github.io/Branding-Guide/), `scenarios/04-k-only/k-only-color.svg` | `kimi.png` | Monochrome template |
 | GLM | [Z.ai](https://chat.z.ai/) linked [brand icon](https://z-cdn.chatglm.cn/z-ai/static/logo.svg) | `glm.png` | Original artwork |
 | Pi | [Official press kit](https://pi.dev/press-kit), [primary logo](https://pi.dev/logo-auto.svg) | `pi.png` | Monochrome template |
+| ZCode | [Official site](https://zcode.z.ai/en), the Z mark inside the header logo (inline SVG) | `zcode.png` | Monochrome template |
+| WorkBuddy | [Official site](https://www.workbuddy.ai/), its [site icon](https://download.codebuddy.ai/web/workbuddy/35f50f59737cd16a3a0f458d5719ce972b630a2f/assets/logo.svg) | `workbuddy.png` | Original artwork |
 
-The bundled files are 256 × 256 transparent PNG renders of those SVGs. Pi's excess transparent canvas is trimmed before fitting, without changing the mark's geometry. The original SVGs are not distributed in this repository.
+The bundled files are 256 × 256 transparent PNG renders of those SVGs, fitted and centered without changing their proportions. Pi's excess transparent canvas is trimmed before fitting, without changing the mark's geometry. The original SVGs are not distributed in this repository.
 
 ## Rendering rules
 
-Every logo is drawn into a 16 × 16 point image. Grok, Cursor, Kimi and Pi are template images (monochrome, foreground-colored); Claude, ChatGPT (tinted), Antigravity, DeepSeek, GLM and OpenCode are drawn as original images. SwiftUI views and the status-item menu use the same images.
+Every logo is drawn into a 16 × 16 point image. Grok, Cursor, Kimi, Pi, GitHub Copilot, Hermes Agent and ZCode are template images (monochrome, foreground-colored); Claude, ChatGPT (tinted), Antigravity, DeepSeek, GLM, OpenCode, OpenClaw, CodeBuddy and WorkBuddy are drawn as original images. SwiftUI views and the status-item menu use the same images.
 
 ## Licenses and trademarks
 

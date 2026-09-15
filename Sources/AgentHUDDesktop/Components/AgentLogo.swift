@@ -6,7 +6,9 @@ import AgentHUDCore
 enum AgentArtwork {
     private static let images: [String: NSImage] = Dictionary(uniqueKeysWithValues:
         ["Claude": "claude", "ChatGPT": "chatgpt", "Antigravity": "antigravity", "DeepSeek": "deepseek", "Grok": "grok",
-         "Cursor": "cursor", "OpenCode": "opencode", "OpenCode-dark": "opencode-dark", "Kimi": "kimi", "GLM": "glm", "Pi": "pi"].map { vendor, name in
+         "Cursor": "cursor", "OpenCode": "opencode", "OpenCode-dark": "opencode-dark", "Kimi": "kimi", "GLM": "glm", "Pi": "pi",
+         "GitHub Copilot": "copilot", "OpenClaw": "openclaw", "Hermes": "hermes", "ZCode": "zcode", "CodeBuddy": "codebuddy",
+         "WorkBuddy": "workbuddy"].map { vendor, name in
             let artwork = NSImage(contentsOf: AppResources.bundle.url(forResource: name, withExtension: "png")!)!
             let image = NSImage(size: NSSize(width: 16, height: 16), flipped: false) { rect in
                 artwork.draw(in: rect)
@@ -16,7 +18,7 @@ enum AgentArtwork {
                 }
                 return true
             }
-            image.isTemplate = ["Grok", "Cursor", "Kimi", "Pi"].contains(vendor)
+            image.isTemplate = ["Grok", "Cursor", "Kimi", "Pi", "GitHub Copilot", "Hermes", "ZCode"].contains(vendor)
             return (vendor, image)
         }
     )
