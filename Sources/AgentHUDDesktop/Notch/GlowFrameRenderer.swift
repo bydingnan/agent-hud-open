@@ -86,6 +86,16 @@ final class GlowFrameRenderer {
 
     var cellCount: Int { matrix.cells.count }
 
+    /// The still glow of any style. Grid styles draw their cells at rest; the soft style is its blurred bitmap, which
+    /// needs none of the effect field a renderer would prepare.
+    static func resting(_ key: Key) -> GlowImage? {
+        guard key.pattern.usesGrid else {
+            return GlowRenderer.render(glow: key.glow, islandSize: key.islandSize, islandRadius: key.islandRadius,
+                                       outwardOnly: key.outwardOnly, stops: key.stops, scale: key.scale, colorSpace: key.colorSpace)
+        }
+        return GlowFrameRenderer(key).render(time: 0, blend: 0, breathSeconds: 0, breathAmplitude: 0)
+    }
+
     /// - time: seconds since the effect started.
     /// - blend: 0 draws the resting glow and 1 the full effect; values in between ease the effect in or out.
     func render(time: Double, blend: Double, breathSeconds: Double, breathAmplitude: Double) -> GlowImage? {
@@ -500,5 +510,25 @@ final class GlowFrameCache {
         let renderer = GlowFrameRenderer(key)
         current = renderer
         return renderer
+    }
+}
+
+/// Retain only this preview's current bitmap; brightness and breathing are opacity-only updates.
+@MainActor
+final class GlowImageCache {
+    private var cached: (key: GlowFrameRenderer.Key, image: GlowImage)?
+
+    func render(glow: GlowGeometry, islandSize: CGSize, islandRadius: CGFloat,
+                outwardOnly: Bool, stops: [GradientStop], scale: CGFloat,
+                pattern: GlowPattern = GlowPattern()) -> GlowImage? {
+        // The resting bitmap does not depend on which effect plays while agents run.
+        var resting = pattern
+        resting.effect = .breathe
+        let key = GlowFrameRenderer.Key(glow: glow, islandRadius: islandRadius, stops: stops, scale: scale, pattern: resting,
+                                        islandSize: islandSize, outwardOnly: outwardOnly)
+        if let cached, cached.key == key { return cached.image }
+        guard let image = GlowFrameRenderer.resting(key) else { return nil }
+        cached = (key, image)
+        return image
     }
 }

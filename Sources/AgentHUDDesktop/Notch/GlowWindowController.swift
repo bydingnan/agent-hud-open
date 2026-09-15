@@ -12,11 +12,11 @@ final class GlowWindowController {
     private let shadowLayer = CALayer()
     private let alertLayer = CALayer()
     private var lastAlertID: String?
-    private var glowKey = ""
+    private var softKey: SoftKey?
     private var glowPadding: CGFloat = 0
-    private var shadowKey = ""
+    private var shadowKey: ShadowKey?
     private var shadowPadding: CGFloat = 0
-    private var breathKey = ""
+    private var breathKey: BreathKey?
     private var restingKey: GlowFrameRenderer.Key?
     /// The soft glow's resting bitmap, restored when a frame-by-frame effect stops.
     private var softStill: CGImage?
@@ -24,6 +24,29 @@ final class GlowWindowController {
     private lazy var animator = GlowAnimator(host: host, layer: glowLayer)
 
     static let panelWidth: CGFloat = 1000
+
+    /// Inputs of the soft glow bitmap.
+    private struct SoftKey: Hashable {
+        let glow: GlowGeometry
+        let islandSize: CGSize
+        let islandRadius: CGFloat
+        let outwardOnly: Bool
+        let stops: [GradientStop]
+        let scale: CGFloat
+    }
+
+    private struct ShadowKey: Hashable {
+        let size: CGSize
+        let radius: CGFloat
+        let scale: CGFloat
+    }
+
+    private struct BreathKey: Hashable {
+        let pulses: Bool
+        let peakOpacity: Double
+        let troughOpacity: Double
+        let breathSeconds: Double
+    }
 
     init(geometry: NotchGeometry) {
         panel = NotchPanel(frame: Self.panelFrame(for: geometry), level: .statusBar, acceptsMouse: false)
@@ -71,7 +94,7 @@ final class GlowWindowController {
 
         if appearance.hidden {
             animator.stop()
-            glowKey = ""
+            softKey = nil
             restingKey = nil
             if panel.isVisible { panel.orderOut(nil) }
             return
@@ -162,9 +185,9 @@ final class GlowWindowController {
         } else {
             stops = [GradientStop(color: color, location: 0), GradientStop(color: color, location: 1)]
         }
-        guard let rendered = GlowRenderer.render(glow: glow, islandSize: islandSize, islandRadius: radius,
-                                                outwardOnly: outwardOnly, stops: stops, scale: scale,
-                                                pattern: pattern) else { return }
+        guard let rendered = GlowFrameRenderer.resting(.init(glow: glow, islandRadius: radius, stops: stops, scale: scale,
+                                                             pattern: pattern, islandSize: islandSize,
+                                                             outwardOnly: outwardOnly)) else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         alertLayer.contents = rendered.image
@@ -191,7 +214,7 @@ final class GlowWindowController {
                                  pattern: GlowPattern, appearance: GlowAppearance, motion: Bool) {
         let renderer = frames.renderer(for: .init(glow: glow, islandRadius: islandRadius, stops: stops, scale: scale, pattern: pattern,
                                                   colorSpace: panel.screen?.colorSpace?.cgColorSpace))
-        glowKey = ""
+        softKey = nil
         glowPadding = 0
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -255,12 +278,12 @@ final class GlowWindowController {
 
     private func updateGlowImage(glow: GlowGeometry, islandSize: CGSize, islandRadius: CGFloat, outwardOnly: Bool,
                                  stops: [GradientStop], scale: CGFloat) {
-        let key = "\(glow)|\(islandSize)|r\(islandRadius)s\(scale)|outward:\(outwardOnly)|\(GlowGradient.css(stops))"
-        guard key != glowKey else { return }
+        let key = SoftKey(glow: glow, islandSize: islandSize, islandRadius: islandRadius, outwardOnly: outwardOnly, stops: stops, scale: scale)
+        guard key != softKey else { return }
         guard let rendered = GlowRenderer.render(
             glow: glow, islandSize: islandSize, islandRadius: islandRadius, outwardOnly: outwardOnly, stops: stops, scale: scale
         ) else { return }
-        glowKey = key
+        softKey = key
         glowPadding = rendered.padding
         softStill = rendered.image
         CATransaction.begin()
@@ -273,7 +296,7 @@ final class GlowWindowController {
     }
 
     private func updateShadowImage(island: CGRect, radius: CGFloat, scale: CGFloat) {
-        let key = "\(island.width)x\(island.height)r\(radius)s\(scale)"
+        let key = ShadowKey(size: island.size, radius: radius, scale: scale)
         guard key != shadowKey else { return }
         guard let rendered = GlowRenderer.renderShadow(width: island.width, height: island.height, cornerRadius: radius, scale: scale) else { return }
         shadowKey = key
@@ -296,7 +319,8 @@ final class GlowWindowController {
 
     private func applyBreathing(_ appearance: GlowAppearance, pulsesOpacity: Bool) {
         let pulses = appearance.breathing && pulsesOpacity
-        let key = "\(pulses)|\(appearance.peakOpacity)|\(appearance.troughOpacity)|\(appearance.breathSeconds)"
+        let key = BreathKey(pulses: pulses, peakOpacity: appearance.peakOpacity, troughOpacity: appearance.troughOpacity,
+                            breathSeconds: appearance.breathSeconds)
         guard key != breathKey else { return }
         breathKey = key
         glowLayer.removeAnimation(forKey: "breathe")

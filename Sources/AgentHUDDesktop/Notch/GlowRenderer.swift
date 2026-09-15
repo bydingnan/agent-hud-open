@@ -12,44 +12,12 @@ struct GlowImage {
     let size: CGSize
 }
 
-/// Retain only this preview's current bitmap; brightness and breathing are opacity-only updates.
-@MainActor
-final class GlowImageCache {
-    private struct Key: Equatable {
-        let glow: GlowGeometry
-        let islandSize: CGSize
-        let islandRadius: CGFloat
-        let outwardOnly: Bool
-        let stops: [GradientStop]
-        let scale: CGFloat
-        let pattern: GlowPattern
-    }
-
-    private var cached: (key: Key, image: GlowImage)?
-
-    func render(glow: GlowGeometry, islandSize: CGSize, islandRadius: CGFloat,
-                outwardOnly: Bool, stops: [GradientStop], scale: CGFloat,
-                pattern: GlowPattern = GlowPattern()) -> GlowImage? {
-        // The resting bitmap does not depend on which effect plays while agents run.
-        var resting = pattern
-        resting.effect = .breathe
-        let key = Key(glow: glow, islandSize: islandSize, islandRadius: islandRadius,
-                      outwardOnly: outwardOnly, stops: stops, scale: scale, pattern: resting)
-        if let cached, cached.key == key { return cached.image }
-        guard let image = GlowRenderer.render(glow: glow, islandSize: islandSize, islandRadius: islandRadius,
-                                              outwardOnly: outwardOnly, stops: stops, scale: scale,
-                                              pattern: resting) else { return nil }
-        cached = (key, image)
-        return image
-    }
-}
-
+/// Rasterises the soft glow, the panel shadow and bitmaps drawn by others; `GlowFrameRenderer` decides what a style's
+/// frame shows.
 enum GlowRenderer {
     private static let ciContext = CIContext(options: [.useSoftwareRenderer: false])
 
-    /// Keeps colour dense at the island's contour, then fades it out across the glow's range.
-    /// The dot and ASCII styles draw their resting frame instead; they need no blur padding, so the bitmap is
-    /// exactly the glow rect.
+    /// The soft glow: keeps colour dense at the island's contour, then fades it out across the glow's range.
     static func render(
         glow: GlowGeometry,
         islandSize: CGSize,
@@ -57,13 +25,8 @@ enum GlowRenderer {
         outwardOnly: Bool,
         stops: [GradientStop],
         scale: CGFloat,
-        pattern: GlowPattern = GlowPattern(),
         colorSpace: CGColorSpace? = nil
     ) -> GlowImage? {
-        if pattern.usesGrid {
-            return GlowFrameRenderer(.init(glow: glow, islandRadius: islandRadius, stops: stops, scale: scale, pattern: pattern))
-                .render(time: 0, blend: 0, breathSeconds: 0, breathAmplitude: 0)
-        }
         let padding = ceil(max(0, glow.blur) * 3)
         return renderBitmap(width: glow.width, height: glow.height, blur: outwardOnly ? 0 : glow.blur, padding: padding, scale: scale,
                             colorSpace: colorSpace) { rect, context, space in

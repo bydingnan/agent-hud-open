@@ -27,12 +27,9 @@ final class NotchController {
     private var targetWindowFrame: CGRect?
     private var systemIsLight = SystemAppearance.isLight
     private var observers: [Any] = []
-    // Whether the user was already reading the normal panel when this event arrived.
-    private var presentedAlert: (event: IslandAlert, inUsagePanel: Bool)?
-    private var activeAlert: IslandAlert? { presentedAlert?.event }
-    private var showsAlertDetails: Bool { machine.isOpen && presentedAlert?.inUsagePanel == false }
-    private var pendingAlerts: [IslandAlert] = []
-    private var alertDismissTask: Task<Void, Never>?
+    private let alerts = IslandAlertQueue()
+    private var activeAlert: IslandAlert? { alerts.current?.alert }
+    private var showsAlertDetails: Bool { machine.isOpen && alerts.current?.inUsagePanel == false }
     private var pointerInside = false
 
     var onOpenStats: (() -> Void)?
@@ -48,6 +45,7 @@ final class NotchController {
         island.onPointerChange = { [weak self] inside in
             self?.pointer(inside: inside)
         }
+        alerts.onExpire = { [weak self] in self?.dismissAlert() }
         NSLog("[AgentHUD] notch=%@ rect=%@", geometry.hasNotch ? "yes" : "no", NSStringFromRect(geometry.rect))
 
         observers.append(NotificationCenter.default.addObserver(
@@ -95,10 +93,7 @@ final class NotchController {
 
     func pointer(inside: Bool) {
         pointerInside = inside
-        if activeAlert != nil {
-            if inside { alertDismissTask?.cancel() }
-            else { scheduleAlertDismissal() }
-        }
+        alerts.hold(inside)
         let now = Date()
         let event: HoverMachine.Event = inside ? .pointerEntered(at: now) : .pointerExited(at: now)
         transition(machine.reduce(event, config: config))
@@ -117,12 +112,7 @@ final class NotchController {
     func present(_ alert: QuotaAlert) { present(.quota(alert)) }
 
     func present(_ alert: IslandAlert) {
-        guard !store.glowHidden, !store.isPaused else { return }
-        if activeAlert != nil {
-            pendingAlerts.append(alert)
-            return
-        }
-        presentedAlert = (alert, presentedAlert?.inUsagePanel ?? machine.isOpen)
+        guard !store.glowHidden, !store.isPaused, alerts.show(alert, inUsagePanel: machine.isOpen) else { return }
         // An event owns the brief expansion; a pending hover must not open the full panel underneath it.
         timer?.invalidate()
         timer = nil
@@ -132,23 +122,10 @@ final class NotchController {
         }
         apply(animated: true)
         island.show()
-        scheduleAlertDismissal()
-    }
-
-    private func scheduleAlertDismissal() {
-        alertDismissTask?.cancel()
-        guard !pointerInside else { return }
-        alertDismissTask = Task { [weak self] in
-            do { try await Task.sleep(for: .seconds(4)) } catch { return }
-            self?.dismissAlert()
-        }
     }
 
     private func dismissAlert() {
-        alertDismissTask?.cancel()
-        presentedAlert = nil
-        if !pendingAlerts.isEmpty {
-            let next = pendingAlerts.removeFirst()
+        if let next = alerts.dismiss() {
             present(next)
         } else {
             if !pointerInside { machine = HoverMachine() }

@@ -85,9 +85,9 @@ final class DisplayPerformanceTests: XCTestCase {
         for style in GlowStyle.allCases where style != .blur {
             let settings = Settings().with { $0.glowStyle = style }
             let glow = settings.glowGeometry(islandWidth: island.width, islandHeight: island.height, islandRadius: 13)
-            let rendered = try XCTUnwrap(GlowRenderer.render(glow: glow, islandSize: island, islandRadius: 13, outwardOnly: true,
-                                                             stops: GlowGradient.stops(levels: [.ok, .critical]), scale: 2,
-                                                             pattern: settings.glowPattern()))
+            let rendered = try XCTUnwrap(GlowFrameRenderer.resting(.init(glow: glow, islandRadius: 13,
+                                                                         stops: GlowGradient.stops(levels: [.ok, .critical]), scale: 2,
+                                                                         pattern: settings.glowPattern())))
             XCTAssertEqual(rendered.size, CGSize(width: glow.width, height: glow.height))
             let centerX = Int(glow.width), centerY = Int(island.height)
             XCTAssertEqual(try alpha(in: rendered.image, x: centerX, y: centerY), 0, "\(style): nothing is drawn over the island")
