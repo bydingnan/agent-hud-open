@@ -3,6 +3,7 @@ import SwiftUI
 
 /// Standard windows with a transparent title bar so the SwiftUI content owns the whole surface
 /// (traffic lights stay native and sit over our sidebar/header, as in the design).
+@MainActor
 enum WindowFactory {
     static func make(size: CGSize, title: String, resizable: Bool = false) -> NSWindow {
         var mask: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .fullSizeContentView]

@@ -120,6 +120,7 @@ final class IslandHoverTests: XCTestCase {
         XCTAssertFalse(popup.isVisible || popup.parent != nil, "Leaving a row must dismiss its popup")
     }
 
+    @MainActor
     private func event(_ type: NSEvent.EventType, window: NSWindow, at point: CGPoint = .zero) throws -> NSEvent {
         try XCTUnwrap(NSEvent.enterExitEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                                              windowNumber: window.windowNumber, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil))

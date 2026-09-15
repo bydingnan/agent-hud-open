@@ -20,7 +20,7 @@ struct AgentOrderRow: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            Toggle(L10n.text("显示", "Show") + " " + agent.displayName, isOn: Binding(get: { agent.enabled }, set: onToggle))
+            Toggle(L10n.text("显示", "Show") + " " + agent.displayName, isOn: Binding(get: { agent.enabled }, set: { onToggle($0) }))
                 .labelsHidden().toggleStyle(.switch).controlSize(.small)
                 .accessibilityIdentifier("agent-display-\(agent.id)")
         }

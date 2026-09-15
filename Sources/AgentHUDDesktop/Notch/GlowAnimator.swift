@@ -112,6 +112,8 @@ final class GlowAnimator {
 }
 
 /// The display link retains its target; this relay holds the animator weakly so invalidating breaks the loop.
+/// The link runs on the main run loop.
+@MainActor
 private final class DisplayLinkTarget: NSObject {
     private let handler: @MainActor () -> Void
 
@@ -120,6 +122,6 @@ private final class DisplayLinkTarget: NSObject {
     }
 
     @objc func fire(_ link: CADisplayLink) {
-        MainActor.assumeIsolated { handler() }
+        handler()
     }
 }

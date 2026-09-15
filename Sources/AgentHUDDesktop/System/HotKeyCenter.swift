@@ -2,6 +2,7 @@ import Carbon.HIToolbox
 import Foundation
 
 /// Global hot keys via Carbon `RegisterEventHotKey` (works without Accessibility permission).
+@MainActor
 final class HotKeyCenter {
     static let shared = HotKeyCenter()
 
@@ -39,7 +40,9 @@ final class HotKeyCenter {
                 event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
                 nil, MemoryLayout<EventHotKeyID>.size, nil, &hotKeyID
             )
-            HotKeyCenter.shared.dispatch(id: hotKeyID.id)
+            let id = hotKeyID.id
+            // Carbon delivers application-target events on the main thread.
+            MainActor.assumeIsolated { HotKeyCenter.shared.dispatch(id: id) }
             return noErr
         }, 1, &spec, nil, nil)
     }

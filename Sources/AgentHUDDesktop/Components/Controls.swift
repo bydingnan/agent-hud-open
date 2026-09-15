@@ -97,6 +97,7 @@ struct SelectionMenu<Value: Hashable>: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
+    @MainActor
     final class Coordinator: NSObject {
         var parent: SelectionMenu
         init(_ parent: SelectionMenu) { self.parent = parent }
