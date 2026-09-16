@@ -2,16 +2,16 @@
 
 ## Overview
 
-Which clients expose running and terminal turns, what evidence each provider accepts, and how completion hooks work. Usage records and running turns are separate observations: a token counter or a recent file modification never establishes that a whole agent turn is running or complete, and a quota response or a single model response never ends a turn.
+Which clients expose running and terminal turns, which of them say they are waiting for the user and what the agent last said, what evidence each provider accepts, and how the hooks work. Usage records and running turns are separate observations: a token counter or a recent file modification never establishes that a whole agent turn is running or complete, and a quota response or a single model response never ends a turn.
 
 ## Model
 
-`UsageReport.turns` carries `SessionTurn` observations: provider, session id, turn id, state (`running`, `completed` or `ended`), the source start time when known, and the time of the latest source event — reading a cached transcript does not advance it. `UsageReport.completions` carries `SessionCompletion` records (id = hash of vendor, session and turn; task, model, completion time) parsed from logs or received from hooks. `LiveSession.observedAt` records when the collector last checked desktop activity, including process evidence.
+`UsageReport.turns` carries `SessionTurn` observations: provider, session id, turn id, state (`running`, `waitingForApproval`, `completed` or `ended`), the source start time when known, the time of the latest source event — reading a cached transcript does not advance it — and the agent's last visible message where the client's records carry one. `waitingForApproval` is a running turn the client says is blocked on the user. `UsageReport.completions` carries `SessionCompletion` records (id = hash of vendor, session and turn; task, model, completion time) parsed from logs or received from hooks. `LiveSession.observedAt` records when the collector last checked desktop activity, including process evidence.
 
 | Client | Running turns | Terminal turns | Evidence |
 | --- | --- | --- | --- |
-| Claude Code | Yes | Yes | A prompt line starts the turn; an assistant `stop_reason` of `end_turn` or `stop_sequence` completes it; a `[Request interrupted` user line ends it; `tool_use` keeps it running. `isSidechain` lines, `<synthetic>` messages (API errors) and sub-agent transcripts never start or finish a turn. |
-| Codex Desktop / CLI | Yes | Yes | `task_started` (`turn_id`) starts the turn and later events refresh it; `task_complete` completes it; `turn_aborted` ends it. Guardian and sub-agent rollouts report none. |
+| Claude Code | Yes | Yes | A prompt line starts the turn; an assistant `stop_reason` of `end_turn` or `stop_sequence` completes it; a `[Request interrupted` user line ends it; `tool_use` keeps it running. `isSidechain` lines, `<synthetic>` messages (API errors) and sub-agent transcripts never start or finish a turn. The turn's message is the latest assistant text block, and its notification hook reports waiting for approval. |
+| Codex Desktop / CLI | Yes | Yes | `task_started` (`turn_id`) starts the turn and later events refresh it; `task_complete` completes it; `turn_aborted` ends it; an `agent_message` is the running turn's message. Guardian and sub-agent rollouts report none. |
 | DeepSeek Harness | Yes | Yes | `turn/start`, streaming and tool events, `turn/end`; only `reason.kind == completed` is a completion, and sub-agent sessions record none. A quiet turn stays active while a Node process that predates it holds the Harness profile. |
 | Grok CLI | Yes | Yes | Session updates keyed by `promptId`; `turn_completed` with `stop_reason` `end_turn` completes, other outcomes end without a completion. Older unified logs carry usage only. |
 | Kimi | Yes | Yes | On the `main` agent the first `step.begin` starts the turn and loop events refresh it; `turn.ended` with `reason == completed` and no `error` completes it; child agents never finish the parent. Older status logs carry usage only. |
@@ -31,7 +31,8 @@ Which clients expose running and terminal turns, what evidence each provider acc
 
 - Every execution client has Settings → Agents → [Agent] → Live status; billing-only services have none. `Settings.liveStatusEnabled(for:)` controls running indicators and completion reminders only: turning it off changes nothing in collection, session history, token statistics or quota windows, and installs or removes no adapter.
 - The switch permits available observations; it never manufactures lifecycle support for a source whose logs only provide usage.
-- A running observation older than 120 s leaves the running indicator and stays in history without an invented end time; a failed read never creates a completion or an artificial end.
+- A running observation older than 120 s leaves the running indicator and stays in history without an invented end time; a failed read never creates a completion or an artificial end. A turn waiting for approval is a running turn: it keeps its start time and leaves the indicator only when its client says so.
+- A turn's message is the agent's visible answer, never reasoning, a tool argument or a tool result. It is read up to 2 KB, kept only while the application runs, and never written to the usage ledger.
 - Process evidence is separate from the last recorded observation: a quiet process does not manufacture a transcript event, and a disappeared process does not prove completion.
 - The island announces each completed turn once, for clients whose Live status is on (`IslandEventTracker`). Completions that happened before the application started are history, not events, and turns that finished while Live status was off are not replayed when it is turned back on.
 - Hosts that relay completions use the island's update rather than deciding again, and apply the same preference in any other relay or synchronization service.
@@ -41,6 +42,18 @@ Which clients expose running and terminal turns, what evidence each provider acc
 - The standalone host installs or updates its extension under the Pi directory (`PI_CODING_AGENT_DIR`, default `~/.pi/agent`) whenever that directory exists; existing Pi processes need one `/reload`, new ones load it automatically. A same-named file that is not Agent HUD's is left alone.
 - The observer writes metadata-only turn snapshots, keeps retries, compaction and queued continuations inside one run until `agent_settled`, and reports a completion only for a successful final response; errors, cancellation and shutdown end activity without claiming success. A run with no shutdown event stops being live 120 s after its last snapshot; snapshots are kept 7 days.
 - Token totals still come only from Pi's message transcripts; installing the observer replays no reminders and creates no usage events.
+
+### Notification hook
+
+A transcript shows that a tool call is pending but not whether the client is running it or asking the user to allow it, so waiting for approval comes from the client's own notification callback. `AttentionHooks` owns the configuration, the callback and the local record.
+
+| Source | Configuration | Reported |
+| --- | --- | --- |
+| Claude Code | Group appended to `hooks.Notification` of `~/.claude/settings.json`; only commands ending in ` --attention-hook claude` are Agent HUD's | `session_id` and the client's `message`, at the callback time |
+
+- The callback only says that the client needs the user; which kind of attention it is comes from the transcript, never from the wording of the message. A turn that is still running is waiting for approval and shows the message; a turn that already finished is waiting for the next prompt, which the transcript already said.
+- A request is answered as soon as the transcript carries a line newer than it. One unanswered request is kept per session, in `attention/<source>/<hashed session id>.json` in the data directory: session id, the client's message up to 2 KB, and the time. Requests are forgotten a day after they were made; a file's own timestamps are never used for that.
+- The handler command is `'<executable path>' --attention-hook <source>` with a 5-second timeout, installed and taken over by the same rules as a completion hook below.
 
 ### Completion hooks
 

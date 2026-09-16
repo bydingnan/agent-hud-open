@@ -82,6 +82,20 @@ if CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--completion-h
     exit(0)
 }
 
+if CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--attention-hook",
+   let source = AttentionHooks.Source(rawValue: CommandLine.arguments[2]) {
+    var data = Data()
+    do {
+        while let chunk = try FileHandle.standardInput.read(upToCount: 64 * 1024), !chunk.isEmpty {
+            data.append(chunk)
+            if data.count > 1024 * 1024 { break }
+        }
+        try AttentionHooks.record(source: source, data: data)
+    } catch { /* Local status tracking must not affect the agent's execution. */ }
+    print("{}")
+    exit(0)
+}
+
 if CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--install-completion-hook",
    let source = CompletionHooks.Source(rawValue: CommandLine.arguments[2]) {
     do {

@@ -5,6 +5,7 @@ public enum ClaudeDataError: Error, Hashable, Sendable, LocalizedError {
     case engineNotFound
     case engineFailed(String)
     case planLimitsUnavailable
+    case signedOut
     case malformedUsage
     case accountChanged
 
@@ -16,6 +17,9 @@ public enum ClaudeDataError: Error, Hashable, Sendable, LocalizedError {
             return L10n.text("Claude Code 引擎查询失败：\(reason)", "Claude Code engine query failed: \(reason)")
         case .planLimitsUnavailable:
             return L10n.text("当前登录方式没有订阅额度（API key 或第三方平台）", "No plan limits for this login (API key or third-party platform)")
+        case .signedOut:
+            return L10n.text("Claude Code 已退出登录，运行 claude 重新登录后恢复额度",
+                             "Claude Code is signed out. Run claude to sign in again and the quota returns")
         case .malformedUsage:
             return L10n.text("Claude Code 引擎返回了无法识别的额度数据", "The Claude Code engine returned unrecognised usage data")
         case .accountChanged:
@@ -104,12 +108,31 @@ public struct ClaudeEngineUsageClient: Sendable {
 
     public static let request = #"{"type":"control_request","request_id":"agent-hud-usage","request":{"subtype":"get_usage"}}"#
 
-    public func fetch() async throws -> ClaudeEngineUsage {
-        try? FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+    private func environment() -> [String: String] {
         var environment = ProcessInfo.processInfo.environment
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         environment["PATH"] = "\(home)/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
         environment["CLAUDE_CODE_ENTRYPOINT"] = "agent-hud"
+        return environment
+    }
+
+    /// Whether the engine has a sign-in of its own. `get_usage` reports no plan limits both for an API-key login and for
+    /// no login at all, and only this tells the two apart; nil when the engine does not answer the question.
+    public func isSignedIn() async -> Bool? {
+        try? FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+        guard let engine = try? ChildProcess(executable, ["auth", "status", "--json"], environment: environment(),
+                                             directory: workingDirectory, stdoutLimit: 64 * 1024) else { return nil }
+        defer { engine.stop() }
+        let deadline = Date().addingTimeInterval(10)
+        var lines: [String] = []
+        while let line = try? await engine.line(before: deadline) { lines.append(line) }
+        let object = (try? JSONSerialization.jsonObject(with: Data(lines.joined().utf8))) as? [String: Any]
+        return object?["loggedIn"] as? Bool
+    }
+
+    public func fetch() async throws -> ClaudeEngineUsage {
+        try? FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+        let environment = environment()
         let engine = try ChildProcess(executable, [
             "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
             "--settings", #"{"disableAllHooks":true}"#,

@@ -1,3 +1,4 @@
+import AgentHUDSupport
 import Foundation
 
 /// Real data for the Claude rows.
@@ -47,7 +48,7 @@ public struct ClaudeCodeProvider: UsageProvider, LedgerRecording {
         )
     }
 
-    public var watchedDirectories: [URL]? { transcripts.roots }
+    public var watchedDirectories: [URL]? { transcripts.roots + [AttentionHooks.directory] }
 
     private func account(for reading: EngineUsageCache.Reading) -> ProviderAccount {
         reading.identity?.account ?? .unresolved(provider: "Claude", home: home)
@@ -99,7 +100,7 @@ public struct ClaudeCodeProvider: UsageProvider, LedgerRecording {
                     // Keep the engine's observation intact. A deadline passing is not a confirmed reset.
                     usage = result.usage.usage
                 } else {
-                    notice = ClaudeDataError.planLimitsUnavailable.errorDescription
+                    notice = (result.signedIn == false ? ClaudeDataError.signedOut : .planLimitsUnavailable).errorDescription
                 }
             }
         } catch is CancellationError {
@@ -211,7 +212,7 @@ public struct ClaudeCodeProvider: UsageProvider, LedgerRecording {
             sourceNotices: notice.map { ["Claude": $0] } ?? [:],
             consumerIdsByQuota: consumerIdsByQuota,
             completions: sessions.flatMap(\.completions),
-            turns: sessions.compactMap(\.turn),
+            turns: Self.awaiting(sessions.compactMap(\.turn), now: now),
             // A login without plan limits has no current subscription account; earlier accounts keep their last readings.
             accounts: reading.map { reading in
                 ["Claude": usage == nil ? [] : [AccountObservation(account: self.account(for: reading), home: home,
@@ -228,6 +229,8 @@ actor EngineUsageCache {
         let usage: ClaudeEngineUsage
         let identity: ClaudeSubscription.Identity?
         let profileData: Data?
+        /// Asked only when there are no plan limits, to say why there are none.
+        var signedIn: Bool?
     }
 
     private var last: (at: Date, result: Result<Reading, any Error>)?
@@ -253,7 +256,9 @@ actor EngineUsageCache {
             let identity = ClaudeSubscription.identity(profileData: after)
             // An API-key or third-party login can leave an old profile behind; only plan limits make it the reading's account.
             guard ClaudeSubscription.identity(profileData: before) == identity else { throw ClaudeDataError.accountChanged }
-            result = .success(Reading(usage: usage, identity: usage.rateLimitsAvailable ? identity : nil, profileData: after))
+            let signedIn = usage.rateLimitsAvailable ? nil : await client.isSignedIn()
+            result = .success(Reading(usage: usage, identity: usage.rateLimitsAvailable ? identity : nil, profileData: after,
+                                      signedIn: signedIn))
         }
         catch {
             try Task.checkCancellation()
@@ -262,5 +267,25 @@ actor EngineUsageCache {
         // Failed attempts use the same interval, so completion polling cannot repeatedly spawn a broken engine.
         last = (now, result)
         return (try result.get(), now, true)
+    }
+}
+
+extension ClaudeCodeProvider {
+    /// A turn Claude Code said it is blocked on. The hook only says it needs the user; a turn that is still running is
+    /// waiting for approval, and one that already finished is simply waiting for the next prompt. A request older than
+    /// the transcript has been answered.
+    static func awaiting(_ turns: [SessionTurn], now: Date) -> [SessionTurn] {
+        awaiting(turns, requests: AttentionHooks.read(source: AttentionHooks.Source.claude, now: now))
+    }
+
+    static func awaiting(_ turns: [SessionTurn], requests: [String: AttentionHooks.Event]) -> [SessionTurn] {
+        guard !requests.isEmpty else { return turns }
+        return turns.map { turn in
+            guard turn.state == .running, let request = requests[turn.sessionID],
+                  RecordCoding.milliseconds(request.at) > turn.observedAtMs else { return turn }
+            return SessionTurn(provider: turn.provider, sessionID: turn.sessionID, turnID: turn.turnID,
+                               state: .waitingForApproval, startedAtMs: turn.startedAtMs,
+                               observedAtMs: RecordCoding.milliseconds(request.at), message: request.message ?? turn.message)
+        }
     }
 }

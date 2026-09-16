@@ -10,6 +10,8 @@ import Foundation
 /// Current builds write `type`, `cwd` and `sessionId` after the message; older builds wrote them first.
 public enum FastTranscriptParser {
     private static let prefixLength = 2048
+    /// How much of an assistant message is kept. Readers truncate further; this only bounds the work of reading it.
+    static let messageLength = 2048
     /// Current builds write `entrypoint`, `cwd`, `sessionId` and `version` after the message, close to the end.
     private static let tailLength = 2048
 
@@ -104,6 +106,9 @@ public enum FastTranscriptParser {
             text = value(after: contentStringKey, in: line, keyIn: head) ?? value(after: contentTextKey, in: line, keyIn: head)
             // Command output, attachments and compaction summaries are user lines flagged after their content.
             isPrompt = find(metaMarker, in: line, backwards: true) == nil
+        } else if role == .assistant {
+            // A visible answer. A thinking or tool-use block is a different type and never matches this key.
+            text = value(after: contentTextKey, in: line, keyIn: head, limit: messageLength)
         }
         let tailStart = max(0, line.count - tailLength)
         let tail = UnsafeRawBufferPointer(rebasing: line[tailStart...])
@@ -158,10 +163,11 @@ public enum FastTranscriptParser {
 
     /// The JSON string value that follows `key` (which ends with the opening quote), unescaped.
     /// - keyIn: where to look for the key (defaults to `line`); the value is read from `line` from that offset.
-    private static func value(after key: [UInt8], in line: UnsafeRawBufferPointer, backwards: Bool = false, keyIn: UnsafeRawBufferPointer? = nil) -> String? {
+    private static func value(after key: [UInt8], in line: UnsafeRawBufferPointer, backwards: Bool = false,
+                              keyIn: UnsafeRawBufferPointer? = nil, limit: Int? = nil) -> String? {
         let haystack = keyIn ?? line
         guard let keyOffset = find(key, in: haystack, backwards: backwards) else { return nil }
-        return string(from: keyOffset + key.count, in: line)
+        return string(from: keyOffset + key.count, in: line, limit: limit)
     }
 
     /// The JSON string after `key` (which ends with the colon), searched backwards; nil when the value is null.
@@ -173,27 +179,40 @@ public enum FastTranscriptParser {
     }
 
     /// The JSON string whose first byte after the opening quote is at `start`, unescaped.
-    private static func string(from start: Int, in line: UnsafeRawBufferPointer) -> String? {
+    /// - limit: stop after this many bytes and return what was read, cut where an escape or a UTF-8 sequence allows;
+    ///   without it the whole value is read, however long it is.
+    private static func string(from start: Int, in line: UnsafeRawBufferPointer, limit: Int? = nil) -> String? {
+        let stop = limit.map { min(line.count, start + $0) } ?? line.count
         var index = start
-        var escaped = false
+        // Bytes still belonging to an escape sequence; a value can only be cut where none are outstanding.
+        var pending = 0
         var sawBackslash = false
-        while index < line.count {
+        var cut = start
+        while index < stop {
             let byte = line[index]
-            if escaped {
-                escaped = false
+            if pending == 0, byte & 0xC0 != 0x80 { cut = index }
+            if pending > 0 {
+                pending -= 1
             } else if byte == UInt8(ascii: "\\") {
-                escaped = true
                 sawBackslash = true
+                // \uXXXX carries four hex digits after the u; every other escape is one byte.
+                pending = index + 1 < stop && line[index + 1] == UInt8(ascii: "u") ? 5 : 1
             } else if byte == UInt8(ascii: "\"") {
                 break
             }
             index += 1
         }
+        if index >= stop, limit != nil, stop < line.count {
+            guard cut > start else { return nil }
+            return decode(UnsafeRawBufferPointer(rebasing: line[start..<cut]), escaped: sawBackslash)
+        }
         guard index < line.count else { return nil }
         let raw = UnsafeRawBufferPointer(rebasing: line[start..<index])
-        if !sawBackslash {
-            return String(decoding: raw, as: UTF8.self)
-        }
+        return decode(raw, escaped: sawBackslash)
+    }
+
+    private static func decode(_ raw: UnsafeRawBufferPointer, escaped: Bool) -> String? {
+        if !escaped { return String(decoding: raw, as: UTF8.self) }
         // Let JSONSerialization handle escapes such as \n, \" and \uXXXX.
         var wrapped = Data("[\"".utf8)
         wrapped.append(contentsOf: raw)

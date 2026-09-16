@@ -39,7 +39,12 @@ public struct CodexTranscript: Codable, Sendable {
         let startedAt: Date?
         var state: SessionTurn.State
         var observedAt: Date
+        /// What the agent said, kept only while the app runs: the ledger stores no conversation text.
+        var message: String?
+        enum CodingKeys: String, CodingKey { case id, startedAt, state, observedAt }
     }
+    /// How much of an agent message is kept; readers truncate it further.
+    static let messageLength = 2048
     private var turns: [Turn]?
     public private(set) var completions: [SessionCompletion]?
     private var totalInput = 0
@@ -130,6 +135,12 @@ public struct CodexTranscript: Codable, Sendable {
                 if task == nil, let text = payload["message"] as? String {
                     task = SessionTitle.from(text)
                 }
+            case "agent_message":
+                // The visible answer of the turn that is running, kept where the turn can carry it.
+                if let text = payload["message"] as? String, let index = turns?.indices.last, turns?[index].state == .running {
+                    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty { turns?[index].message = String(trimmed.prefix(Self.messageLength)) }
+                }
             default: break
             }
         }
@@ -162,7 +173,8 @@ public struct CodexTranscript: Codable, Sendable {
         return (turns ?? []).compactMap { turn in
             guard let turnID = turn.id, !turnID.isEmpty else { return nil }
             return SessionTurn(provider: "codex", sessionID: id, turnID: turnID, state: turn.state,
-                startedAtMs: turn.startedAt.map(RecordCoding.milliseconds), observedAtMs: RecordCoding.milliseconds(turn.observedAt))
+                startedAtMs: turn.startedAt.map(RecordCoding.milliseconds), observedAtMs: RecordCoding.milliseconds(turn.observedAt),
+                message: turn.message)
         }
     }
 

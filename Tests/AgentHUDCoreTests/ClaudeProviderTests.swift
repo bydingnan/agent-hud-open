@@ -309,6 +309,38 @@ final class ClaudeTranscriptTests: XCTestCase {
         XCTAssertEqual(t.build()?.completions, [], "an idle file keeps no completions in the cache")
     }
 
+    func testTheLastVisibleAnswerBecomesTheTurnsMessage() throws {
+        let at = Date(timeIntervalSince1970: 1_800_000_000)
+        let stamp = ISO8601DateFormatter().string(from: at)
+        func line(_ block: String, _ body: String, id: String = "msg_1") -> Data {
+            Data(#"{"type":"assistant","sessionId":"claude-s","cwd":"/p","message":{"id":"\#(id)","role":"assistant","model":"claude-fable-5-1","content":[{"type":"\#(block)","\#(block)":"\#(body)"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}},"timestamp":"\#(stamp)"}"#.utf8)
+        }
+        XCTAssertEqual(FastTranscriptParser.parseLine(line("text", "done"))?.text, "done")
+        XCTAssertNil(FastTranscriptParser.parseLine(line("thinking", "weighing it up"))?.text, "reasoning is not a visible answer")
+
+        // A long answer costs a bounded read and is cut where the escape and the character both allow it.
+        let long = String(repeating: "写完了 \"ok\"\n", count: 400)
+        let escaped = String(decoding: try JSONSerialization.data(withJSONObject: [long]), as: UTF8.self).dropFirst(2).dropLast(2)
+        let cut = try XCTUnwrap(FastTranscriptParser.parseLine(line("text", String(escaped), id: "msg_3"))?.text)
+        XCTAssertLessThanOrEqual(cut.utf8.count, FastTranscriptParser.messageLength)
+        XCTAssertGreaterThan(cut.utf8.count, FastTranscriptParser.messageLength / 2)
+        XCTAssertTrue(long.hasPrefix(cut), "what is kept is the start of the answer, not a re-encoding of it")
+
+        func event(_ offset: Double, role: TranscriptEvent.Role = .assistant, text: String? = nil, stop: String? = nil, id: String? = nil) -> TranscriptEvent {
+            .init(timestamp: at.addingTimeInterval(offset), role: role, model: "claude-test", inputTokens: 0, cacheCreationTokens: 0,
+                  cacheReadTokens: 0, outputTokens: 0, text: text, sessionId: "claude-session", cwd: nil, messageId: id,
+                  stopReason: stop, isPrompt: role == .user && text != nil)
+        }
+        var accumulator = TranscriptAccumulator(path: "/fixture/claude-session.jsonl", isSubagent: false)
+        accumulator.ingest([event(0, role: .user, text: "Build"), event(5, text: "Reading the file", stop: "tool_use")])
+        XCTAssertEqual(accumulator.build()?.turn?.message, "Reading the file")
+        accumulator.ingest([event(10, stop: "end_turn", id: "done")])
+        XCTAssertEqual(accumulator.build()?.turn?.state, .completed)
+        XCTAssertEqual(accumulator.build()?.turn?.message, "Reading the file", "a block without text keeps the answer the turn already gave")
+        accumulator.ingest([event(20, role: .user, text: "Next")])
+        XCTAssertNil(accumulator.build()?.turn?.message, "a new prompt has no answer yet")
+    }
+
     func testClaudePromptToolCompletionAndInterruptionDriveTheTurnState() throws {
         let now: Int64 = 1_800_000_000_000
         let base = Date(timeIntervalSince1970: Double(now) / 1000)

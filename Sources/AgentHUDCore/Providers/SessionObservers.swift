@@ -5,6 +5,10 @@ public enum SessionObservers {
     public static func configure(executable: URL) {
         do { try PiSessionObserver.configureIfAvailable() }
         catch { NSLog("[AgentHUD] Pi observer setup failed: %@", error.localizedDescription) }
+        for source in AttentionHooks.Source.allCases where source.isInstalled() {
+            do { try AttentionHooks.configure(source, enabled: true, executable: executable) }
+            catch { NSLog("[AgentHUD] Notification hook setup failed for %@: %@", source.rawValue, error.localizedDescription) }
+        }
         for source in CompletionHooks.Source.allCases {
             guard AdditionalSource(rawValue: source.rawValue)?.isInstalled() == true else { continue }
             do { try CompletionHooks.configure(source, enabled: true, executable: executable) }

@@ -45,6 +45,25 @@ final class ClaudeEngineTests: XCTestCase {
         XCTAssertNil(parsed.usage.fiveHour)
     }
 
+    func testSignedOutIsToldApartFromALoginWithoutPlanLimits() async throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("agenthud-auth-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: home) }
+        func engine(_ output: String) throws -> ClaudeEngineUsageClient {
+            let url = home.appendingPathComponent("claude-\(UUID().uuidString)")
+            try "#!/bin/sh\ncat <<'JSON'\n\(output)\nJSON\n".write(to: url, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+            return ClaudeEngineUsageClient(executable: url, workingDirectory: home)
+        }
+        let out = await (try engine(#"{"loggedIn": false, "authMethod": "none"}"#)).isSignedIn()
+        XCTAssertEqual(out, false)
+        let signedIn = await (try engine(#"{"loggedIn": true, "authMethod": "claudeai"}"#)).isSignedIn()
+        XCTAssertEqual(signedIn, true)
+        let old = await (try engine("error: unknown command 'auth'")).isSignedIn()
+        XCTAssertNil(old, "an engine that cannot answer says nothing either way")
+        XCTAssertNotEqual(ClaudeDataError.signedOut.errorDescription, ClaudeDataError.planLimitsUnavailable.errorDescription)
+    }
+
     func testLocatorPrefersNewestVersion() throws {
         let home = FileManager.default.temporaryDirectory.appendingPathComponent("agenthud-home-\(UUID().uuidString)", isDirectory: true)
         let versions = home.appendingPathComponent(".local/share/claude/versions", isDirectory: true)

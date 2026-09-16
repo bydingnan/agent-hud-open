@@ -201,6 +201,9 @@ public struct TranscriptAccumulator: Hashable, Sendable, Codable {
         let startedAt: Date?
         var state: SessionTurn.State
         var observedAt: Date
+        /// What the agent said, kept only while the app runs: the ledger stores no conversation text.
+        var message: String?
+        enum CodingKeys: String, CodingKey { case startedAt, state, observedAt }
     }
     private var currentTurn: Turn?
     private var completions: [SessionCompletion]?
@@ -245,7 +248,8 @@ public struct TranscriptAccumulator: Hashable, Sendable, Codable {
                         let duplicate = completions?.contains { $0.id == completionID } == true
                         recordCompletion(event)
                         if !duplicate, event.timestamp >= (currentTurn?.observedAt ?? .distantPast) {
-                            currentTurn = Turn(startedAt: currentTurn?.startedAt, state: .completed, observedAt: event.timestamp)
+                            currentTurn = Turn(startedAt: currentTurn?.startedAt, state: .completed, observedAt: event.timestamp,
+                                               message: currentTurn?.message)
                         }
                     } else if currentTurn == nil {
                         // A partial legacy transcript can show work, but cannot invent a prompt start time.
@@ -254,6 +258,11 @@ public struct TranscriptAccumulator: Hashable, Sendable, Codable {
                 }
                 if currentTurn?.state == .running, event.timestamp > currentTurn!.observedAt {
                     currentTurn?.observedAt = event.timestamp
+                }
+                // The visible answer, taken from whichever block carried it last.
+                if event.role == .assistant, event.model != "<synthetic>",
+                   let text = event.text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty {
+                    currentTurn?.message = text
                 }
             }
             guard event.hasUsage else { continue }
@@ -342,7 +351,8 @@ public struct TranscriptAccumulator: Hashable, Sendable, Codable {
             turn: currentTurn.map { turn in
                 SessionTurn(provider: "claude", sessionID: sessionId ?? fileName,
                     turnID: String(RecordCoding.milliseconds(turn.startedAt ?? turn.observedAt)), state: turn.state,
-                    startedAtMs: turn.startedAt.map(RecordCoding.milliseconds), observedAtMs: RecordCoding.milliseconds(turn.observedAt))
+                    startedAtMs: turn.startedAt.map(RecordCoding.milliseconds), observedAtMs: RecordCoding.milliseconds(turn.observedAt),
+                    message: turn.message)
             }
         )
     }

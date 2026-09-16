@@ -32,10 +32,11 @@ Launch options, read-only probes and adapter commands of the standalone applicat
 | Command | Effect |
 | --- | --- |
 | `--install-pi-observer` | Write or update the Agent HUD extension `extensions/agent-hud.ts` under the Pi directory (`PI_CODING_AGENT_DIR`, default `~/.pi/agent`), then exit. Existing Pi sessions need `/reload` once. A same-named file that is not Agent HUD's is left alone and the command fails. |
+| `--attention-hook claude` | The handler Claude Code invokes for a notification: reads the payload from standard input, records the session's pending request, prints `{}` and exits 0 even when recording fails. |
 | `--install-completion-hook antigravity\|cursor\|copilot\|codebuddy` | Register this executable as the client's stop-hook handler, replacing a handler that belongs to another installation. Other hooks in the client's configuration are preserved. |
 | `--completion-hook antigravity\|cursor\|copilot\|codebuddy` | The handler the clients invoke: reads the hook payload from standard input, stores a completion record when the payload describes a successful stop, prints `{"decision":"stop"}` for Antigravity or `{}` for the others, and exits 0 even when recording fails. It never initializes the interface or queries an account. |
 
-Normal start-up already runs `SessionObservers.configure(executable:)` for installed clients. The install commands exist for a first setup without launching the application and for taking a hook over from another installation ([completion hooks](session-lifecycle.md#completion-hooks)).
+Normal start-up already runs `SessionObservers.configure(executable:)` for installed clients, which also installs Claude Code's notification hook. The install commands exist for a first setup without launching the application and for taking a hook over from another installation ([notification hook](session-lifecycle.md#notification-hook), [completion hooks](session-lifecycle.md#completion-hooks)).
 
 ## Environment
 

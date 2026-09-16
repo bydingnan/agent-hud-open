@@ -95,7 +95,8 @@ struct HoverPanelView: View {
                     let sections = store.accountSections(group.rows)
                     ForEach(sections) { section in
                         if sections.count > 1 || !section.isCurrent, let account = section.account {
-                            AccountSectionHeader(account: account, now: store.now)
+                            AccountSectionHeader(account: account, now: store.now,
+                                                 notice: store.report?.sourceNotices[account.account.provider])
                         }
                         ForEach(section.rows) { row in
                             ModelUsageRow(row: row, now: store.now, showReset: store.settings.settings.showResetCountdown,
@@ -188,25 +189,35 @@ struct HoverPanelView: View {
     }
 }
 
-/// Names the account above its windows once a client has more than one, or when it is no longer signed in.
+/// Names the account above its windows once a client has more than one, or when it is no longer signed in. A client
+/// that said why it has no current reading says it here, where the stale rows are.
 struct AccountSectionHeader: View {
     let account: AccountObservation
     let now: Date
+    var notice: String?
     private let theme = Theme.island
 
     var body: some View {
-        HStack(spacing: 6) {
-            Text(account.displayName)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .foregroundStyle(theme.text.opacity(account.isCurrent ? 0.85 : 0.6))
-            if let plan = account.planLabel {
-                Text(plan).foregroundStyle(theme.secondary)
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                Text(account.displayName)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .foregroundStyle(theme.text.opacity(account.isCurrent ? 0.85 : 0.6))
+                if let plan = account.planLabel {
+                    Text(plan).foregroundStyle(theme.secondary)
+                }
+                Spacer(minLength: 8)
+                Text(account.statusLabel(now: now))
+                    .foregroundStyle(theme.tertiary)
+                    .lineLimit(1)
             }
-            Spacer(minLength: 8)
-            Text(account.statusLabel(now: now))
-                .foregroundStyle(theme.tertiary)
-                .lineLimit(1)
+            if let notice, !account.isCurrent {
+                Text(notice)
+                    .foregroundStyle(theme.statusText(.warning))
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .font(.ui(11))
         .padding(.horizontal, IslandRowLayout.inset)

@@ -26,7 +26,7 @@ Account ids hash the listed user and workspace values; a quota row is `account:<
 
 ## Claude Code
 - **Reads** — `~/.claude/projects/**/*.jsonl` and `~/.config/claude/projects/**/*.jsonl`; `~/.claude.json` (`CLAUDE_CONFIG_DIR` honored) for the Max tier, the account ids and the email label, read before and after each engine query — a login change in between discards that reading.
-- **Credentials & env** — The installed engine's existing sign-in; nothing is read from the keychain. `rate_limits_available == false` (API key or third-party login) keeps local data, makes no account current and shows a notice instead of rows.
+- **Credentials & env** — The installed engine's existing sign-in; nothing is read from the keychain. `rate_limits_available == false` keeps local data, makes no account current and names the reason beside the account: `claude auth status` tells a signed-out engine, which asks for a new sign-in, apart from an API-key or third-party login, which has no plan limits to read.
 - **Endpoints** — A headless `claude -p` with hooks disabled and `CLAUDE_CODE_ENTRYPOINT=agent-hud` answers one `get_usage` control request; no prompt is sent, nothing is billed. `five_hour`, `seven_day` and per-family weekly windows become rows `claude-session`, `claude-weekly` and `claude-weekly-<family>`; `subscription_type` `max` is refined to `max_5x` / `max_20x` from the profile's rate-limit tier.
 - **Counting & dedup** — One event per `message.id` (fallback `requestId`); In = `input_tokens` + `cache_creation_input_tokens`, Cache = `cache_read_input_tokens`; consumers are exact model ids, `<synthetic>` messages are ignored, and sub-agent transcripts (`agent-*.jsonl`, `subagents/`) and `isSidechain` lines never start or finish a turn. The session share is the session's share of the current 5 h window times its utilization; `entrypoint` labels CLI, Desktop, IDE or SDK.
 
@@ -130,7 +130,7 @@ Files in the data directory ([architecture](architecture.md#storage)); none cont
 | --- | --- |
 | `usage-ledger.sqlite` | Per log file the client's parse position and session summary, or the sessions of a file parsed whole; token events grouped by session with their estimated cost; the 15-minute usage and cost totals kept exact as events arrive, change or leave; quota readings per provider |
 | `last-usage-report.json` | The retained report without turns and completions, restored at start; rewritten at most every 5 minutes |
-| `engine/`, `turn-completions/<source>/`, `open-agent-identities.json` | Claude Code engine working directory; the completion-hook inbox; confirmed Kimi identities as hashes |
+| `engine/`, `turn-completions/<source>/`, `attention/<source>/`, `open-agent-identities.json` | Claude Code engine working directory; the completion-hook inbox; the notification-hook inbox, holding each session's pending request and the client's own notification text; confirmed Kimi identities as hashes |
 
 - An appended log is read from where the previous read stopped; a file that shrank or was rewritten is read again and replaces what it recorded.
 - A file missing from its client's listing removes what it recorded, also when its directory is unreadable or gone; a listed file that cannot be read keeps it, as does one the read budget has not reached.
@@ -143,7 +143,7 @@ Files in the data directory ([architecture](architecture.md#storage)); none cont
 
 | Area | Code | Tests (`swift test --filter <ClassName>`; synthetic fixtures, no credentials or network) |
 | --- | --- | --- |
-| Claude Code | `Sources/AgentHUDCore/Providers/Claude/` | `ClaudeEngineTests`, `ISO8601FastTests`, `ClaudeUsageParseTests`, `ClaudeTranscriptTests`, `AccumulatorCompactionTests`, `CooperativeIndexingTests`, `ClaudeCodeProviderTests`, `SubscriptionTests` |
+| Claude Code | `Sources/AgentHUDCore/Providers/Claude/`; the notification hook in `Providers/Shared/AttentionHooks.swift` | `ClaudeEngineTests`, `ISO8601FastTests`, `ClaudeUsageParseTests`, `ClaudeTranscriptTests`, `AccumulatorCompactionTests`, `CooperativeIndexingTests`, `ClaudeCodeProviderTests`, `SubscriptionTests`, `AttentionHookTests` |
 | Codex, DeepSeek | `Sources/AgentHUDCore/Providers/Codex/`, `DeepSeek/` | `CodexProviderTests`, `DeepSeekProviderTests` |
 | Antigravity, Cursor, Grok | `Sources/AgentHUDCore/Providers/Antigravity/`, `Cursor/`, `Grok/`; shared HTTP, SQLite and hooks in `Additional/` | `AdditionalProviderTests`, `CompletionHooksTests` |
 | OpenCode, Kimi, GLM, Pi | `Sources/AgentHUDCore/Providers/OpenAgents/` | `OpenAgentProviderTests`, `KimiQuotaIdentityTests`, `PiSessionObserverTests` |
