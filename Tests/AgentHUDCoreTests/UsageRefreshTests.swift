@@ -123,7 +123,7 @@ final class UsageRefreshTests: XCTestCase, @unchecked Sendable {
         XCTAssertFalse(store.sessions.isEmpty)
     }
 
-    func testPollsWaitForChangesWhileNoTurnRuns() {
+    func testActivityAgesAtTheLiveThresholdAndTurnFreshness() {
         let now = Date(timeIntervalSince1970: 1_800_000_000), ms = Int64(1_800_000_000_000)
         func report(sessions: [LiveSession] = [], turns: [SessionTurn] = []) -> UsageReport {
             UsageReport(generatedAt: now, snapshots: [], sessions: sessions, turns: turns)
@@ -135,10 +135,10 @@ final class UsageRefreshTests: XCTestCase, @unchecked Sendable {
                                    endedAt: now.addingTimeInterval(-300), pctOfWindow: nil, tokensIn: 1, tokensOut: 1)
         let running = LiveSession(id: "s", agentId: "codex-model:gpt", task: "Task", terminal: nil, startedAt: now.addingTimeInterval(-600),
                                   pctOfWindow: nil, tokensIn: 1, tokensOut: 1, observedAt: now)
-        XCTAssertFalse(report(sessions: [finished], turns: [turn(.completed, observedAgo: 30)]).hasActiveWork(at: now))
-        XCTAssertTrue(report(sessions: [running]).hasActiveWork(at: now))
-        XCTAssertTrue(report(turns: [turn(.running, observedAgo: 60)]).hasActiveWork(at: now), "a quiet tool call keeps polling")
-        XCTAssertFalse(report(turns: [turn(.running, observedAgo: 600)]).hasActiveWork(at: now), "an abandoned turn stops polling")
+        XCTAssertEqual(report(sessions: [finished], turns: [turn(.completed, observedAgo: 30)]).activityChecks, [], "finished work never ages")
+        XCTAssertEqual(report(sessions: [running]).activityChecks, [now.addingTimeInterval(121)])
+        XCTAssertEqual(report(turns: [turn(.running, observedAgo: 60)]).activityChecks,
+                       [now.addingTimeInterval(61), now.addingTimeInterval(241)], "a quiet tool call is checked when it leaves the indicator and when it goes stale")
     }
 
     func testWatchedDirectoryReportsEachChangeOnce() async throws {

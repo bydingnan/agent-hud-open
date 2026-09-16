@@ -27,11 +27,26 @@ public struct AgentRow: Hashable, Sendable, Identifiable {
 }
 
 extension UsageReport {
-    /// A live session or a recently observed running turn keeps local polls going; otherwise polls wait for a change.
-    func hasActiveWork(at date: Date) -> Bool {
-        let now = RecordCoding.milliseconds(date), freshness = Int64(UsageRefresh.activeTurnFreshness * 1000)
-        return sessions.contains(where: \.isLive) || turns.contains { $0.state == .running && now - $0.observedAtMs < freshness }
+    /// The times at which this report's activity changes with time alone: when a live session or a running turn reaches
+    /// the age at which it no longer counts as current. A source is read again at these times instead of being polled.
+    var activityChecks: [Date] {
+        let margin: TimeInterval = 1
+        var times = sessions.filter(\.isLive).map { $0.observedAt.addingTimeInterval(UsageRefresh.liveThreshold + margin) }
+        for turn in turns where turn.state == .running {
+            let observed = RecordCoding.date(turn.observedAtMs)
+            times.append(observed.addingTimeInterval(UsageRefresh.liveThreshold + margin))
+            times.append(observed.addingTimeInterval(UsageRefresh.activeTurnFreshness + margin))
+        }
+        return times
     }
+}
+
+/// Keeps a change handler registered with `UsageStore.observeChanges(_:)`; releasing it unregisters the handler.
+public final class UsageChangeObservation {
+    private var cancellation: (() -> Void)?
+    init(_ cancellation: @escaping () -> Void) { self.cancellation = cancellation }
+    public func cancel() { cancellation?(); cancellation = nil }
+    deinit { cancellation?() }
 }
 
 /// Rows of one account inside a vendor group.
@@ -66,6 +81,7 @@ public final class UsageStore {
     private var clockTask: Task<Void, Never>?
     /// A later poll that found nothing changed extends the report's coverage.
     var checkedAt: Date?
+    @ObservationIgnored private var changeObservers: [UUID: @MainActor (UsageChanges) -> Void] = [:]
 
     /// `hooks` let a host choose the history window, publish each provider report and merge it into the displayed report.
     public init(provider: any UsageProvider, settings: SettingsStore, accessAllowed: @escaping () -> Bool = { true },
@@ -86,7 +102,9 @@ public final class UsageStore {
         clockTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(10))
-                self?.now = Date()
+                guard let self else { return }
+                self.now = Date()
+                self.collector.confirmQuiet(at: self.now)
             }
         }
     }
@@ -110,18 +128,44 @@ public final class UsageStore {
 
     /// Installs a report directly (snapshots, tests) without going through the provider.
     public func replace(report: UsageReport) {
-        self.report = report
+        show(report)
         collector.forgetLocalReport()
         checkedAt = nil
         lastError = nil
         now = Date()
     }
 
+    /// Calls `handler` with what each newly displayed report changed, until the returned observation is released or cancelled.
+    public func observeChanges(_ handler: @escaping @MainActor (UsageChanges) -> Void) -> UsageChangeObservation {
+        let id = UUID()
+        changeObservers[id] = handler
+        return UsageChangeObservation { [weak self] in
+            // An observation can be released off the main thread; the handler is then removed on it.
+            guard Thread.isMainThread else {
+                Task { @MainActor [weak self] in _ = self?.changeObservers.removeValue(forKey: id) }
+                return
+            }
+            MainActor.assumeIsolated { _ = self?.changeObservers.removeValue(forKey: id) }
+        }
+    }
+
     /// A pass's merged report replaces the displayed one.
     func collected(_ report: UsageReport) {
-        self.report = report
+        show(report)
         checkedAt = nil
         lastError = nil
+    }
+
+    /// A merge run again on the provider's last report.
+    func merged(_ report: UsageReport) {
+        show(report)
+    }
+
+    private func show(_ report: UsageReport) {
+        let changes = UsageChanges(from: self.report, to: report)
+        self.report = report
+        guard !changes.isEmpty else { return }
+        for handler in changeObservers.values { handler(changes) }
     }
 
     public func pause(for interval: TimeInterval) {

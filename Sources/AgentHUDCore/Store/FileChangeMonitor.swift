@@ -14,20 +14,28 @@ final class FileChangeMonitor {
         }
         static let pathLimit = 10_000
         let state = OSAllocatedUnfairLock(initialState: State())
+        /// Called on the monitor's queue after every batch of events, so a waiting reader can wake at once.
+        let onChange: (@Sendable () -> Void)?
+        init(onChange: (@Sendable () -> Void)?) { self.onChange = onChange }
     }
 
     private let directories: [String]
-    private let changes = Changes()
+    private let changes: Changes
     private let queue = DispatchQueue(label: "app.agenthud.file-changes", qos: .utility)
     private var stream: FSEventStreamRef?
     private var watched: [String]?
 
-    init(directories: [URL]) {
+    /// - onChange: called after each batch of file events, on the monitor's queue.
+    init(directories: [URL], onChange: (@Sendable () -> Void)? = nil) {
         // FSEvents streams are recursive, so a directory inside another one adds nothing.
         let paths = Set(directories.map { $0.standardizedFileURL.path })
         self.directories = paths.filter { path in !paths.contains { $0 != path && path.hasPrefix($0 + "/") } }.sorted()
+        changes = Changes(onChange: onChange)
         update()
     }
+
+    /// False when the event stream could not be created, so changes cannot be seen and sources must be read on a schedule.
+    var isWatching: Bool { watched != nil }
 
     deinit { stopStream() }
 
@@ -53,12 +61,14 @@ final class FileChangeMonitor {
             let rescan = FSEventStreamEventFlags(kFSEventStreamEventFlagMustScanSubDirs | kFSEventStreamEventFlagUserDropped
                                                  | kFSEventStreamEventFlagKernelDropped | kFSEventStreamEventFlagRootChanged)
             let dropped = (0..<count).contains { flags[$0] & rescan != 0 } || paths.count != count
-            Unmanaged<Changes>.fromOpaque(info).takeUnretainedValue().state.withLock { state in
+            let changes = Unmanaged<Changes>.fromOpaque(info).takeUnretainedValue()
+            changes.state.withLock { state in
                 state.changed = true
                 guard !dropped, var known = state.paths else { state.paths = nil; return }
                 known.formUnion(paths)
                 state.paths = known.count > Changes.pathLimit ? nil : known
             }
+            changes.onChange?()
         }
         let flags = FSEventStreamCreateFlags(kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagUseCFTypes)
         guard let created = FSEventStreamCreate(kCFAllocatorDefault, callback, &context, existing as CFArray,

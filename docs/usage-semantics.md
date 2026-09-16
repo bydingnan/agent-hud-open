@@ -54,16 +54,17 @@ The three dimensions (`TokenDimensions`) are additive and never overlap. Charts,
 
 ### Collection cadence
 
-Reads never run in parallel: the usage store runs one local poll or one account step at a time, and a pass starts only after the previous one finished. Every account request is a metadata read: no model message is sent and no reset credit is consumed.
+Reads never run in parallel: the usage store runs one pass of source reads or one account step at a time, and a pass starts only after the previous one finished. Every account request is a metadata read: no model message is sent and no reset credit is consumed.
 
 | Work | Cadence |
 | --- | --- |
-| Local logs while a session runs, a turn observed in the last 5 minutes is still running, or a client's data directory changed | Every 5 s |
-| Local logs while the first index is being built | Every 2 s |
+| One client's local logs | When a file under its data directories changes, when one of its live sessions reaches 120 s or a running turn 120 s or 5 minutes without an observation, and after its account step; passes start at most every 2 s |
+| Local logs of a source that cannot name its directories | Every 5 s |
+| Every client's local logs while the first index is being built | Every 2 s |
 | Account sweep: Claude Code engine `get_usage`, Codex `account/rateLimits/read`, DeepSeek balance, Antigravity, Cursor, Grok and GitHub Copilot quota, Cursor account usage events, and Kimi, GLM and OpenCode Go quota per billing pool | Every 5 minutes, and at once when GitHub Copilot quota reading is switched on or off |
 
 - A sweep runs one provider after another; steps run back to back for at most one second before local logs get their turn, so a slow request delays a poll by that request alone.
-- The sweep also reads every local source once, which catches a change a directory watch missed. Claude Code and Codex polls examine only the logs the watch reported changed, and list every log again every 5 minutes or after dropped events.
+- A pass reads only the clients that signalled; the others keep their last result. The sweep also reads every local source once, which catches a change a directory watch missed. Claude Code and Codex polls examine only the logs the watch reported changed, and list every log again every 5 minutes or after dropped events.
 - A provider never repeats an account request within 60 s, whoever asks, and a failure waits as long as a success; it is reported as a source notice while the other sources keep working.
 
 ### Reading retention

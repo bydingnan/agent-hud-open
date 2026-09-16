@@ -23,9 +23,15 @@ public actor RetainedUsageProvider: UsageProvider {
     public func refreshAccountUsage(historyHours: Int) async { await provider.refreshAccountUsage(historyHours: historyHours) }
     public nonisolated var accountRefreshSteps: [AccountRefreshStep] { provider.accountRefreshSteps }
     public nonisolated var watchedDirectories: [URL]? { provider.watchedDirectories }
+    public nonisolated var sources: [UsageSource] { provider.sources }
+    public func sourceChecks() async -> [String: [Date]] { await provider.sourceChecks() }
 
     public func fetchUsage(agents: [AgentDescriptor], historyHours: Int) async throws -> UsageReport {
-        let incoming = try await provider.fetchUsage(agents: agents, historyHours: historyHours)
+        try await fetchUsage(agents: agents, historyHours: historyHours, sources: nil)
+    }
+
+    public func fetchUsage(agents: [AgentDescriptor], historyHours: Int, sources: Set<String>?) async throws -> UsageReport {
+        let incoming = try await provider.fetchUsage(agents: agents, historyHours: historyHours, sources: sources)
         try Task.checkCancellation()
         let report = latest.map { incoming.retainingReadings(from: $0) } ?? incoming
         latest = report

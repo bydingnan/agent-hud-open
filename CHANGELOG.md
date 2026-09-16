@@ -2,6 +2,11 @@
 
 Releases of Agent HUD Open. A version is a git tag `vX.Y.Z` on `main`; `CFBundleShortVersionString` in `scripts/build-app.sh` carries the same number. Each entry lists what changed for people using the application and, under **Host API**, what changed for applications that embed `AgentHUDCore` and `AgentHUDDesktop`. Dates are tag dates.
 
+## Unreleased
+
+- Collection waits for signals instead of polling: a client's logs are read when a file under its data directories changes, when a live session or running turn ages past 120 s or 5 minutes, or after its account step, and a read covers only the clients that signalled. Nothing is read while every client is quiet, apart from the five-minute account sweep.
+- Host API: `UsageSource`, `UsageProvider.sources`, `fetchUsage(agents:historyHours:sources:)` and `sourceChecks()` with defaults for a provider that does not split itself; `UsageRefresh.readSpacing` and `liveThreshold`; `UsageStore.observeChanges(_:)` with `UsageChanges` and `UsageChangeObservation`; `UsageRefresh.pollInterval` now applies only to sources without directories.
+
 ## 0.4.8 — 2026-09-15
 
 - Lower idle CPU: clock ticks that change nothing on the island skip its layout, and the statistics window and forecast hover popups are created the first time they are shown.

@@ -11,10 +11,24 @@ public struct CombinedUsageProvider: UsageProvider {
         public let provider: any UsageProvider
         public init(_ vendor: String, _ provider: any UsageProvider) { self.vendor = vendor; self.provider = provider }
     }
-    private let sources: [Source]
+    /// The last result of every vendor, reused while its signals stay quiet.
+    private actor Results {
+        struct Entry {
+            let result: Result<UsageReport, UsageProviderError>
+            let agents: [AgentDescriptor]
+            let historyHours: Int
+        }
+        private var entries: [String: Entry] = [:]
+        func entry(_ vendor: String) -> Entry? { entries[vendor] }
+        func store(_ entry: Entry, for vendor: String) { entries[vendor] = entry }
+        func reports() -> [String: UsageReport] { entries.compactMapValues { try? $0.result.get() } }
+    }
+
+    private let vendors: [Source]
     private let ledger: UsageLedger
+    private let results = Results()
     public init(_ sources: [Source], ledger: UsageLedger = .inMemory()) {
-        self.sources = sources
+        vendors = sources
         self.ledger = ledger
     }
 
@@ -32,37 +46,59 @@ public struct CombinedUsageProvider: UsageProvider {
         for step in accountRefreshSteps { await step(historyHours) }
     }
 
-    public var accountRefreshSteps: [AccountRefreshStep] { sources.flatMap(\.provider.accountRefreshSteps) }
+    public var accountRefreshSteps: [AccountRefreshStep] { vendors.flatMap(\.provider.accountRefreshSteps) }
 
     public var watchedDirectories: [URL]? {
         var directories: [URL] = []
-        for source in sources {
+        for source in vendors {
             guard let watched = source.provider.watchedDirectories else { return nil }
             directories += watched
         }
         return directories
     }
 
+    /// One source per vendor, so a change under one client's directories reads only that client.
+    public var sources: [UsageSource] {
+        vendors.map { UsageSource(name: $0.vendor, directories: $0.provider.watchedDirectories, accountSteps: $0.provider.accountRefreshSteps) }
+    }
+
     public func fetchUsage(agents: [AgentDescriptor], historyHours: Int) async throws -> UsageReport {
+        try await fetchUsage(agents: agents, historyHours: historyHours, sources: nil)
+    }
+
+    /// Vendors outside `names` keep their last result, unless they have none yet or it was read for other agents or hours.
+    public func fetchUsage(agents: [AgentDescriptor], historyHours: Int, sources names: Set<String>?) async throws -> UsageReport {
         await ledger.beginPass()
         var results: [(Int, UsageReport?, String?)] = []
-        for (index, source) in sources.enumerated() {
-            do { results.append((index, try await source.provider.fetchUsage(agents: agents, historyHours: historyHours), nil)) }
-            catch { results.append((index, nil, error.localizedDescription)) }
+        for (index, source) in vendors.enumerated() {
+            let previous = await self.results.entry(source.vendor)
+            let result: Result<UsageReport, UsageProviderError>
+            if let previous, names.map({ !$0.contains(source.vendor) }) ?? false,
+               previous.agents == agents, previous.historyHours == historyHours {
+                result = previous.result
+            } else {
+                do { result = .success(try await source.provider.fetchUsage(agents: agents, historyHours: historyHours)) }
+                catch { result = .failure(UsageProviderError(error.localizedDescription)) }
+                await self.results.store(.init(result: result, agents: agents, historyHours: historyHours), for: source.vendor)
+            }
+            switch result {
+            case .success(let report): results.append((index, report, nil))
+            case .failure(let error): results.append((index, nil, error.message))
+            }
         }
         await ledger.commitPass()
         let reports = results.compactMap { $0.1 }
         var notices: [String: String] = [:]
         for (index, report, error) in results {
             if let report { notices.merge(report.sourceNotices, uniquingKeysWith: { _, new in new }) }
-            if let message = error ?? (report?.sourceNotices.isEmpty == true ? report?.notice : nil) { notices[sources[index].vendor] = message }
+            if let message = error ?? (report?.sourceNotices.isEmpty == true ? report?.notice : nil) { notices[vendors[index].vendor] = message }
         }
         guard !reports.isEmpty else { throw UsageProviderError(notices.keys.sorted().map { "\($0): \(notices[$0]!)" }.joined(separator: " · ")) }
         let now = reports.map(\.generatedAt).max() ?? Date()
         let weekAgo = now.addingTimeInterval(-7 * 86400)
         // The ledger holds every recorded source, including one whose refresh just failed; other providers report periods themselves.
         let usage = ((try? await ledger.buckets(since: min(weekAgo, now.addingTimeInterval(-Double(historyHours) * 3600)))) ?? [])
-            + results.filter { !(sources[$0.0].provider is any LedgerRecording) }.flatMap { $0.1?.usage ?? [] }
+            + results.filter { !(vendors[$0.0].provider is any LedgerRecording) }.flatMap { $0.1?.usage ?? [] }
         let progress = reports.compactMap(\.indexing)
         return UsageReport(generatedAt: now, snapshots: Dictionary(grouping: reports.flatMap(\.snapshots), by: \.agentId).values.compactMap { $0.max { $0.updatedAt < $1.updatedAt } }.sorted { $0.agentId < $1.agentId },
                            sessions: reports.flatMap(\.sessions).sorted { a, b in
@@ -88,6 +124,11 @@ public struct CombinedUsageProvider: UsageProvider {
                            },
                            forgottenAccountProviders: reports.compactMap(\.forgottenAccountProviders).reduce(nil) { ($0 ?? []).union($1) })
     }
+    /// Each vendor's checks come from its last result, so a quiet vendor is read again only when its activity ages.
+    public func sourceChecks() async -> [String: [Date]] {
+        await results.reports().mapValues(\.activityChecks).filter { !$0.value.isEmpty }
+    }
+
     /// Parse caches and report copies of earlier versions, replaced by the usage ledger.
     static func removeLegacyCaches(in directory: URL) {
         guard let names = try? FileManager.default.contentsOfDirectory(atPath: directory.path) else { return }
