@@ -4,8 +4,13 @@ Releases of Agent HUD Open. A version is a git tag `vX.Y.Z` on `main`; `CFBundle
 
 ## Unreleased
 
+## 0.4.9 — 2026-09-16
+
 - Collection waits for signals instead of polling: a client's logs are read when a file under its data directories changes, when a live session or running turn ages past 120 s or 5 minutes, or after its account step, and a read covers only the clients that signalled. Nothing is read while every client is quiet, apart from the five-minute account sweep.
-- Host API: `UsageSource`, `UsageProvider.sources`, `fetchUsage(agents:historyHours:sources:)` and `sourceChecks()` with defaults for a provider that does not split itself; `UsageRefresh.readSpacing` and `liveThreshold`; `UsageStore.observeChanges(_:)` with `UsageChanges` and `UsageChangeObservation`; `UsageRefresh.pollInterval` now applies only to sources without directories.
+- A session says what it is waiting for and what the agent last answered. The turn's message is the latest visible assistant text, read up to 2 KB, kept only while the application runs and never written to the ledger; Claude Code's notification hook reports a turn blocked on the user. Whether that is a pending approval or an unanswered prompt comes from the transcript, never from the wording of a message, and a request is answered as soon as a newer transcript line arrives.
+- Agent HUD installs Claude Code's notification hook in `~/.claude/settings.json` when Claude Code is present, the same way it installs the other clients' stop hooks; a machine without Claude Code is left untouched, and `--attention-hook claude` is the handler it registers.
+- A Claude Code that is signed out says so beside its stale quota rows instead of showing only how long ago they were read. Its engine reports no plan limits both when signed out and when running on an API key, and `claude auth status` tells the two apart.
+- Host API: `UsageSource`, `UsageProvider.sources`, `fetchUsage(agents:historyHours:sources:)` and `sourceChecks()` with defaults for a provider that does not split itself; `UsageRefresh.readSpacing` and `liveThreshold`; `UsageStore.observeChanges(_:)` with `UsageChanges` and `UsageChangeObservation`; `UsageRefresh.pollInterval` now applies only to sources without directories; `SessionTurn` gains the `waitingForApproval` state and a `message`; `AttentionHooks` with `Source`, `Event`, `record`, `read`, `configure` and `isActive`; `ClaudeDataError.signedOut`; `ClaudeEngineUsageClient.isSignedIn()`.
 
 ## 0.4.8 — 2026-09-15
 
