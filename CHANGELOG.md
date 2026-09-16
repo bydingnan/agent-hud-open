@@ -4,6 +4,10 @@ Releases of Agent HUD Open. A version is a git tag `vX.Y.Z` on `main`; `CFBundle
 
 ## Unreleased
 
+## 0.4.10 — 2026-09-16
+
+- Claude Code's notification hook is installed only for the notification types that mean the agent needs the user (`permission_prompt`, `agent_needs_input`), so a sign-in or quota notice never reads as a pending approval. Which kind of attention it is still comes from the transcript, and the transcript is still what says the request was answered.
+
 ## 0.4.9 — 2026-09-16
 
 - Collection waits for signals instead of polling: a client's logs are read when a file under its data directories changes, when a live session or running turn ages past 120 s or 5 minutes, or after its account step, and a read covers only the clients that signalled. Nothing is read while every client is quiet, apart from the five-minute account sweep.

@@ -75,6 +75,11 @@ final class AttentionHookTests: XCTestCase, @unchecked Sendable {
         XCTAssertEqual(commands.count, 2)
         XCTAssertTrue(commands.contains("say hi"))
         XCTAssertTrue(commands.contains { $0.hasSuffix(" --attention-hook claude") })
+        let ours = (updated["hooks"]?["Notification"].arrayValue ?? []).first { group in
+            (group["hooks"].arrayValue ?? []).contains { $0["command"].stringValue?.hasSuffix(" --attention-hook claude") == true }
+        }
+        XCTAssertEqual(ours?["matcher"].stringValue, "permission_prompt|agent_needs_input",
+                       "the client filters by notification type, so a sign-in notice never reads as a request")
 
         try AttentionHooks.configure(.claude, enabled: false, executable: executable, home: home)
         XCTAssertFalse(AttentionHooks.isActive(.claude, home: home))

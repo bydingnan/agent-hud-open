@@ -1,13 +1,16 @@
 import AgentHUDSupport
 import Foundation
 
-/// A client saying it needs the user. Claude Code's notification hook fires both when it asks permission to use a tool
-/// and when a prompt has been sitting unanswered; which of the two it is comes from the transcript, not from the text,
-/// so nothing here depends on the wording of a message.
+/// A client saying it needs the user. Claude Code's notification hook is installed for the types that mean exactly
+/// that; which kind of attention it is still comes from the transcript, never from the wording of a message, and the
+/// transcript is also what says the request has been answered.
 public enum AttentionHooks {
     public enum Source: String, CaseIterable, Sendable {
         case claude
         var event: String { "Notification" }
+        /// The notification types worth waking for. Claude Code filters on the type itself, so nothing here depends on
+        /// the wording of a message, and a sign-in or quota notice never looks like a request for the user.
+        var matcher: String { "permission_prompt|agent_needs_input" }
         func configuration(home: URL) -> URL { home.appendingPathComponent(".claude/settings.json") }
 
         /// Whether the client is here at all. A machine without it keeps its home untouched.
@@ -139,7 +142,8 @@ public enum AttentionHooks {
             return .object(fields)
         }
         if let command {
-            groups.append(.object(["hooks": .array([.object(["type": .string("command"), "command": .string(command), "timeout": .integer(5)])])]))
+            groups.append(.object(["matcher": .string(source.matcher),
+                                   "hooks": .array([.object(["type": .string("command"), "command": .string(command), "timeout": .integer(5)])])]))
         }
         hooks[source.event] = groups.isEmpty ? nil : .array(groups)
         object["hooks"] = hooks.isEmpty && configuration["hooks"] == nil ? nil : .object(hooks)
