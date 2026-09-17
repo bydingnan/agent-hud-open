@@ -94,7 +94,9 @@ struct SessionRow: View {
     let theme: Theme
 
     var body: some View {
-        let dotColor = store.isSessionLive(session) ? AgentPalette.swiftUIColor(index: store.consumerPaletteIndex(session.agentId)) : theme.dotEnded
+        let dotColor = store.isSessionWaiting(session) ? theme.status(.warning)
+            : store.isSessionLive(session) ? AgentPalette.swiftUIColor(index: store.consumerPaletteIndex(session.agentId))
+            : theme.dotEnded
         HStack(spacing: 12) {
             Circle().fill(dotColor).frame(width: 8, height: 8)
             HStack(spacing: 5) {

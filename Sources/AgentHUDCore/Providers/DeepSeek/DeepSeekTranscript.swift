@@ -211,11 +211,12 @@ public struct DeepSeekTranscript: Codable, Sendable {
         return value
     }
 
-    public func isLive(now: Date, modifiedAt: Date, freshness: TimeInterval = 120,
-                       processStarts: [Date] = []) -> Bool {
+    /// Running means the newest turn is still going: questions and long tools leave an open turn quiet, and that
+    /// does not end it. `processStarts` is the process table, read only once a turn has been quiet for a while; a
+    /// newer process cannot own an older turn, so a turn none of them predates has lost its harness and stops.
+    public func isLive(processStarts: [Date]?) -> Bool {
         guard let turn = turns?.last, turn.state == .running, lastActivityAt != nil else { return false }
-        // Questions and long tools can leave an open turn quiet. A newer process cannot own an older turn.
-        if let turnStartedAt = turn.startedAt, processStarts.contains(where: { $0 <= turnStartedAt }) { return true }
-        return now.timeIntervalSince(modifiedAt) < freshness
+        guard let processStarts, let turnStartedAt = turn.startedAt else { return true }
+        return processStarts.contains { $0 <= turnStartedAt }
     }
 }

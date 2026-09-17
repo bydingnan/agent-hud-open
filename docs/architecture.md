@@ -32,7 +32,7 @@ Agent HUD Open is a Swift package with three libraries and one executable. `Agen
 
 - A source is read only when it signals new data: a file change under its directories, its account step finishing, one of its checks falling due, or, for a source without directories, its poll interval. Whatever a source does inside, whether it watches files, receives hook callbacks or polls a service, the collector sees only these signals.
 - Reads stay serial: signals only mark sources as due, and the collector reads the due sources in one pass; signals that arrive during a pass are read by the next one, and passes start at most every `UsageRefresh.readSpacing`.
-- Time-based changes of activity are checks, not polls: a live session is read again when it reaches `UsageRefresh.liveThreshold` without an observation, and a running turn also when it stops counting as current work.
+- Time-based changes of activity are checks, not polls: a session whose source never said what its turn is doing is read again when it reaches `UsageRefresh.liveThreshold` without an observation, and a running turn when it stops counting as current work and again at `UsageRefresh.abandonedTurnTimeout`, where silence means its client is gone.
 - File events name real paths; the collector compares them with each directory as given and as `realpath` resolves it.
 - Every account sweep, and a refresh, reads every source once.
 - `UsageStore.observeChanges(_:)` calls a handler with `UsageChanges` for every newly displayed report: usage totals, readings, the ids of changed sessions, turns, new completions and the inventory. Publishers subscribe instead of comparing reports.

@@ -138,7 +138,8 @@ final class UsageRefreshTests: XCTestCase, @unchecked Sendable {
         XCTAssertEqual(report(sessions: [finished], turns: [turn(.completed, observedAgo: 30)]).activityChecks, [], "finished work never ages")
         XCTAssertEqual(report(sessions: [running]).activityChecks, [now.addingTimeInterval(121)])
         XCTAssertEqual(report(turns: [turn(.running, observedAgo: 60)]).activityChecks,
-                       [now.addingTimeInterval(61), now.addingTimeInterval(241)], "a quiet tool call is checked when it leaves the indicator and when it goes stale")
+                       [now.addingTimeInterval(61), now.addingTimeInterval(241), now.addingTimeInterval(UsageRefresh.abandonedTurnTimeout - 59)],
+                       "a quiet tool call is checked when it leaves the indicator, when it goes stale, and when it counts as abandoned")
     }
 
     func testWatchedDirectoryReportsEachChangeOnce() async throws {

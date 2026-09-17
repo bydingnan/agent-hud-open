@@ -62,7 +62,7 @@ public actor DeepSeekUsageProvider: UsageProvider, LedgerRecording {
                                task: t.title ?? t.cwd.map { URL(fileURLWithPath: $0).lastPathComponent } ?? "DeepSeek Harness",
                                terminal: t.cwd.map { URL(fileURLWithPath: $0).lastPathComponent },
                                startedAt: t.startedAt ?? session.modifiedAt,
-                               endedAt: t.isLive(now: now, modifiedAt: session.modifiedAt, processStarts: processStarts) ? nil : (t.lastActivityAt ?? t.startedAt ?? session.modifiedAt),
+                               endedAt: t.isLive(processStarts: processStarts) ? nil : (t.lastActivityAt ?? t.startedAt ?? session.modifiedAt),
                                pctOfWindow: nil, tokensIn: t.inputTokens, tokensOut: t.outputTokens,
                                client: "DeepSeek Harness", transcriptPath: session.path,
                                cacheReadTokens: t.cachedInputTokens, observedAt: now)
@@ -91,13 +91,13 @@ public actor DeepSeekUsageProvider: UsageProvider, LedgerRecording {
     }
 
     /// Process starts only decide a running turn whose log went quiet, so the process table is inspected only then,
-    /// at most every 30 seconds.
-    private func processStarts(for sessions: [DeepSeekTranscriptStore.Session], now: Date) async -> [Date] {
+    /// at most every 30 seconds. Nil means it was not consulted and the turn keeps running.
+    private func processStarts(for sessions: [DeepSeekTranscriptStore.Session], now: Date) async -> [Date]? {
         let quiet = sessions.contains { session in
             !session.transcript.isSubagent && session.transcript.sessionTurns.last?.state == .running
                 && now.timeIntervalSince(session.modifiedAt) >= 120
         }
-        guard quiet else { lastProcessStarts = nil; return [] }
+        guard quiet else { lastProcessStarts = nil; return nil }
         if let last = lastProcessStarts, now.timeIntervalSince(last.at) < 30 { return last.starts }
         let starts = await readProcessStarts()
         lastProcessStarts = (now, starts)

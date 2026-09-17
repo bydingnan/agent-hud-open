@@ -121,7 +121,8 @@ final class ClaudeTranscriptTests: XCTestCase {
             return accumulator.build()!.isLive(now: base.addingTimeInterval(at), threshold: 120)
         }
         XCTAssertTrue(live(after: [user("build it", at: 0), assistant("\"tool_use\"", id: "msg_1", at: 5)], at: 60), "a tool call keeps the turn running")
-        XCTAssertFalse(live(after: [], at: 200), "a quiet log still ends a stalled turn")
+        XCTAssertTrue(live(after: [], at: 200), "a quiet log does not end a running turn: one tool call can take minutes")
+        XCTAssertFalse(live(after: [], at: 5 + UsageRefresh.abandonedTurnTimeout + 1), "a turn quiet this long was abandoned")
         XCTAssertFalse(live(after: [assistant("\"end_turn\"", id: "msg_2", at: 300)], at: 301), "end_turn ends the session at once, not two minutes later")
         XCTAssertTrue(live(after: [user("and the tests", at: 400)], at: 401), "the next prompt restarts it")
         XCTAssertFalse(live(after: [assistant("\"tool_use\"", id: "msg_3", at: 405), user("[Request interrupted by user for tool use]", at: 410)], at: 411), "an interruption ends the turn without a completion")
@@ -223,8 +224,9 @@ final class ClaudeTranscriptTests: XCTestCase {
         XCTAssertEqual(session.tokensOut, 87)
         XCTAssertEqual(session.startedAt, DateParsing.iso8601("2026-09-07T05:41:44.123Z"))
         XCTAssertEqual(session.lastActivityAt, DateParsing.iso8601("2026-09-07T05:43:00Z"))
-        XCTAssertTrue(session.isLive(now: session.lastActivityAt.addingTimeInterval(60), threshold: 120))
-        XCTAssertFalse(session.isLive(now: session.lastActivityAt.addingTimeInterval(600), threshold: 120))
+        XCTAssertTrue(session.isLive(now: session.lastActivityAt.addingTimeInterval(600), threshold: 120),
+                      "the turn is still running, and a quiet log does not end it")
+        XCTAssertFalse(session.isLive(now: session.lastActivityAt.addingTimeInterval(UsageRefresh.abandonedTurnTimeout + 1), threshold: 120))
     }
 
     func testStoreReadsIncrementally() async throws {

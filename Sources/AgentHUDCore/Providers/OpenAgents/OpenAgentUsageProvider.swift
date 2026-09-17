@@ -174,7 +174,11 @@ actor OpenAgentUsageProvider: UsageProvider, LedgerRecording {
                     model: item.currentModel.map { "\($0.name) · \($0.provider)" } ?? "Unknown",
                     source: L10n.text("本地会话", "Local session"), enabled: true)
             }
-            let running = item.turns.last.map { $0.state == .running && now.timeIntervalSince1970 - Double($0.observedAtMs) / 1000 < 120 } ?? false
+            // A quiet log does not end a turn: one tool call can take minutes without writing a line. Only silence
+            // long enough to mean the client is gone does.
+            let running = item.turns.last.map {
+                $0.state == .running && now.timeIntervalSince1970 - Double($0.observedAtMs) / 1000 < UsageRefresh.abandonedTurnTimeout
+            } ?? false
             let unique = UsageAggregation.usageUnion([item.events])
             return LiveSession(id: item.id, agentId: agentID, task: item.title,
                 terminal: item.workspace.map { URL(fileURLWithPath: $0).lastPathComponent }, startedAt: start, endedAt: running ? nil : end,

@@ -163,9 +163,15 @@ public struct CodexTranscript: Codable, Sendable {
         }
     }
 
-    public func isLive(now: Date, modifiedAt: Date, freshness: TimeInterval = 120) -> Bool {
-        guard turns?.last.map({ $0.state == .running }) != false, !isInternal else { return false }
-        return now.timeIntervalSince(modifiedAt) < freshness && lastActivityAt != nil
+    /// Running means the newest turn is still going. A quiet rollout does not end it: one tool call can take minutes
+    /// without writing a line, and only silence long enough to mean the client is gone does. A rollout that never
+    /// logged a turn falls back to how recently it was written.
+    public func isLive(now: Date, modifiedAt: Date, freshness: TimeInterval = 120,
+                       abandonedAfter: TimeInterval = UsageRefresh.abandonedTurnTimeout) -> Bool {
+        guard !isInternal, lastActivityAt != nil else { return false }
+        let quiet = now.timeIntervalSince(modifiedAt)
+        guard let running = turns?.last.map({ $0.state == .running }) else { return quiet < freshness }
+        return running && quiet < abandonedAfter
     }
 
     public var sessionTurns: [SessionTurn] {

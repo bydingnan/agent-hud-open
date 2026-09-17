@@ -18,10 +18,10 @@ final class DeepSeekProviderTests: XCTestCase {
         XCTAssertEqual(transcript.usage[0].output, 58)
         XCTAssertEqual(transcript.usage[0].cachedInput, 1000)
         XCTAssertEqual(transcript.usage[0].model, "deepseek-v4-flash")
-        XCTAssertTrue(transcript.isLive(now: now, modifiedAt: now))
+        XCTAssertTrue(transcript.isLive(processStarts: nil))
         try feed(&transcript, event("turn/end", seq: 5, data: ["turn": 1, "reason": ["kind": "completed"]]))
         try feed(&transcript, event("session/title", seq: 6, data: ["title": "Updated title"]))
-        XCTAssertFalse(transcript.isLive(now: now, modifiedAt: now))
+        XCTAssertFalse(transcript.isLive(processStarts: nil))
         XCTAssertEqual(transcript.title, "Updated title")
     }
 
@@ -41,20 +41,20 @@ final class DeepSeekProviderTests: XCTestCase {
                      event("turn/start", seq: 1, data: ["turn": 1]), usage(seq: 2),
                      usage(seq: 3, input: 5, output: 2)] { try feed(&transcript, line) }
         XCTAssertTrue(transcript.isSubagent)
-        XCTAssertFalse(transcript.isLive(now: now, modifiedAt: now))
+        XCTAssertFalse(transcript.isLive(processStarts: nil))
         XCTAssertEqual(transcript.usage.map(\.input), [5])
         XCTAssertEqual(transcript.usage[0].model, "deepseek-v4-flash")
     }
 
-    func testAllTurnEndReasonsAndStaleActivityStopBreathing() throws {
+    func testEveryTurnEndReasonStopsBreathingAndAQuietOpenTurnDoesNot() throws {
         for reason in ["completed", "aborted", "error", "blocked", "interrupted", "max-tokens"] {
             var transcript = DeepSeekTranscript()
             try feed(&transcript, header())
             try feed(&transcript, event("turn/start", seq: 0, data: ["turn": 1]))
-            XCTAssertFalse(transcript.isLive(now: now.addingTimeInterval(121), modifiedAt: now))
+            XCTAssertTrue(transcript.isLive(processStarts: nil), "a quiet open turn keeps running")
             try feed(&transcript, event("turn/end", seq: 1, data: ["turn": 1, "reason": ["kind": reason]]))
-            XCTAssertFalse(transcript.isLive(now: now, modifiedAt: now), reason)
-            XCTAssertFalse(transcript.isLive(now: now, modifiedAt: now, processStarts: [now.addingTimeInterval(-60)]), reason)
+            XCTAssertFalse(transcript.isLive(processStarts: nil), reason)
+            XCTAssertFalse(transcript.isLive(processStarts: [now.addingTimeInterval(-60)]), reason)
         }
     }
 
@@ -63,13 +63,13 @@ final class DeepSeekProviderTests: XCTestCase {
         try feed(&transcript, header())
         try feed(&transcript, event("turn/start", seq: 0, data: ["turn": 1]))
         try feed(&transcript, event("tool/call", seq: 1, data: ["turn": 1, "step": 1, "name": "ask_question"]))
-        let later = now.addingTimeInterval(7200)
-        XCTAssertTrue(transcript.isLive(now: later, modifiedAt: now, processStarts: [now.addingTimeInterval(-60)]))
-        XCTAssertFalse(transcript.isLive(now: later, modifiedAt: now), "a stopped process must not keep a quiet turn alive")
-        XCTAssertFalse(transcript.isLive(now: later, modifiedAt: now, processStarts: [now.addingTimeInterval(60)]),
+        XCTAssertTrue(transcript.isLive(processStarts: [now.addingTimeInterval(-60)]))
+        XCTAssertTrue(transcript.isLive(processStarts: nil), "a quiet turn runs on until the process table is read")
+        XCTAssertFalse(transcript.isLive(processStarts: []), "a stopped process must not keep a quiet turn alive")
+        XCTAssertFalse(transcript.isLive(processStarts: [now.addingTimeInterval(60)]),
                        "a restarted Harness must not adopt an abandoned turn")
         try feed(&transcript, event("session/end-seed", seq: 2, data: [:]))
-        XCTAssertFalse(transcript.isLive(now: later, modifiedAt: now, processStarts: [now.addingTimeInterval(-60)]))
+        XCTAssertFalse(transcript.isLive(processStarts: [now.addingTimeInterval(-60)]))
     }
 
     func testRuntimeProcessIDsExcludeFileDescriptorsAndInvalidValues() {
@@ -253,7 +253,7 @@ final class DeepSeekProviderTests: XCTestCase {
         let full = await store.index(since: .distantPast, timeBudget: 5)
         XCTAssertNil(full.notice)
         XCTAssertEqual(full.sessions[0].transcript.inputTokens, 8086)
-        XCTAssertFalse(full.sessions[0].transcript.isLive(now: now, modifiedAt: now))
+        XCTAssertFalse(full.sessions[0].transcript.isLive(processStarts: nil))
         try Data(frames.dropLast(8)).write(to: file)
         let partial = await store.index(since: .distantPast, timeBudget: 5)
         XCTAssertNil(partial.notice)
@@ -261,7 +261,7 @@ final class DeepSeekProviderTests: XCTestCase {
         try frames.write(to: file)
         let complete = await store.index(since: .distantPast, timeBudget: 5)
         XCTAssertEqual(complete.sessions[0].transcript.inputTokens, 8086)
-        XCTAssertFalse(complete.sessions[0].transcript.isLive(now: now, modifiedAt: now))
+        XCTAssertFalse(complete.sessions[0].transcript.isLive(processStarts: nil))
     }
 
     func testLargeCompressedLogDrainsPipeAndSkipsPackedConversationContent() async throws {

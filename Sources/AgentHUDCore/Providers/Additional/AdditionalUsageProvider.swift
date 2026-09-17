@@ -130,7 +130,11 @@ actor AdditionalUsageProvider: UsageProvider, LedgerRecording {
                   let end = item.lastActivity ?? item.events.map(\.timestamp).max(), end >= since else { return nil }
             let model = item.events.max { $0.timestamp < $1.timestamp }?.model ?? "Unknown"
             let turn = item.turns.max { $0.observedAtMs < $1.observedAtMs }
-            let isRunning = turn.map { $0.state == .running && now.timeIntervalSince1970 - Double($0.observedAtMs) / 1000 < 120 } ?? false
+            // A quiet log does not end a turn: one tool call can take minutes without writing a line. Only silence
+            // long enough to mean the client is gone does.
+            let isRunning = turn.map {
+                $0.state == .running && now.timeIntervalSince1970 - Double($0.observedAtMs) / 1000 < UsageRefresh.abandonedTurnTimeout
+            } ?? false
             return LiveSession(id: item.id, agentId: "\(source.rawValue)-model:\(model)", task: item.title,
                                terminal: item.workspace.map { URL(fileURLWithPath: $0).lastPathComponent },
                                startedAt: start, endedAt: isRunning ? nil : end, pctOfWindow: nil,

@@ -106,7 +106,9 @@ final class CodexProviderTests: XCTestCase {
         ingest(&t, payload: ["type": "task_complete", "turn_id": "t2"], at: start.addingTimeInterval(23))
         XCTAssertEqual(t.completions?.count, 2, "replayed line has the same event ID")
         ingest(&t, payload: ["type": "task_started", "turn_id": "stale"], at: start.addingTimeInterval(30))
-        XCTAssertFalse(t.isLive(now: start.addingTimeInterval(200), modifiedAt: start))
+        XCTAssertTrue(t.isLive(now: start.addingTimeInterval(200), modifiedAt: start), "a quiet rollout does not end an open turn")
+        XCTAssertFalse(t.isLive(now: start.addingTimeInterval(UsageRefresh.abandonedTurnTimeout + 1), modifiedAt: start),
+                       "a turn quiet this long was abandoned")
         XCTAssertEqual(t.completions?.count, 2, "inactivity produces no completion")
         let restored = try JSONDecoder().decode(CodexTranscript.self, from: JSONEncoder().encode(t))
         XCTAssertEqual(restored.completions, t.completions)

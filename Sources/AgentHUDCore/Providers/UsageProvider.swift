@@ -2,6 +2,12 @@ import Foundation
 
 /// Local activity plus the latest available account readings.
 /// Never depends on AppKit.
+///
+/// A session is running while its newest turn is in flight, however quiet its log goes; only an explicit end, an
+/// interruption, or evidence that the client is gone ends it. Today only the DeepSeek provider has that evidence,
+/// from the process table.
+/// TODO: give every provider the same signal — a client heartbeat — so a killed agent stops reporting a running turn
+/// instead of leaving one standing until its log is read again.
 public protocol UsageProvider: Sendable {
     /// Refresh slow account APIs independently of local activity. Providers own their request cadence
     /// and expose account failures in the next report's notices.
@@ -74,8 +80,13 @@ public enum UsageRefresh {
     public static let indexingInterval: TimeInterval = 2
     /// Local reads start at most this often; changes arriving sooner are read together.
     public static let readSpacing: TimeInterval = 2
-    /// A live session stops being live this long after its latest observation.
+    /// How long a quiet log keeps a session that never said what its turn is doing. A source that reports turn states
+    /// ignores it: there, only the turn decides.
     public static let liveThreshold: TimeInterval = 120
+    /// The far side of a running turn's silence. One tool call can keep a log quiet for minutes, so silence alone does
+    /// not end a turn; a turn this quiet was abandoned — its client was killed, or its logs stopped reaching this Mac.
+    /// TODO: drop this once every provider reports a client heartbeat and can say so outright.
+    public static let abandonedTurnTimeout: TimeInterval = 30 * 60
     /// Account steps run back to back for at most this long before local logs get their turn.
     static let accountStepBudget: TimeInterval = 1
     /// A running turn counts as current work while its latest source observation is this recent.

@@ -121,31 +121,43 @@ struct HoverPanelView: View {
         }
     }
 
+    /// What is running right now: every running session, up to `sessionRowLimit` of them, and the rest as a count.
+    /// The statistics window's range never applies here — that range belongs to the session card, which answers a
+    /// different question. When nothing is running, the sessions that ended most recently take the same rows.
     private var sessionLine: some View {
         Button(action: onOpenStats) {
-            let sessions = store.statsSessions
-            let liveCount = sessions.filter(store.isSessionLive).count
+            let running = store.liveSessions
+            let shown = Array((running.isEmpty ? store.sessions : running).prefix(Self.sessionRowLimit))
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
-                    Circle().fill(liveCount > 0 ? theme.status(.ok) : theme.tertiary).frame(width: 6, height: 6)
+                    Circle().fill(running.isEmpty ? theme.tertiary : theme.status(.ok)).frame(width: 6, height: 6)
                     Text(L10n.text("活跃会话", "Active sessions")).foregroundStyle(theme.text)
                     Spacer()
-                    Text(L10n.text("\(sessions.count) 个会话 · \(liveCount) 个运行中", "\(sessions.count) sessions · \(liveCount) running"))
+                    Text(running.isEmpty
+                         ? L10n.text("最近结束", "Recently ended")
+                         : L10n.text("\(running.count) 个运行中", "\(running.count) running"))
                         .foregroundStyle(theme.secondary)
                 }
-                if let first = sessions.first {
-                    HStack(spacing: 8) {
-                        Text("\(Self.shortTask(first.task)) · \(first.terminal ?? "—")")
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                        Spacer(minLength: 8)
-                        Text("\(TokenFormat.short(first.tokensIn + first.tokensOut)) tok")
-                            .fixedSize()
-                    }
-                    .foregroundStyle(theme.secondary)
-                } else {
-                    Text(L10n.text("此时间窗口内没有活跃会话", "No active sessions in this range"))
+                if shown.isEmpty {
+                    Text(L10n.text("还没有会话", "No sessions yet"))
                         .foregroundStyle(theme.secondary)
+                } else {
+                    ForEach(shown) { session in
+                        HStack(spacing: 8) {
+                            Circle().fill(sessionDot(session)).frame(width: 6, height: 6)
+                            Text("\(Self.shortTask(session.task)) · \(session.terminal ?? "—")")
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                            Spacer(minLength: 8)
+                            Text("\(TokenFormat.short(session.tokensIn + session.tokensOut)) tok")
+                                .fixedSize()
+                        }
+                        .foregroundStyle(theme.secondary)
+                    }
+                    if running.count > shown.count {
+                        Text(L10n.text("还有 \(running.count - shown.count) 个", "+\(running.count - shown.count) more"))
+                            .foregroundStyle(theme.secondary)
+                    }
                 }
             }
             .font(.ui(12))
@@ -154,6 +166,13 @@ struct HoverPanelView: View {
         }
         .buttonStyle(.plain)
         .help(L10n.text("查看会话列表", "Show sessions"))
+    }
+
+    /// A running session wears its agent's colour, one blocked on the user the warning colour, and an ended one grey.
+    private func sessionDot(_ session: LiveSession) -> Color {
+        if store.isSessionWaiting(session) { return theme.status(.warning) }
+        guard store.isSessionLive(session) else { return theme.dotEnded }
+        return AgentPalette.swiftUIColor(index: store.consumerPaletteIndex(session.agentId))
     }
 
     private var footer: some View {
@@ -182,6 +201,9 @@ struct HoverPanelView: View {
     }
 
     /// "fix auth bug in middleware" → "fix auth bug"
+    /// How many session rows the island shows before the rest become a count.
+    static let sessionRowLimit = 3
+
     static func shortTask(_ task: String) -> String {
         let words = task.split(separator: " ")
         if words.count > 3 { return words.prefix(3).joined(separator: " ") }

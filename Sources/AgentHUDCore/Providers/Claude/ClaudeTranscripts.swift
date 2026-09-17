@@ -170,10 +170,15 @@ public struct TranscriptSession: Hashable, Sendable, Identifiable {
     public var turn: SessionTurn? = nil
     public var turnInProgress: Bool? { turn.map { $0.state == .running } }
 
-    /// Running means a turn is in progress and the log is still being written. A session waiting for input
-    /// stops right away; a crashed or stalled process stops once the log has been quiet for `threshold`.
-    public func isLive(now: Date, threshold: TimeInterval) -> Bool {
-        turnInProgress != false && now.timeIntervalSince(lastActivityAt) < threshold
+    /// Running means a turn is in progress. A quiet log does not end it: one tool call can take minutes without
+    /// writing a line, and only silence long enough to mean the client is gone does. A session waiting for input stops
+    /// right away, and a transcript that never said what its turn is doing falls back to how recently it was written.
+    public func isLive(now: Date, threshold: TimeInterval, abandonedAfter: TimeInterval = UsageRefresh.abandonedTurnTimeout) -> Bool {
+        let quiet = now.timeIntervalSince(lastActivityAt)
+        guard let turn else { return quiet < threshold }
+        guard turn.state == .running else { return false }
+        // A turn nothing was seen to start comes from a partial transcript; only its freshness can vouch for it.
+        return quiet < (turn.startedAtMs == nil ? threshold : abandonedAfter)
     }
 }
 

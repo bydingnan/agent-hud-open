@@ -31,7 +31,7 @@ Which clients expose running and terminal turns, which of them say they are wait
 
 - Every execution client has Settings → Agents → [Agent] → Live status; billing-only services have none. `Settings.liveStatusEnabled(for:)` controls running indicators and completion reminders only: turning it off changes nothing in collection, session history, token statistics or quota windows, and installs or removes no adapter.
 - The switch permits available observations; it never manufactures lifecycle support for a source whose logs only provide usage.
-- A running observation older than 120 s leaves the running indicator and stays in history without an invented end time; a failed read never creates a completion or an artificial end. A turn waiting for approval is a running turn: it keeps its start time and leaves the indicator only when its client says so.
+- A running turn keeps the running indicator however quiet its log goes: one tool call can take minutes without writing a line. Only an end recorded by the client, evidence that the client is gone, or 30 minutes of silence (`UsageRefresh.abandonedTurnTimeout`, which counts the turn as abandoned) leaves the indicator, and none of them invents an end time in history; a failed read never creates a completion or an artificial end. A source that never says what its turn is doing keeps the older rule: 120 s (`UsageRefresh.liveThreshold`) of silence leaves the indicator. A turn waiting for approval is a running turn: it keeps its start time, and the panel marks it in the warning colour.
 - A turn's message is the agent's visible answer, never reasoning, a tool argument or a tool result. It is read up to 2 KB, kept only while the application runs, and never written to the usage ledger.
 - Process evidence is separate from the last recorded observation: a quiet process does not manufacture a transcript event, and a disappeared process does not prove completion.
 - The island announces each completed turn once, for clients whose Live status is on (`IslandEventTracker`). Completions that happened before the application started are history, not events, and turns that finished while Live status was off are not replayed when it is turned back on.
@@ -40,7 +40,7 @@ Which clients expose running and terminal turns, which of them say they are wait
 ### Pi observer
 
 - The standalone host installs or updates its extension under the Pi directory (`PI_CODING_AGENT_DIR`, default `~/.pi/agent`) whenever that directory exists; existing Pi processes need one `/reload`, new ones load it automatically. A same-named file that is not Agent HUD's is left alone.
-- The observer writes metadata-only turn snapshots, keeps retries, compaction and queued continuations inside one run until `agent_settled`, and reports a completion only for a successful final response; errors, cancellation and shutdown end activity without claiming success. A run with no shutdown event stops being live 120 s after its last snapshot; snapshots are kept 7 days.
+- The observer writes metadata-only turn snapshots, keeps retries, compaction and queued continuations inside one run until `agent_settled`, and reports a completion only for a successful final response; errors, cancellation and shutdown end activity without claiming success. A run with no shutdown event stops being live 30 minutes after its last snapshot; snapshots are kept 7 days.
 - Token totals still come only from Pi's message transcripts; installing the observer replays no reminders and creates no usage events.
 
 ### Notification hook

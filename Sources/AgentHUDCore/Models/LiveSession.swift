@@ -51,10 +51,14 @@ public struct LiveSession: Hashable, Codable, Sendable, Identifiable {
         self.accountWide = accountWide
     }
 
+    /// Whether the source that read this session said a turn was still in flight. The log's own silence does not end
+    /// it: an agent can spend minutes in one tool call.
     public var isLive: Bool { endedAt == nil }
 
+    /// Running, as far as this Mac can still vouch for it. A source that has not been read for longer than a turn may
+    /// stay quiet — a retained result, a Mac that stopped collecting — no longer speaks for the session.
     public func isLive(at now: Date) -> Bool {
-        isLive && now.timeIntervalSince(observedAt) < 120
+        isLive && now.timeIntervalSince(observedAt) < UsageRefresh.abandonedTurnTimeout
     }
 
     private enum CodingKeys: String, CodingKey {

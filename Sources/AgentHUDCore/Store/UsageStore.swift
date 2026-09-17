@@ -27,8 +27,9 @@ public struct AgentRow: Hashable, Sendable, Identifiable {
 }
 
 extension UsageReport {
-    /// The times at which this report's activity changes with time alone: when a live session or a running turn reaches
-    /// the age at which it no longer counts as current. A source is read again at these times instead of being polled.
+    /// The times at which this report's activity changes with time alone: when a running turn reaches the age at which
+    /// it no longer counts as current, and when a session whose source never said what its turn is doing reaches the
+    /// age at which a quiet log ends it. A source is read again at these times instead of being polled.
     var activityChecks: [Date] {
         let margin: TimeInterval = 1
         var times = sessions.filter(\.isLive).map { $0.observedAt.addingTimeInterval(UsageRefresh.liveThreshold + margin) }
@@ -36,6 +37,7 @@ extension UsageReport {
             let observed = RecordCoding.date(turn.observedAtMs)
             times.append(observed.addingTimeInterval(UsageRefresh.liveThreshold + margin))
             times.append(observed.addingTimeInterval(UsageRefresh.activeTurnFreshness + margin))
+            times.append(observed.addingTimeInterval(UsageRefresh.abandonedTurnTimeout + margin))
         }
         return times
     }
@@ -295,13 +297,27 @@ public final class UsageStore {
         settings.settings.liveStatusEnabled(for: sessionSource(session).vendor ?? "")
     }
 
+    /// Running, including a turn blocked on the user: both are work in flight, and the panel tells them apart by colour.
     public func isSessionLive(_ session: LiveSession) -> Bool {
         session.isLive(at: now) && liveStatusEnabled(for: session)
+    }
+
+    /// What the newest turn of this session is doing, when its source reported one.
+    public func sessionState(_ session: LiveSession) -> SessionTurn.State? {
+        let vendor = sessionSource(session).vendor?.lowercased()
+        return report?.turns.last {
+            $0.sessionID == session.id && (vendor == nil || $0.provider.lowercased() == vendor)
+        }?.state
+    }
+
+    public func isSessionWaiting(_ session: LiveSession) -> Bool {
+        isSessionLive(session) && sessionState(session) == .waitingForApproval
     }
 
     public func sessionStatusLabel(_ session: LiveSession) -> String {
         guard liveStatusEnabled(for: session) else { return L10n.text("状态显示已关闭", "Live status off") }
         if session.isLive && !session.isLive(at: now) { return L10n.text("状态待更新", "Status out of date") }
+        if isSessionWaiting(session) { return L10n.text("等待批准", "Needs approval") }
         return Countdown.sessionLabel(session, now: now)
     }
 
