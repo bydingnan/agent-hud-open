@@ -4,7 +4,7 @@ import AgentHUDCore
 
 /// Bundled brand artwork used by SwiftUI views and the native menu.
 enum AgentArtwork {
-    private static let images: [String: NSImage] = Dictionary(uniqueKeysWithValues:
+    @MainActor private static let images: [String: NSImage] = Dictionary(uniqueKeysWithValues:
         ["Claude": "claude", "ChatGPT": "chatgpt", "Antigravity": "antigravity", "DeepSeek": "deepseek", "Grok": "grok",
          "Cursor": "cursor", "OpenCode": "opencode", "OpenCode-dark": "opencode-dark", "Kimi": "kimi", "GLM": "glm", "Pi": "pi",
          "GitHub Copilot": "copilot", "OpenClaw": "openclaw", "Hermes": "hermes", "ZCode": "zcode", "CodeBuddy": "codebuddy",

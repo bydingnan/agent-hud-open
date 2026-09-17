@@ -42,6 +42,7 @@ struct SettingsPreview<Content: View>: View {
     }
 }
 
+@MainActor
 private enum SettingsPreviewArtwork {
     static let wallpaper = NSImage(contentsOf: AppResources.bundle.url(forResource: "settings-wallpaper", withExtension: "png")!)!
 }

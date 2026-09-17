@@ -12,11 +12,16 @@ struct GlowImage {
     let size: CGSize
 }
 
+/// The blur context every rasteriser shares. A `CIContext` renders immutable images, so any thread may draw
+/// through the same one; it travels in a box because not every SDK declares the class `Sendable`.
+private final class BlurContext: @unchecked Sendable {
+    static let shared = BlurContext()
+    let ci = CIContext(options: [.useSoftwareRenderer: false])
+}
+
 /// Rasterises the soft glow, the panel shadow and bitmaps drawn by others; `GlowFrameRenderer` decides what a style's
 /// frame shows.
 enum GlowRenderer {
-    private static let ciContext = CIContext(options: [.useSoftwareRenderer: false])
-
     /// The soft glow: keeps colour dense at the island's contour, then fades it out across the glow's range.
     static func render(
         glow: GlowGeometry,
@@ -148,7 +153,7 @@ enum GlowRenderer {
         filter.setValue(CIImage(cgImage: base), forKey: kCIInputImageKey)
         filter.setValue(blur * scale, forKey: kCIInputRadiusKey)
         guard let output = filter.outputImage,
-              let blurred = ciContext.createCGImage(output, from: CGRect(x: 0, y: 0, width: pixelWidth, height: pixelHeight))
+              let blurred = BlurContext.shared.ci.createCGImage(output, from: CGRect(x: 0, y: 0, width: pixelWidth, height: pixelHeight))
         else { return GlowImage(image: base, padding: padding, size: size) }
         return GlowImage(image: blurred, padding: padding, size: size)
     }
