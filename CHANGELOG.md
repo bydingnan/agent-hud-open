@@ -4,6 +4,10 @@ Releases of Agent HUD Open. A version is a git tag `vX.Y.Z` on `main`; `CFBundle
 
 ## Unreleased
 
+## 0.4.13 — 2026-09-18
+
+- Shared artwork and the blur context are isolated so the island draws correctly under strict concurrency.
+
 ## 0.4.12 — 2026-09-18
 
 - DeepSeek Harness sessions in formats 2 and 3 are read instead of reported as unsupported, including the generations Harness keeps beside an upgraded log, which count once from the newest readable one. Each settled message and each failed attempt counts as one attempt, taking its usage from the embedded stream, and a seeded fork's history is cut at its own tagged marker rather than at one copied from an ancestor.
