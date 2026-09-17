@@ -19,6 +19,8 @@ final class IslandAnimationTests: XCTestCase {
         store.replace(report: DemoUsageProvider.report(agents: settings.agents, historyHours: UsageStore.historyHours, now: Date()))
         let controller = IslandController(store: store, settings: settings)
         let window = controller.island.panel
+        // A machine that reduces motion has no transition to cover, so the island resizes its canvas at once.
+        let animates = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         defer { window.orderOut(nil); controller.glow.panel.orderOut(nil) }
         await settle(0.1)
 
@@ -54,7 +56,8 @@ final class IslandAnimationTests: XCTestCase {
 
         controller.forceCollapse()
         await settle(0.1)
-        XCTAssertEqual(window.frame.height, expectedHeight, "Closing must keep its canvas while the silhouette shrinks")
+        XCTAssertEqual(window.frame.height, animates ? expectedHeight : controller.geometry.islandFrame.height,
+                       "Closing must keep its canvas while the silhouette shrinks")
         controller.forceOpen()
         await settle(0.5)
         XCTAssertEqual(window.frame.height, expectedHeight, "Reopening must cancel the pending canvas shrink")
@@ -62,7 +65,8 @@ final class IslandAnimationTests: XCTestCase {
         settings.update { $0.showIslandQuota = false }
         await settle(0.1)
         let shorterHeight = max(80, measure())
-        XCTAssertEqual(window.frame.height, expectedHeight, "Live content changes must keep the transition canvas")
+        XCTAssertEqual(window.frame.height, animates ? expectedHeight : shorterHeight,
+                       "Live content changes must keep the transition canvas")
         await settle(0.5)
         XCTAssertEqual(window.frame.height, shorterHeight, "Live content height must settle to its measured target")
         controller.forceCollapse()

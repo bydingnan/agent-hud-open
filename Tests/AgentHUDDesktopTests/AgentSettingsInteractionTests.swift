@@ -64,6 +64,15 @@ final class AgentSettingsInteractionTests: XCTestCase {
             try? await Task.sleep(for: .milliseconds(250))
             hosting.layoutSubtreeIfNeeded()
         }
+        /// SwiftUI applies a click on its own schedule, so wait for the change the click makes instead of trusting a
+        /// single delay; a loaded machine needs several.
+        func settle(until reached: () -> Bool) async {
+            let deadline = Date().addingTimeInterval(5)
+            while true {
+                await settle()
+                if reached() || Date() >= deadline { return }
+            }
+        }
         var eventNumber = 0
         func click(x: CGFloat, yFromTop: CGFloat) {
             func event(_ type: NSEvent.EventType) -> NSEvent? {
@@ -90,7 +99,7 @@ final class AgentSettingsInteractionTests: XCTestCase {
         let collapsedHeight = documentHeight()
         XCTAssertGreaterThan(collapsedHeight, 0, "Settings content renders")
         click(x: 450, yFromTop: 130)
-        await settle()
+        await settle(until: { documentHeight() > collapsedHeight + 100 })
         XCTAssertGreaterThan(documentHeight(), collapsedHeight + 100, "The group expands to show its windows")
 
         // The first window switch sits below the group's Live status row.
@@ -98,7 +107,8 @@ final class AgentSettingsInteractionTests: XCTestCase {
         let agentsBefore = settings.agents
         let liveStatusBefore = settings.settings.liveStatusEnabled(for: "Claude")
         click(x: 700, yFromTop: windowSwitchY)
-        await settle()
+        await settle(until: { settings.agents != agentsBefore
+            || settings.settings.liveStatusEnabled(for: "Claude") != liveStatusBefore })
         // Name whatever the click toggled, so a moved layout fails with its cause.
         let toggled = settings.agents.filter { agent in agentsBefore.first { $0.id == agent.id }?.enabled != agent.enabled }.map(\.id)
             + (settings.settings.liveStatusEnabled(for: "Claude") != liveStatusBefore ? ["Claude live status"] : [])
@@ -114,7 +124,7 @@ final class AgentSettingsInteractionTests: XCTestCase {
         }
         await settle()
         click(x: 450, yFromTop: 130)
-        await settle()
+        await settle(until: { abs(documentHeight() - collapsedHeight) <= 2 })
         XCTAssertEqual(documentHeight(), collapsedHeight, accuracy: 2, "The group collapses again")
     }
 }
