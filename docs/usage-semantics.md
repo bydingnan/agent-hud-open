@@ -61,10 +61,11 @@ Reads never run in parallel: the usage store runs one pass of source reads or on
 | One client's local logs | When a file under its data directories changes, when one of its live sessions reaches 120 s or a running turn 120 s or 5 minutes without an observation, and after its account step; passes start at most every 2 s |
 | Local logs of a source that cannot name its directories | Every 5 s |
 | Every client's local logs while the first index is being built | Every 2 s |
-| Account sweep: Claude Code engine `get_usage`, Codex `account/rateLimits/read`, DeepSeek balance, Antigravity, Cursor, Grok and GitHub Copilot quota, Cursor account usage events, and Kimi, GLM and OpenCode Go quota per billing pool | Every 5 minutes, and at once when GitHub Copilot quota reading is switched on or off |
+| Account readings: Claude Code engine `get_usage`, Codex `account/rateLimits/read`, DeepSeek balance, Antigravity, Cursor, Grok and GitHub Copilot quota, Cursor account usage events, and Kimi, GLM and OpenCode Go quota per billing pool | Per client: every minute while one of its turns runs, every 3 minutes while a session of its is live between turns, once more for work that finished since its last reading, and when one of its windows resets. Also when the panel, the menu bar menu or the statistics window opens, and at once when GitHub Copilot quota reading is switched on or off |
 
-- A sweep runs one provider after another; steps run back to back for at most one second before local logs get their turn, so a slow request delays a poll by that request alone.
-- A pass reads only the clients that signalled; the others keep their last result. The sweep also reads every local source once, which catches a change a directory watch missed. Claude Code and Codex polls examine only the logs the watch reported changed, and list every log again every 5 minutes or after dropped events.
+- A client nobody is using is not asked: its windows move only while its own work runs. A window whose reset has passed, a reading that names no window, and a client whose usage is the account's from every device it signs in on (Cursor) keep the 5-minute interval.
+- Account steps run one provider after another, back to back for at most one second before local logs get their turn, so a slow request delays a poll by that request alone.
+- A pass reads only the clients that signalled; the others keep their last result. Every local source is read again every 5 minutes, which catches a change a directory watch missed. Claude Code and Codex polls examine only the logs the watch reported changed, and list every log again every 5 minutes or after dropped events.
 - A provider never repeats an account request within 60 s, whoever asks, and a failure waits as long as a success; it is reported as a source notice while the other sources keep working.
 
 ### Reading retention

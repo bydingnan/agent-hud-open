@@ -90,7 +90,10 @@ public final class DesktopApplication {
 
     public func stop() { store.stop() }
     public func showSettings(pageID: String? = nil) { settingsWindow.show(pageID: pageID) }
-    public func showStats() { statsWindow.show() }
+    public func showStats() {
+        Task { await store.refreshAccounts() }
+        statsWindow.show()
+    }
     public func showOnboarding() { onboardingWindow.show() }
     public func toggleGlow() { store.glowHidden.toggle() }
 

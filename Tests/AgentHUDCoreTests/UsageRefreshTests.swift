@@ -142,6 +142,40 @@ final class UsageRefreshTests: XCTestCase, @unchecked Sendable {
                        "a quiet tool call is checked when it leaves the indicator, when it goes stale, and when it counts as abandoned")
     }
 
+    func testAnAccountReadingFollowsTheWorkAndTheWindowResets() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000), ms = Int64(1_800_000_000_000)
+        let since = now.addingTimeInterval(-30)
+        func report(sessions: [LiveSession] = [], turns: [SessionTurn] = [], resets: [Date?] = []) -> UsageReport {
+            UsageReport(generatedAt: now, snapshots: resets.enumerated().map {
+                UsageSnapshot(agentId: "w\($0.offset)", remainingPct: 50, resetAt: $0.element, updatedAt: since)
+            }, sessions: sessions, turns: turns)
+        }
+        func session(endedAgo seconds: TimeInterval?) -> LiveSession {
+            LiveSession(id: "s", agentId: "codex-model:gpt", task: "Task", terminal: nil, startedAt: now.addingTimeInterval(-600),
+                        endedAt: seconds.map { now.addingTimeInterval(-$0) }, pctOfWindow: nil, tokensIn: 1, tokensOut: 1)
+        }
+        let running = SessionTurn(provider: "codex", sessionID: "s", turnID: "t", state: .running,
+                                  startedAtMs: ms - 900_000, observedAtMs: ms - 10_000)
+        let reset = now.addingTimeInterval(3600)
+        func check(_ report: UsageReport, seesLocalWork: Bool = true) -> Date {
+            report.accountCheck(since: since, now: now, seesLocalWork: seesLocalWork)
+        }
+        XCTAssertEqual(check(report(sessions: [session(endedAgo: nil)], turns: [running], resets: [reset])),
+                       since.addingTimeInterval(UsageRefresh.runningAccountInterval), "a running turn spends quota now")
+        XCTAssertEqual(check(report(sessions: [session(endedAgo: nil)], resets: [reset])),
+                       since.addingTimeInterval(UsageRefresh.liveAccountInterval), "a session between turns spends it slowly")
+        XCTAssertEqual(check(report(sessions: [session(endedAgo: 10)], resets: [reset])), now,
+                       "work that finished after the last reading is read once more")
+        XCTAssertEqual(check(report(sessions: [session(endedAgo: 300)], resets: [reset])), reset,
+                       "an idle source waits for its window to reset")
+        XCTAssertEqual(check(report(resets: [reset, now.addingTimeInterval(-60)])), since.addingTimeInterval(UsageRefresh.accountInterval),
+                       "a reset that has passed is read again until the new window shows")
+        XCTAssertEqual(check(report(resets: [nil])), since.addingTimeInterval(UsageRefresh.accountInterval),
+                       "a window that never says when it resets keeps the interval")
+        XCTAssertEqual(check(report(sessions: [session(endedAgo: 300)], resets: [reset]), seesLocalWork: false),
+                       since.addingTimeInterval(UsageRefresh.accountInterval), "quiet says nothing about an account used elsewhere")
+    }
+
     func testWatchedDirectoryReportsEachChangeOnce() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

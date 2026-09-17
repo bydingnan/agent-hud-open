@@ -24,7 +24,7 @@ public struct UsageCollectionHooks {
 /// The collection pipeline. Every source only signals that it has new data: a file change under its directories, a finished
 /// account step, one of its checks falling due, or its poll interval when it cannot name its directories. The collector
 /// waits for those signals and reads the signalled sources, one read or account step at a time, handing each report to
-/// the store.
+/// the store. A source's account steps run when its own work, or one of its windows, makes a new reading worth taking.
 @MainActor
 final class UsageCollector {
     weak var store: UsageStore?
@@ -38,13 +38,17 @@ final class UsageCollector {
     private var isCollecting = false
     /// Account steps left in the current sweep, run one at a time between local reads.
     private var accountSteps: [(source: String, run: AccountRefreshStep)] = []
-    private var accountSweepAt: Date?
-    /// Consent to read an account starts a sweep at once instead of at the next interval.
+    /// When each source's account steps last ran; a source that has never run them is due at once.
+    private var accountRunAt: [String: Date] = [:]
+    /// Consent to read an account, and a look at the numbers, read every account at once instead of when work moves them.
     private var sweptWithCopilotQuota: Bool?
+    private var forcesAccounts = false
+    /// The read of every local source that stands in for a file event the watch missed.
+    private var fallbackReadAt: Date?
     private var sources: [UsageSource] = []
     private var fetchedAt: Date?
     private var fetchedAgents: [AgentDescriptor]?
-    /// Every source must be read: at start, when a sweep begins, after a refresh request or a changed agent list.
+    /// Every source must be read: at start, at the fallback read, after a refresh request or a changed agent list.
     private var needsFetch = true
     /// Sources signalled since their last read.
     private var signalled: Set<String> = []
@@ -94,16 +98,20 @@ final class UsageCollector {
         wake?.finish()
         wake = nil
         changes = nil
-        if !accountSteps.isEmpty {
-            accountSteps = []
-            accountSweepAt = nil
-        }
+        // Steps that did not run keep their source due, so a restart reads the accounts it owed.
+        accountSteps = []
     }
 
     func refresh() async {
         needsFetch = true
         _ = await collect(force: true)
         wake?.yield()
+    }
+
+    /// Reads every source's accounts in the next pass, whatever its work is doing; the request spacing still holds.
+    func refreshAccounts() async {
+        forcesAccounts = true
+        await refresh()
     }
 
     /// A report installed directly is not the provider's; merging must not replace it.
@@ -145,15 +153,25 @@ final class UsageCollector {
         isCollecting = true
         defer { isCollecting = false }
         let started = Date()
-        let consent = settings.settings.readCopilotQuota
-        if accountSteps.isEmpty, sweptWithCopilotQuota != consent
-            || accountSweepAt.map({ started.timeIntervalSince($0) >= UsageRefresh.accountInterval }) ?? true {
-            accountSweepAt = started
-            sweptWithCopilotQuota = consent
-            accountSteps = sources.flatMap { source in source.accountSteps.map { (source.name, $0) } }
-            // The sweep doubles as the fallback read and picks up directories created since the last one.
+        if fallbackReadAt.map({ started.timeIntervalSince($0) >= UsageRefresh.accountInterval }) ?? true {
+            fallbackReadAt = started
+            // The fallback read catches a change the watch missed and picks up directories created since the last one.
             changes?.update()
             needsFetch = true
+        }
+        let consent = settings.settings.readCopilotQuota
+        if accountSteps.isEmpty {
+            // Consent to read an account follows the switch at once; a look reads whatever the request spacing allows;
+            // otherwise every source waits until its own work, or one of its windows, is worth a reading.
+            let consented = sweptWithCopilotQuota != consent, looked = forcesAccounts
+            forcesAccounts = false
+            sweptWithCopilotQuota = consent
+            let due = await accountDue(at: started)
+            accountSteps = sources.filter { source in
+                if consented { return true }
+                let spaced = (accountRunAt[source.name] ?? .distantPast).addingTimeInterval(UsageRefresh.accountRequestSpacing)
+                return spaced <= started && (looked || due[source.name].map { $0 <= started } ?? false)
+            }.flatMap { source in source.accountSteps.map { (source.name, $0) } }
         }
         await gatherSignals(at: started)
         let spacing = force ? 0 : fetchedAt.map { UsageRefresh.readSpacing - started.timeIntervalSince($0) } ?? 0
@@ -170,6 +188,7 @@ final class UsageCollector {
             let stepsStarted = Date()
             repeat {
                 let step = accountSteps.removeFirst()
+                accountRunAt[step.source] = Date()
                 await step.run(hooks.historyHours())
                 if step.source.isEmpty { needsFetch = true } else { signalled.insert(step.source) }
             } while !accountSteps.isEmpty && !Task.isCancelled && Date().timeIntervalSince(stepsStarted) < UsageRefresh.accountStepBudget
@@ -221,6 +240,18 @@ final class UsageCollector {
         return owners
     }
 
+    /// When each source's account steps are next worth running: what the provider asks for, the account interval when
+    /// it names no time, and at once for a source that has never run them. No source runs twice within the request
+    /// spacing, so a provider that wants a reading sooner than it allows one is asked once the spacing has passed.
+    private func accountDue(at now: Date) async -> [String: Date] {
+        let asked = await provider.accountChecks(since: accountRunAt, now: now)
+        return sources.reduce(into: [:]) { due, source in
+            guard let last = accountRunAt[source.name] else { return due[source.name] = .distantPast }
+            due[source.name] = max(asked[source.name] ?? last.addingTimeInterval(UsageRefresh.accountInterval),
+                                   last.addingTimeInterval(UsageRefresh.accountRequestSpacing))
+        }
+    }
+
     /// Each source's check times; a provider that does not split itself is checked from the report it returned.
     private func checks() async -> [String: [Date]] {
         let checks = await provider.sourceChecks()
@@ -228,12 +259,13 @@ final class UsageCollector {
         return [sources[0].name: report.activityChecks]
     }
 
-    /// The time until the next signal known in advance: an account step, the next sweep, a pending read held back by the
-    /// read spacing, indexing, a poll interval, a check or a retry.
+    /// The time until the next signal known in advance: an account step, a source's next account reading, the fallback
+    /// read, a pending read held back by the read spacing, indexing, a poll interval, a check or a retry.
     private func pause(after now: Date) async -> TimeInterval {
         var times: [Date] = []
         if !accountSteps.isEmpty { times.append(now.addingTimeInterval(UsageRefresh.accountStepBudget)) }
-        if let accountSweepAt { times.append(accountSweepAt.addingTimeInterval(UsageRefresh.accountInterval)) }
+        else { times += await accountDue(at: now).values.filter { $0 > now } }
+        if let fallbackReadAt { times.append(fallbackReadAt.addingTimeInterval(UsageRefresh.accountInterval)) }
         if needsFetch || !signalled.isEmpty { times.append((fetchedAt ?? now).addingTimeInterval(UsageRefresh.readSpacing)) }
         if store?.isIndexing == true { times.append((fetchedAt ?? now).addingTimeInterval(UsageRefresh.indexingInterval)) }
         if let retryAt { times.append(retryAt) }

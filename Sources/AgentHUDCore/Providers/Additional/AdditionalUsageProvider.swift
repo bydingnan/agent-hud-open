@@ -13,6 +13,8 @@ actor AdditionalUsageProvider: UsageProvider, LedgerRecording {
     private let quotaKey: @Sendable () -> String
     private var lastQuota: (at: Date, key: String, result: Result<ProviderQuota, UsageProviderError>)?
     nonisolated let watchedDirectories: [URL]?
+    /// Cursor's usage is the account's, from every device it signs in on, so this Mac going quiet says nothing about it.
+    nonisolated var seesLocalWork: Bool { source != .cursor }
     private let ledger: UsageLedger
     private let sessionLedger: SessionLedger
 

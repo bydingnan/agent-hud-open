@@ -129,6 +129,16 @@ public struct CombinedUsageProvider: UsageProvider {
         await results.reports().mapValues(\.activityChecks).filter { !$0.value.isEmpty }
     }
 
+    /// Each vendor's next account reading comes from its last result: its quota moves while its own work runs. A vendor
+    /// whose last read failed has no result to judge and keeps the account interval.
+    public func accountChecks(since: [String: Date], now: Date) async -> [String: Date] {
+        let reports = await results.reports()
+        return vendors.reduce(into: [:]) { due, vendor in
+            guard let last = since[vendor.vendor], let report = reports[vendor.vendor] else { return }
+            due[vendor.vendor] = report.accountCheck(since: last, now: now, seesLocalWork: vendor.provider.seesLocalWork)
+        }
+    }
+
     /// Parse caches and report copies of earlier versions, replaced by the usage ledger.
     static func removeLegacyCaches(in directory: URL) {
         guard let names = try? FileManager.default.contentsOfDirectory(atPath: directory.path) else { return }

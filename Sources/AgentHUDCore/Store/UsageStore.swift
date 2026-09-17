@@ -41,6 +41,26 @@ extension UsageReport {
         }
         return times
     }
+
+    /// When an account reading of this source is next worth taking, counted from `since`, when its steps last ran.
+    /// A window moves only while work runs, so a running turn is read often, a session between turns slowly, and work
+    /// that finished after the last reading once more. An idle source's windows change only when they reset, and a
+    /// source that cannot see this Mac's work keeps the account interval.
+    func accountCheck(since: Date, now: Date, seesLocalWork: Bool) -> Date {
+        guard seesLocalWork else { return since.addingTimeInterval(UsageRefresh.accountInterval) }
+        let stale = now.addingTimeInterval(-UsageRefresh.activeTurnFreshness)
+        if turns.contains(where: { $0.state == .running && RecordCoding.date($0.observedAtMs) > stale }) {
+            return since.addingTimeInterval(UsageRefresh.runningAccountInterval)
+        }
+        if sessions.contains(where: { $0.isLive(at: now) }) { return since.addingTimeInterval(UsageRefresh.liveAccountInterval) }
+        // Work that finished after the last reading spent quota the windows have not shown yet.
+        if sessions.contains(where: { ($0.endedAt ?? .distantPast) > since }) { return now }
+        // A reading without windows, or whose earliest reset has passed and not yet moved on, is taken again on the interval.
+        guard let reset = snapshots.compactMap(\.resetAt).min(), reset > now else {
+            return since.addingTimeInterval(UsageRefresh.accountInterval)
+        }
+        return reset
+    }
 }
 
 /// Keeps a change handler registered with `UsageStore.observeChanges(_:)`; releasing it unregisters the handler.
@@ -122,6 +142,12 @@ public final class UsageStore {
         await collector.refresh()
     }
 
+    /// Reads the accounts again as soon as the next pass can, for when someone looks at the numbers instead of waiting
+    /// for work to move them. Every provider's own request spacing still holds, so looking twice in a minute reads once.
+    public func refreshAccounts() async {
+        await collector.refreshAccounts()
+    }
+
     /// Runs only the merge hook again on the provider's last report, for data the merge adds that changed since the pass.
     /// Never overlaps a local poll: one in progress merges for it.
     public func remerge() async {
@@ -176,7 +202,7 @@ public final class UsageStore {
 
     public func resume() {
         pausedUntil = nil
-        Task { await refresh() }
+        Task { await refreshAccounts() }
     }
 
     public var isPaused: Bool {

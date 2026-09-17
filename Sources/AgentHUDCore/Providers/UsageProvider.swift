@@ -35,6 +35,15 @@ public protocol UsageProvider: Sendable {
     /// When each source's last result changes with time alone, such as a live session that stops being live after a quiet
     /// interval. The collector reads a source again when one of its times passes; a source without times is left alone.
     func sourceChecks() async -> [String: [Date]]
+
+    /// When each source's account steps are next worth running, given when each last ran. A quota window moves only
+    /// while work runs, so a source is read while its work runs and left alone while it is quiet. A source this
+    /// provider does not name runs every account interval, and `Date.distantFuture` asks for no reading at all.
+    func accountChecks(since: [String: Date], now: Date) async -> [String: Date]
+
+    /// Whether this provider can tell work from quiet on this Mac. A provider whose usage appears only in the account
+    /// answer cannot, so its readings keep the account interval however quiet it looks.
+    var seesLocalWork: Bool { get }
 }
 
 public typealias AccountRefreshStep = @Sendable (_ historyHours: Int) async -> Void
@@ -66,12 +75,19 @@ extension UsageProvider {
         try await fetchUsage(agents: agents, historyHours: historyHours)
     }
     public func sourceChecks() async -> [String: [Date]] { [:] }
+    public func accountChecks(since: [String: Date], now: Date) async -> [String: Date] { [:] }
+    public var seesLocalWork: Bool { true }
 }
 
 /// The collection pipeline's cadence. Reads never run in parallel: one account step or one source read at a time.
 public enum UsageRefresh {
-    /// Quota and balance readings of every provider, and the fallback read of every local source.
+    /// The fallback read of every local source, and the quota and balance readings of a source that cannot tell its
+    /// own work from quiet, or whose windows say nothing about when they change.
     public static let accountInterval: TimeInterval = 300
+    /// Quota and balance readings while a turn is running, which is when the windows move fastest.
+    public static let runningAccountInterval: TimeInterval = 60
+    /// Quota and balance readings while a session is live between turns.
+    public static let liveAccountInterval: TimeInterval = 180
     /// A provider never repeats an account request sooner than this, whoever asks.
     public static let accountRequestSpacing: TimeInterval = 60
     /// A source that cannot name its directories is read this often.

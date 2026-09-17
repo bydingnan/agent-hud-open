@@ -155,7 +155,11 @@ final class IslandController {
                 Task { @MainActor in self?.timerFired() }
             }
         }
-        if wasOpen != machine.isOpen { apply(animated: true) }
+        if wasOpen != machine.isOpen {
+            // The panel opening is someone looking at the numbers, which is reason enough to read the accounts again.
+            if machine.isOpen { Task { await store.refreshAccounts() } }
+            apply(animated: true)
+        }
     }
 
     private func timerFired() {

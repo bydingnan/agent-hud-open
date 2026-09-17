@@ -25,6 +25,10 @@ public actor RetainedUsageProvider: UsageProvider {
     public nonisolated var watchedDirectories: [URL]? { provider.watchedDirectories }
     public nonisolated var sources: [UsageSource] { provider.sources }
     public func sourceChecks() async -> [String: [Date]] { await provider.sourceChecks() }
+    public func accountChecks(since: [String: Date], now: Date) async -> [String: Date] {
+        await provider.accountChecks(since: since, now: now)
+    }
+    public nonisolated var seesLocalWork: Bool { provider.seesLocalWork }
 
     public func fetchUsage(agents: [AgentDescriptor], historyHours: Int) async throws -> UsageReport {
         try await fetchUsage(agents: agents, historyHours: historyHours, sources: nil)

@@ -61,6 +61,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     // MARK: Menu
 
     func menuNeedsUpdate(_ menu: NSMenu) {
+        Task { await store.refreshAccounts() }
         menu.removeAllItems()
         let groups = store.rowGroups
         for (index, group) in groups.enumerated() {
