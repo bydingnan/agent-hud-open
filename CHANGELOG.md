@@ -4,6 +4,14 @@ Releases of Agent HUD Open. A version is a git tag `vX.Y.Z` on `main`; `CFBundle
 
 ## Unreleased
 
+## 0.4.11 — 2026-09-17
+
+- A running turn keeps the running indicator however quiet its log goes: one tool call can take minutes without writing a line, so only an end recorded by the client, an interruption, evidence that the client is gone, or thirty minutes of silence ends it. A source that never says what its turn is doing keeps the 120-second freshness rule, and DeepSeek keeps its process-table evidence.
+- The island's session line answers what is running rather than what a range contains: every running session, three at most with the rest as a count, and the three that ended most recently when none is running. A turn blocked on the user is a running turn and wears the warning colour in both session lists.
+- Quota is read when a client's own work moves it rather than every five minutes: every minute while one of its turns runs, every three minutes while a session of its is live between turns, once more for work that finished since its last reading, and when one of its windows resets. A client nobody is using is not asked at all. A window whose reset has passed, a reading that names no window, and a client whose usage is the account's from every device it signs in on keep the five-minute interval, since quiet says nothing about those.
+- Opening the panel, the menu bar menu or the statistics window reads every account, so a sign-in made while a client sat quiet shows as soon as someone looks instead of waiting for the next sweep. A provider still never repeats an account request within 60 s, and every local source is still read every five minutes, which catches a file event the directory watch missed.
+- Host API: `UsageRefresh.abandonedTurnTimeout`, `runningAccountInterval` and `liveAccountInterval`; `LiveSession.isLive(at:)`; `UsageStore.sessionState(_:)`, `isSessionWaiting(_:)` and `refreshAccounts()`; `UsageProvider.accountChecks(since:now:)` and `seesLocalWork`, both with defaults that keep the five-minute interval for a provider that says nothing.
+
 ## 0.4.10 — 2026-09-16
 
 - Claude Code's notification hook is installed only for the notification types that mean the agent needs the user (`permission_prompt`, `agent_needs_input`), so a sign-in or quota notice never reads as a pending approval. Which kind of attention it is still comes from the transcript, and the transcript is still what says the request was answered.
