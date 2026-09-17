@@ -136,6 +136,71 @@ final class DeepSeekProviderTests: XCTestCase {
         }
     }
 
+    func testFormat3CountsEachSettledMessageAndFailedAttemptOnce() throws {
+        var t = DeepSeekTranscript()
+        let prompt: [String: Any] = ["id": "u1", "role": "user", "source": ["kind": "user"], "content": [["type": "text", "text": "Ship format 3\nwith tests"]]]
+        for line in [header(version: 3), event("turn/start", seq: 0, data: ["turn": 1]), event("user/message", seq: 1, data: prompt),
+                     event("step/start", seq: 2, data: ["turn": 1, "step": 1]),
+                     event("request/context", seq: 3, data: ["provider": "deepseek-official", "model": "deepseek-v4-pro"]),
+                     event("assistant/attempt", seq: 4, data: ["turn": 1, "step": 1, "stream": stream(input: 100, output: 10)]),
+                     event("assistant/message", seq: 5, data: ["turn": 1, "step": 1, "stream": stream(input: 100, output: 10),
+                           "usage": ["inputTokens": 200, "outputTokens": 20, "cacheReadTokens": 50, "cacheWriteTokens": 5]]),
+                     event("turn/end", seq: 6, data: ["turn": 1, "reason": ["kind": "completed"]])] { try feed(&t, line) }
+        XCTAssertEqual(t.usage.map(\.input), [100, 205], "a failed attempt is not replaced by the retried message")
+        XCTAssertEqual(t.usage.map(\.cachedInput), [0, 50])
+        XCTAssertEqual(t.usage.map(\.model), ["deepseek-v4-pro", "deepseek-v4-pro"])
+        XCTAssertEqual(t.drainUsage().map(\.key), ["a1", "a2"])
+        XCTAssertEqual(t.title, "Ship format 3")
+        XCTAssertEqual(t.completions?.map(\.task), ["Ship format 3"])
+        XCTAssertFalse(t.isLive(processStarts: nil))
+        XCTAssertFalse(String(decoding: try JSONEncoder().encode(t), as: UTF8.self).contains("private"))
+    }
+
+    func testFormat3ForkStartsAtItsOwnTaggedMarkerNotAnAncestors() throws {
+        var t = DeepSeekTranscript()
+        let parent = now.addingTimeInterval(-60).timeIntervalSince1970 * 1000
+        let inherited = { (type: String, seq: Int, data: [String: Any]) in self.json(["type": type, "seq": seq, "time": parent, "data": data]) }
+        for line in [header(version: 3, seeded: true), inherited("session/end-seed", 0, ["inherited": true]), model(seq: 1),
+                     inherited("turn/start", 2, ["turn": 1]),
+                     inherited("assistant/message", 3, ["turn": 1, "step": 1, "stream": [], "usage": ["inputTokens": 900, "outputTokens": 90]]),
+                     inherited("turn/end", 4, ["turn": 1, "reason": ["kind": "completed"]]),
+                     event("session/end-seed", seq: 5, data: ["inherited": true]), event("turn/start", seq: 6, data: ["turn": 2]),
+                     event("assistant/message", seq: 7, data: ["turn": 2, "step": 1, "stream": [], "usage": ["inputTokens": 5, "outputTokens": 2]])] {
+            try feed(&t, line)
+        }
+        XCTAssertEqual(t.usage.map(\.input), [5])
+        XCTAssertEqual(t.usage.first?.model, "deepseek-v4-flash")
+        XCTAssertNil(t.completions)
+        XCTAssertEqual(t.sessionTurns.map(\.turnID), ["2"])
+        XCTAssertTrue(t.isLive(processStarts: nil), "the fork's own turn is still running")
+    }
+
+    func testUpgradedSessionCountsOnceFromItsNewestReadableGeneration() async throws {
+        let dir = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let original = try logFile(dir, id: "upgraded"), folder = original.deletingLastPathComponent()
+        try ([header(), model(seq: 0), usage(seq: 1)].joined(separator: "\n") + "\n").write(to: original, atomically: true, encoding: .utf8)
+        let successor = folder.appendingPathComponent("session.v3.jsonl")
+        try ([header(version: 3), model(seq: 0), usage(seq: 1),
+              event("assistant/message", seq: 2, data: ["turn": 2, "step": 1, "stream": [], "usage": ["inputTokens": 14, "outputTokens": 1]])]
+            .joined(separator: "\n") + "\n").write(to: successor, atomically: true, encoding: .utf8)
+        try "{\"type\":\"session\",\"version\":3}\n".write(to: folder.appendingPathComponent("session.v3.jsonl.tmp"), atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.modificationDate: now.addingTimeInterval(-120)], ofItemAtPath: original.path)
+        try FileManager.default.setAttributes([.modificationDate: now.addingTimeInterval(-60)], ofItemAtPath: successor.path)
+        let ledger = UsageLedger.inMemory(), store = DeepSeekTranscriptStore(root: dir, ledger: ledger)
+        let result = await store.index(since: .distantPast)
+        XCTAssertNil(result.notice, "a temporary generation file is not a log")
+        XCTAssertEqual(result.sessions.map { URL(fileURLWithPath: $0.path).lastPathComponent }, ["session.v3.jsonl"])
+        let counted = try await ledger.buckets(since: .distantPast)
+        XCTAssertEqual(counted.map(\.tokensIn), [8100], "the older generation of the same session is not counted again")
+        try "{\"type\":\"session\",\"version\":4,\"id\":\"main\",\"createdAt\":0}\n".write(to: folder.appendingPathComponent("session.v4.jsonl"),
+                                                                                            atomically: true, encoding: .utf8)
+        let future = await store.index(since: .distantPast)
+        XCTAssertNotNil(future.notice, "a newer Harness format is reported rather than silently skipped")
+        let kept = try await ledger.buckets(since: .distantPast)
+        XCTAssertEqual(kept.map(\.tokensIn), [8100])
+    }
+
     func testProviderReportsRunningAndCompletedTurns() async throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -402,11 +467,18 @@ final class DeepSeekProviderTests: XCTestCase {
     private func json(_ object: [String: Any]) -> String {
         String(decoding: try! JSONSerialization.data(withJSONObject: object, options: .sortedKeys), as: UTF8.self)
     }
-    private func header(id: String = "main", seed: Int? = nil, child: Bool = false) -> String {
-        var value: [String: Any] = ["type": "session", "version": 0, "id": id, "createdAt": now.addingTimeInterval(-10).timeIntervalSince1970 * 1000, "cwd": "/test/project", "delegationDepth": child ? 1 : 0]
+    private func header(id: String = "main", seed: Int? = nil, child: Bool = false, version: Int = 0, seeded: Bool = false) -> String {
+        var value: [String: Any] = ["type": "session", "version": version, "id": id, "createdAt": now.addingTimeInterval(-10).timeIntervalSince1970 * 1000, "cwd": "/test/project", "delegationDepth": child ? 1 : 0]
         if let seed { value["seedLength"] = seed }
+        if version >= 2 { value["isSeeded"] = seeded }
         if child { value["origin"] = "subagent" }
         return json(value)
+    }
+    /// A format-2+ embedded stream: packed text, a usage chunk and the finish chunk.
+    private func stream(input: Int, output: Int) -> [[String: Any]] {
+        [["type": "text-chunks", "time0": 0, "index": 0, "dt": [0], "texts": ["private reply"]],
+         ["type": "chunk", "time": 1, "chunk": ["type": "usage", "usage": ["inputTokens": input, "outputTokens": output]]],
+         ["type": "chunk", "time": 2, "chunk": ["type": "finish", "reason": ["kind": "stop"]]]]
     }
     private func event(_ type: String, seq: Int, data: [String: Any]) -> String {
         json(["type": type, "seq": seq, "time": now.timeIntervalSince1970 * 1000, "data": data])

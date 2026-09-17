@@ -179,6 +179,28 @@ final class CodexProviderTests: XCTestCase {
         XCTAssertTrue(child.sessionTurns.isEmpty)
     }
 
+    func testTitleIsTheFirstOwnPromptInCurrentAndLegacyRollouts() {
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        let prompt = { (parts: [[String: Any]]) -> [String: Any] in
+            ["type": "item_completed", "turn_id": "t", "item": ["type": "UserMessage", "id": "u", "content": parts]]
+        }
+        var value = CodexTranscript()
+        ingest(&value, type: "session_meta", payload: ["id": "session", "source": "vscode"], at: start)
+        ingest(&value, payload: prompt([["type": "text", "text": "Inherited prompt"]]), at: start.addingTimeInterval(-5))
+        ingest(&value, payload: ["type": "item_completed", "item": ["type": "AgentMessage", "content": [["type": "text", "text": "Reply"]]]], at: start)
+        ingest(&value, payload: prompt([["type": "local_image", "path": "/tmp/shot.png"], ["type": "text", "text": "<environment_context>"]]),
+               at: start.addingTimeInterval(1))
+        XCTAssertNil(value.task)
+        ingest(&value, payload: prompt([["type": "image", "image_url": "data:"], ["type": "text", "text": "  Fix the sync bug\nwith details", "text_elements": []]]),
+               at: start.addingTimeInterval(2))
+        ingest(&value, payload: prompt([["type": "text", "text": "Second prompt"]]), at: start.addingTimeInterval(3))
+        XCTAssertEqual(value.task, "Fix the sync bug")
+        var legacy = CodexTranscript()
+        ingest(&legacy, type: "session_meta", payload: ["id": "legacy", "source": "cli"], at: start)
+        ingest(&legacy, payload: ["type": "user_message", "message": String(repeating: "a", count: 80)], at: start.addingTimeInterval(1))
+        XCTAssertEqual(legacy.task, String(repeating: "a", count: 59) + "…")
+    }
+
     func testIncrementalStoreHandlesPartialLineAndArchiveDuplicate() async throws {
         let dir = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }

@@ -22,7 +22,10 @@ public actor DeepSeekTranscriptStore {
     public init(root: URL, ledger: UsageLedger = .inMemory()) {
         self.root = root
         self.ledger = ledger
-        logs = TailLogStore(roots: [root], ledger: ledger, watchesChanges: false) { ["session.jsonl", "session.jsonl.zstd"].contains($0.lastPathComponent) }
+        // Harness names each format generation `session[.vN].jsonl[.zstd]` and keeps older generations beside their successor.
+        logs = TailLogStore(roots: [root], ledger: ledger, watchesChanges: false) {
+            $0.lastPathComponent.wholeMatch(of: /session(\.v[1-9][0-9]*)?\.jsonl(\.zstd)?/) != nil
+        }
     }
 
     /// DeepSeek's 15-minute token totals from the period holding `since`.

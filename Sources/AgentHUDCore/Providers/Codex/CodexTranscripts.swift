@@ -141,6 +141,11 @@ public struct CodexTranscript: Codable, Sendable {
                     let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !trimmed.isEmpty { turns?[index].message = String(trimmed.prefix(Self.messageLength)) }
                 }
+            case "item_completed":
+                // Current rollouts record a prompt only as a completed UserMessage item of text and image parts.
+                guard task == nil, let item = payload["item"] as? [String: Any], item["type"] as? String == "UserMessage",
+                      let content = item["content"] as? [[String: Any]] else { break }
+                task = content.lazy.filter { $0["type"] as? String == "text" }.compactMap { ($0["text"] as? String).flatMap(SessionTitle.from) }.first
             default: break
             }
         }
@@ -275,7 +280,7 @@ public actor CodexTranscriptStore {
 enum CodexRollouts: TailLog {
     static let source = "codex"
     static let summaryKey = "transcript"
-    static let version = 1
+    static let version = 2
 
     static func summary(for url: URL) -> CodexTranscript { CodexTranscript() }
 

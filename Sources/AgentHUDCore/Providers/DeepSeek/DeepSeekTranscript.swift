@@ -1,7 +1,7 @@
 import AgentHUDSupport
 import Foundation
 
-/// Summary of Harness v0 session logs. Only metadata and token counters survive indexing.
+/// Summary of Harness session logs in formats 0, 2 and 3. Only metadata and token counters survive indexing.
 public struct DeepSeekTranscript: Codable, Sendable {
     public struct Usage: Codable, Sendable {
         public let timestamp: Date
@@ -60,7 +60,8 @@ public struct DeepSeekTranscript: Codable, Sendable {
         guard let object = try JSONSerialization.jsonObject(with: line) as? [String: Any],
               let type = object["type"] as? String else { return }
         if type == "session" {
-            guard object["version"] as? Int == 0 else {
+            // Format 1 was never released; 2 embeds streams in settled events and 3 changes nothing read here.
+            guard let version = object["version"] as? Int, [0, 2, 3].contains(version) else {
                 throw UsageProviderError(L10n.text("不支持此 Harness 会话格式", "Unsupported Harness session format"))
             }
             guard let sessionId = object["id"] as? String, let created = object["createdAt"] as? Double else {
@@ -69,7 +70,8 @@ public struct DeepSeekTranscript: Codable, Sendable {
             id = sessionId; cwd = object["cwd"] as? String
             startedAt = Date(timeIntervalSince1970: created / 1000)
             isSubagent = object["origin"] as? String == "subagent" || (object["delegationDepth"] as? Int ?? 0) > 0
-            seedLength = object["seedLength"] as? Int ?? 0
+            // A seeded format-2+ log stores no seed length; its cut is found at the fork's own marker below.
+            seedLength = object["seedLength"] as? Int ?? (version >= 2 && object["isSeeded"] as? Bool == true ? .max : 0)
             return
         }
         // Packed streaming rows carry source timestamps, without requiring their text to be retained.
@@ -92,8 +94,12 @@ public struct DeepSeekTranscript: Codable, Sendable {
             model = value
             provider = data["provider"] as? String ?? "Unknown"
         }
-        guard seq >= seedLength else { return }
         let timestamp = Date(timeIntervalSince1970: milliseconds / 1000)
+        // The fork writes its tagged end-seed at creation; tagged markers of copied ancestors predate the header.
+        if type == "session/end-seed", seq < seedLength, data["inherited"] as? Bool == true, timestamp >= startedAt ?? .distantFuture {
+            seedLength = seq
+        }
+        guard seq >= seedLength else { return }
         // A rename or seed marker must not make a finished task look active again.
         if type != "session/title" && type != "session/end-seed" {
             lastActivityAt = timestamp
@@ -130,12 +136,10 @@ public struct DeepSeekTranscript: Codable, Sendable {
         case "llm/retry-started":
             if lastAttempt?.turn == data["turn"] as? Int && lastAttempt?.step == data["step"] as? Int { lastAttempt = nil }
             requestedAt = timestamp
-        case "assistant/chunk", "assistant/message":
-            let counters: [String: Any]?
-            if type == "assistant/chunk" {
-                let chunk = data["chunk"] as? [String: Any]
-                counters = chunk?["type"] as? String == "usage" ? chunk?["usage"] as? [String: Any] : nil
-            } else { counters = data["usage"] as? [String: Any] }
+        case "assistant/chunk", "assistant/message", "assistant/attempt":
+            // Format 0 logs usage chunks as events; later formats embed the stream in the settled message or failed attempt.
+            let chunks = ((data["stream"] as? [[String: Any]])?.map { $0["chunk"] } ?? [data["chunk"]]).compactMap { $0 as? [String: Any] }
+            let counters = data["usage"] as? [String: Any] ?? chunks.last { $0["type"] as? String == "usage" }?["usage"] as? [String: Any]
             guard let counters, let input = counters["inputTokens"] as? Int, input >= 0,
                   let output = counters["outputTokens"] as? Int, output >= 0,
                   let turn = data["turn"] as? Int, let step = data["step"] as? Int else { return }
@@ -144,7 +148,7 @@ public struct DeepSeekTranscript: Codable, Sendable {
             let sample = Usage(timestamp: timestamp, requestedAt: requestedAt ?? timestamp, provider: provider, model: model,
                                input: input + max(0, counters["cacheWriteTokens"] as? Int ?? 0),
                                cachedInput: max(0, counters["cacheReadTokens"] as? Int ?? 0), output: output)
-            if var previous = lastAttempt, previous.turn == turn, previous.step == step {
+            if type != "assistant/attempt", var previous = lastAttempt, previous.turn == turn, previous.step == step {
                 count(previous.sample, sign: -1)
                 previous.sample = sample
                 lastAttempt = previous
@@ -152,7 +156,8 @@ public struct DeepSeekTranscript: Codable, Sendable {
                 else { usage.append(sample); usageKeys.append(previous.key) }
             } else {
                 attempts += 1
-                lastAttempt = Attempt(turn: turn, step: step, key: "a\(attempts)", sample: sample)
+                // A failed attempt is settled; the next attempt of its step counts separately.
+                lastAttempt = type == "assistant/attempt" ? nil : Attempt(turn: turn, step: step, key: "a\(attempts)", sample: sample)
                 usage.append(sample)
                 usageKeys.append("a\(attempts)")
             }
