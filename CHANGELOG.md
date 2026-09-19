@@ -4,6 +4,11 @@ Releases of Agent HUD Open. A version is a git tag `vX.Y.Z` on `main`; `CFBundle
 
 ## Unreleased
 
+- Every display gets its own HUD, set on its own. A screen with no notch stops drawing a bar pretending to have one: it can instead show the watched agents' own logos in a row, with the glow style behind them as a backdrop rather than a rim around a shape. The marks bob while their agent has work running and sit back at reduced opacity otherwise, so motion means one thing. A queue takes no mouse events while collapsed, so clicks reach the menu bar and the window under it, and hovering can be asked to take Option as well.
+- Every glow effect has a speed, not only breathing: scan, ripple, flow, boot and shimmer scale to the period the user picks and keep the proportions they were tuned with. The glow no longer stops when nothing is running — it switches to a longer idle period, sampled at a lower frame rate — so a resting HUD reads as alive rather than dead. The settings pane gains a working and an idle period, and the display preview shows whichever mode the selected screen is in.
+- Glow range, feather and grid spread reach further, for a backdrop carrying marks several times a notch's height. A panel tall enough to fill the screen shrinks its glow to fit rather than the settings being capped for everyone.
+- Host API: `HUDMode`, `HUDEdge` and `ScreenPlacement`, with `Settings.screens` keyed by a display's UUID; `Settings.requiresOptionToOpen` and `idleBreathSeconds`; `GlowMotion.basePeriod(_:)` and `time(_:since:period:)`, with `gain` no longer taking `breathSeconds` — the time passed to it is already scaled; `GlowGeometry.fitted(within:)`; `GlowAppearance.suppressed()`; `StatusLevel.severity` and `worse(_:_:)`; `GlowAppearance.resolve` keeps `breathing` on while idle.
+
 ## 0.4.13 — 2026-09-18
 
 - Shared artwork and the blur context are isolated so the island draws correctly under strict concurrency.
