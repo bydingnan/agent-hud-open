@@ -57,6 +57,9 @@ struct LogoQueueConfig: Equatable {
 struct LogoQueueView: NSViewRepresentable {
     let config: LogoQueueConfig
     let light: Bool
+    /// Bobs every mark at full strength whether its agent is working or not, so a preview shows the motion
+    /// instead of whatever the agents happen to be doing while the settings are open.
+    var previewsMotion = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.displayScale) private var displayScale
@@ -64,7 +67,8 @@ struct LogoQueueView: NSViewRepresentable {
     func makeNSView(context: Context) -> LogoQueueLayerView { LogoQueueLayerView() }
 
     func updateNSView(_ view: LogoQueueLayerView, context: Context) {
-        view.apply(config: config, light: light, scale: displayScale, animates: !reduceMotion)
+        view.apply(config: config, light: light, scale: displayScale, animates: !reduceMotion,
+                   previewsMotion: previewsMotion)
     }
 }
 
@@ -77,7 +81,7 @@ final class LogoQueueLayerView: NSView {
     private static let restingOpacity: Float = 0.65
 
     private var marks: [CALayer] = []
-    private var applied: (config: LogoQueueConfig, light: Bool, scale: CGFloat, animates: Bool)?
+    private var applied: (config: LogoQueueConfig, light: Bool, scale: CGFloat, animates: Bool, previews: Bool)?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -103,16 +107,16 @@ final class LogoQueueLayerView: NSView {
         if let applied { position(config: applied.config) }
     }
 
-    func apply(config: LogoQueueConfig, light: Bool, scale: CGFloat, animates: Bool) {
-        if let applied, applied.config == config, applied.light == light,
-           applied.scale == scale, applied.animates == animates { return }
+    func apply(config: LogoQueueConfig, light: Bool, scale: CGFloat, animates: Bool, previewsMotion: Bool = false) {
+        if let applied, applied.config == config, applied.light == light, applied.scale == scale,
+           applied.animates == animates, applied.previews == previewsMotion { return }
         let rebuild = applied?.config.items.map(\.id) != config.items.map(\.id)
             || applied?.light != light || applied?.scale != scale
             || applied?.config.logo != config.logo
-        applied = (config, light, scale, animates)
+        applied = (config, light, scale, animates, previewsMotion)
         if rebuild { build(config: config, light: light, scale: scale) }
         position(config: config)
-        animate(config: config, animates: animates)
+        animate(config: config, animates: animates, previewsMotion: previewsMotion)
     }
 
     private func build(config: LogoQueueConfig, light: Bool, scale: CGFloat) {
@@ -156,14 +160,14 @@ final class LogoQueueLayerView: NSView {
     /// The bob is a translation, not a move to a second point: an absolute animation on `position` outlives
     /// every relayout — it keeps driving the presentation from the coordinates it was built with, so a mark
     /// sits where the old size put it however often the layout is redone.
-    private func animate(config: LogoQueueConfig, animates: Bool) {
+    private func animate(config: LogoQueueConfig, animates: Bool, previewsMotion: Bool) {
         let travel = config.logo * Self.travel
         let axis = config.edge.inward
         let vertical = axis.y != 0
         var bobbing = 0
         for (index, mark) in marks.enumerated() {
             mark.removeAnimation(forKey: "bob")
-            let working = index < config.items.count && config.items[index].isWorking
+            let working = previewsMotion || (index < config.items.count && config.items[index].isWorking)
             mark.opacity = working ? 1 : Self.restingOpacity
             guard animates, working else { continue }
             let period = max(0.25, config.workingSeconds)

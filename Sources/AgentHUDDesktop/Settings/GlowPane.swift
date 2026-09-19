@@ -191,7 +191,7 @@ struct LogoQueuePreview: View {
                         .init(color: .clear, location: 1),
                     ], startPoint: .leading, endPoint: .trailing)
                 }
-                LogoQueueView(config: config, light: false)
+                LogoQueueView(config: config, light: false, previewsMotion: true)
                     .frame(width: width, height: strip)
             }
             .frame(width: proxy.size.width, alignment: .center)
