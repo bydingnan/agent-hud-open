@@ -47,7 +47,7 @@ struct ScreensPane: View {
         guard let key = current?.key,
               let screen = NSScreen.screens.first(where: { ScreenIdentity.key(for: $0) == key })
         else { return 24 }
-        return max(22, screen.frame.maxY - screen.visibleFrame.maxY)
+        return ScreenIdentity.menuBarHeight(of: screen)
     }
 
     var body: some View {
@@ -96,6 +96,7 @@ struct ScreensPane: View {
     }
 
     private func refresh() {
+        ScreenIdentity.forgetKeys()
         screens = Self.attached()
         if !screens.contains(where: { $0.key == selected }) {
             selected = screens.first?.key ?? ""

@@ -7,6 +7,8 @@ struct GlowPane: View {
     let theme: Theme
     /// The selected screen's placement, so the preview shows the shape that screen actually wears.
     var placement: ScreenPlacement = .default(hasNotch: true)
+    /// That screen's real measurements, so the preview is the machine's own shape rather than a stand-in.
+    var metrics: ScreenMetrics = .fallback
 
     private var title: String {
         placement.mode == .logos
@@ -22,11 +24,12 @@ struct GlowPane: View {
                 Color.clear.frame(height: 112)
                     .overlay(alignment: .top) {
                         if placement.mode == .logos {
-                            LogoQueuePreview(settings: settings, store: store, placement: placement)
+                            LogoQueuePreview(settings: settings, store: store, placement: placement, metrics: metrics)
                         } else {
                             GlowPreview(
                                 appearance: store.glowAppearance(light: false), settings: current,
-                                islandSize: CGSize(width: 240, height: 30), islandRadius: 13, previewsMotion: true
+                                islandSize: metrics.islandSize, islandRadius: metrics.islandRadius,
+                                previewsMotion: true
                             )
                         }
                     }
@@ -125,6 +128,30 @@ private extension GlowEffect {
     }
 }
 
+/// One display's real measurements, so a preview shows that machine's shape instead of a generic one.
+struct ScreenMetrics: Equatable {
+    var menuBar: CGFloat
+    /// The physical notch, when the display has one.
+    var notch: CGSize?
+
+    static let fallback = ScreenMetrics(menuBar: 24, notch: nil)
+
+    @MainActor
+    init(screen: NSScreen?) {
+        menuBar = screen.map(ScreenIdentity.menuBarHeight(of:)) ?? 24
+        notch = screen.flatMap(ScreenIdentity.notchSize(of:))
+    }
+
+    init(menuBar: CGFloat, notch: CGSize?) {
+        self.menuBar = menuBar
+        self.notch = notch
+    }
+
+    /// What the notch preview draws: the real notch, or the bar that stands in for one.
+    var islandSize: CGSize { notch ?? CGSize(width: NotchGeometry.fallbackWidth, height: menuBar) }
+    var islandRadius: CGFloat { notch == nil ? NotchGeometry.fallbackCornerRadius : NotchGeometry.notchCornerRadius }
+}
+
 /// What a screen in logo mode looks like: the marks with the backdrop falling behind them. The curtain is
 /// the same trick the real HUD uses — a flat lip run wider than the preview, clipped back to it, so the
 /// field falls straight down instead of curling in at the ends.
@@ -132,8 +159,7 @@ struct LogoQueuePreview: View {
     let settings: SettingsStore
     let store: UsageStore
     let placement: ScreenPlacement
-    /// The menu bar the preview pretends to sit in.
-    private static let menuBar: CGFloat = 24
+    let metrics: ScreenMetrics
 
     var body: some View {
         let items = LogoQueueItem.queue(rows: store.rows.map { row in
@@ -141,7 +167,7 @@ struct LogoQueuePreview: View {
              isWorking: store.sessions.contains { $0.agentId == row.agent.id && $0.endedAt == nil })
         })
         let config = LogoQueueConfig(items: items, placement: placement,
-                                     settings: settings.settings, menuBarHeight: Self.menuBar)
+                                     settings: settings.settings, menuBarHeight: metrics.menuBar)
         GeometryReader { proxy in
             let width = max(1, min(proxy.size.width, config.size.width + 48))
             ZStack(alignment: .top) {
@@ -152,7 +178,7 @@ struct LogoQueuePreview: View {
                 .frame(width: width, alignment: .center)
                 .clipped()
                 LogoQueueView(config: config, light: false)
-                    .frame(width: width, height: max(Self.menuBar, config.logo))
+                    .frame(width: width, height: max(metrics.menuBar, config.logo))
             }
             .frame(width: proxy.size.width, alignment: .center)
         }

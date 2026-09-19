@@ -267,9 +267,13 @@ final class IslandController {
         // panel then clips that field back to the queue's own column, cutting off the ends that would dip.
         let backdrop = geometry.mode == .logos && !expanded
         let overhang = current.glowRange + current.glowBlur * 3 + NotchGeometry.fallbackWidth
+        // The lip's bottom edge sits on the marks' centre line, not the screen's top edge: the field fades
+        // with distance from that edge, so anchoring it to the screen would leave a tall queue hanging in
+        // the faint tail of its own backdrop.
         let glowIsland = backdrop
-            ? CGRect(x: geometry.rect.minX - overhang, y: geometry.screenFrame.maxY - 2,
-                     width: geometry.rect.width + overhang * 2, height: 2)
+            ? CGRect(x: geometry.rect.minX - overhang, y: islandFrame.midY,
+                     width: geometry.rect.width + overhang * 2,
+                     height: geometry.screenFrame.maxY - islandFrame.midY + overhang)
             : islandFrame
         let glowRadius = backdrop ? 0 : radius
         let glowGeometry = current.glowGeometry(islandWidth: glowIsland.width, islandHeight: glowIsland.height, islandRadius: glowRadius)

@@ -13,6 +13,8 @@ struct GlowPreview: View {
     @Environment(\.displayScale) private var displayScale
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.glowFrozenTime) private var frozenTime
+    /// A preview in a window nobody is looking at still renders every frame; this stops it.
+    @Environment(\.controlActiveState) private var activeState
     @State private var imageCache = GlowImageCache()
     @State private var frameCache = GlowFrameCache()
     let appearance: GlowAppearance
@@ -38,6 +40,7 @@ struct GlowPreview: View {
         // Grid styles and every soft effect but breathing draw frame by frame; soft breathing pulses the bitmap.
         let framed = pattern.usesGrid || pattern.effect != .breathe
         let animates = framed && !appearance.hidden && !reduceMotion && frozenTime == nil
+            && activeState != .inactive
             && (appearance.breathing || previewsMotion)
         // Soft bitmaps carry a blur margin on every side.
         let padding = pattern.usesGrid ? 0 : ceil(max(0, glow.blur) * 3)
@@ -52,7 +55,11 @@ struct GlowPreview: View {
                                      outwardOnly: settings.glowOutwardOnly, stops: appearance.stops, scale: displayScale,
                                      pattern: pattern)
         }()
-        TimelineView(.animation(paused: animates || frozenTime != nil || !appearance.breathing)) { context in
+        // The timeline only exists to pulse a soft glow's opacity. It must stop whenever nothing is pulsing —
+        // including when the frame-by-frame path has it, and when the window is not being looked at, or it
+        // drives a full-rate redraw of a still image.
+        let pulses = !animates && appearance.breathing && frozenTime == nil && activeState != .inactive
+        TimelineView(.animation(paused: !pulses)) { context in
             ZStack(alignment: .top) {
                 if animates {
                     GlowEffectView(key: key, breathSeconds: settings.breathSeconds, breathAmplitude: settings.breathAmplitude)

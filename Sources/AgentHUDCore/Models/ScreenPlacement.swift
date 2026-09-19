@@ -29,10 +29,13 @@ public enum HUDEdge: String, Codable, Sendable, CaseIterable {
 /// different edges and size their logos differently. The glow style is not — it is the HUD's material,
 /// shared by every screen; what changes per screen is the shape it is drawn around.
 public struct ScreenPlacement: Hashable, Codable, Sendable {
-    /// Logo height as a share of the menu bar height, so the default fits the bar on any display.
-    public static let logoScaleRange: ClosedRange<Double> = 0.5...2.5
-    /// Gap between logos, as a share of the logo's height.
-    public static let gapScaleRange: ClosedRange<Double> = 0.1...1
+    /// Logo height as a share of the menu bar height, so the default fits the bar on any display. The top
+    /// of the range is a mark half again the bar's height; past that the queue stops reading as part of the
+    /// menu bar and starts covering the windows under it.
+    public static let logoScaleRange: ClosedRange<Double> = 0.5...1.6
+    /// Gap between logos, as a share of the logo's height. A gap wider than about half a mark reads as
+    /// separate marks rather than one queue.
+    public static let gapScaleRange: ClosedRange<Double> = 0.1...0.6
     public var mode: HUDMode
     public var edge: HUDEdge
     /// The queue's centre along its edge, as a fraction of that edge's length, so it survives a

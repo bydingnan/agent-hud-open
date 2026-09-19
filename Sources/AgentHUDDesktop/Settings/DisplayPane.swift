@@ -10,17 +10,20 @@ struct DisplayPane: View {
     /// mode rather than always the notch.
     @State private var screen: String = ScreensPane.attached().first?.key ?? ""
 
+    private var selection: NSScreen? {
+        NSScreen.screens.first { ScreenIdentity.key(for: $0) == screen } ?? NSScreen.main
+    }
+
     private var placement: ScreenPlacement {
-        guard let match = NSScreen.screens.first(where: { ScreenIdentity.key(for: $0) == screen }) else {
-            return .default(hasNotch: NSScreen.main.map(ScreenIdentity.hasNotch) ?? false)
-        }
-        return ScreenIdentity.placement(for: match, in: settings.settings)
+        guard let selection else { return .default(hasNotch: false) }
+        return ScreenIdentity.placement(for: selection, in: settings.settings)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 28) {
             ScreensPane(settings: settings, theme: theme, selected: $screen)
-            GlowPane(settings: settings, store: store, theme: theme, placement: placement)
+            GlowPane(settings: settings, store: store, theme: theme, placement: placement,
+                     metrics: ScreenMetrics(screen: selection))
             IslandPane(settings: settings, theme: theme)
             SettingsSection(title: L10n.text("菜单栏", "Menu bar"), theme: theme) {
                 SettingsToggleRow(

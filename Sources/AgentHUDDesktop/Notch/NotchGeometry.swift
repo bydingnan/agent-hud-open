@@ -26,8 +26,6 @@ struct NotchGeometry: Equatable {
     /// Concave flare where the island meets the screen edge, collapsed / expanded.
     static let collapsedTopRadius: CGFloat = 8
     static let expandedTopRadius: CGFloat = 16
-    /// Breathing room between the queue's marks and the ends of its strip.
-    static let logoStripPadding: CGFloat = 10
 
     /// - placement: how this screen presents the HUD. Defaults to the notch behaviour this app has always had.
     /// - queue: the measured size of the logo queue's marks, when the placement asks for one.
@@ -72,8 +70,9 @@ struct NotchGeometry: Equatable {
     /// padding is hover slack, not a visible strip.
     private static func stripRect(queue: CGSize, frame: CGRect, menuBar: CGFloat,
                                   placement: ScreenPlacement, notch: CGRect?) -> CGRect {
-        let padding = logoStripPadding
-        let long = (placement.edge.isHorizontal ? queue.width : queue.height) + padding
+        // The run is the marks themselves: the backdrop is clipped to this rect, and anything added here
+        // would show up as backdrop reaching past the last mark.
+        let long = placement.edge.isHorizontal ? queue.width : queue.height
         let thick = max(menuBar, placement.edge.isHorizontal ? queue.height : queue.width)
         switch placement.edge {
         case .top, .bottom:
