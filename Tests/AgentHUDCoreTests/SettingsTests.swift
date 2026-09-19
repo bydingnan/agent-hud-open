@@ -51,10 +51,12 @@ final class SettingsTests: XCTestCase {
 
     func testGlowSizeBoundsWhenDecodingSettings() throws {
         for (range, blur, expectedRange, expectedBlur) in [
-            (40.0, 30.0, 20.0, 20.0),
+            // Above the bound and below it: both ends clamp, whatever the bound is set to.
+            (Settings.glowSizeRange.upperBound * 2, Settings.glowSizeRange.upperBound + 10,
+             Settings.glowSizeRange.upperBound, Settings.glowSizeRange.upperBound),
             (-1, -1, 0, 0),
-            (0, 20, 0, 20),
-            (20, 0, 20, 0),
+            (0, Settings.glowSizeRange.upperBound, 0, Settings.glowSizeRange.upperBound),
+            (Settings.glowSizeRange.upperBound, 0, Settings.glowSizeRange.upperBound, 0),
         ] {
             let data = try JSONEncoder().encode(["glowRange": range, "glowBlur": blur])
             let decoded = try JSONDecoder().decode(Settings.self, from: data)

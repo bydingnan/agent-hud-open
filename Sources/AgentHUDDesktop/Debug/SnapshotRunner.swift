@@ -62,37 +62,40 @@ public enum SnapshotRunner {
         settings.update { $0.glowGridDensity = 1 }
         // Logo mode: the agents' own marks over the glow backdrop, one shot per style.
         do {
-            let rows = store.rows.enumerated().map { index, row in
-                (vendor: row.agent.vendor, isWorking: index % 3 == 0)
-            }
             let saved = settings.settings
             for style in GlowStyle.allCases {
                 settings.update { $0.glowStyle = style; $0.glowEffect = .breathe }
-                for (name, scale) in [("", 0.82), ("-large", 1.6)] {
-                    let placement = ScreenPlacement(mode: .logos, logoScale: scale)
+                for (name, scale) in [("", 24.0), ("-large", 36.0)] {
                     save("logo-queue-\(style.rawValue)\(name)",
-                         LogoQueueScene(rows: rows, placement: placement, settings: settings.settings,
-                                        appearance: store.glowAppearance(light: false)),
+                         LogoQueueScene(settings: settings, store: store,
+                                        placement: ScreenPlacement(mode: .logos, logoSize: scale)),
                          folder: folder, scheme: .dark)
                 }
             }
-            // Every bundled mark at queue size, to check each one reads at this scale and is not invisible.
+            // Every bundled mark at queue size, to check each one reads there and none is invisible.
+            let everyMark = AgentArtwork.allVendors.enumerated().map {
+                LogoQueueItem(vendor: $1, isWorking: $0 % 4 == 0)
+            }
             settings.update { $0.glowStyle = .dots; $0.glowEffect = .breathe }
-            let everyVendor = AgentArtwork.allVendors
-            for (name, scale) in [("", 0.82), ("-large", 1.6)] {
+            for (name, size) in [("", 24.0), ("-large", 36.0)] {
                 save("logo-queue-all\(name)",
-                     LogoQueueScene(rows: everyVendor.map { (vendor: $0, isWorking: false) },
-                                    placement: ScreenPlacement(mode: .logos, logoScale: scale),
-                                    settings: settings.settings, appearance: store.glowAppearance(light: false)),
+                     LogoQueueScene(settings: settings, store: store,
+                                    placement: ScreenPlacement(mode: .logos, logoSize: size),
+                                    marks: everyMark, width: 1180),
                      folder: folder, scheme: .dark)
-                save("logo-queue-all\(name)-light",
-                     LogoQueueScene(rows: everyVendor.map { (vendor: $0, isWorking: false) },
-                                    placement: ScreenPlacement(mode: .logos, logoScale: scale),
-                                    settings: settings.settings, appearance: store.glowAppearance(light: true),
-                                    light: true),
-                     folder: folder, scheme: .light)
             }
             settings.update { $0 = saved }
+        }
+        // The Display pane with this machine's screen put in logo mode, to check the preview against the HUD.
+        if let main = NSScreen.main {
+            let key = ScreenIdentity.key(for: main)
+            let saved = settings.settings.screens[key]
+            settings.update { $0.glowStyle = .dots; $0.glowEffect = .breathe
+                              $0.screens[key] = ScreenPlacement(mode: .logos) }
+            save("settings-display-logos-dark", SettingsView(settings: settings, store: store, initialTab: .display).frame(width: SettingsWindowLayout.size.width, height: SettingsWindowLayout.size.height), folder: folder, scheme: .dark)
+            settings.update { $0.screens[key] = ScreenPlacement(mode: .logos, logoSize: 36) }
+            save("settings-display-logos-large-dark", SettingsView(settings: settings, store: store, initialTab: .display).frame(width: SettingsWindowLayout.size.width, height: SettingsWindowLayout.size.height), folder: folder, scheme: .dark)
+            settings.update { $0.screens[key] = saved }
         }
         settings.update { $0.glowStyle = .dots; $0.glowEffect = .ripple }
         save("settings-display-dots-dark", SettingsView(settings: settings, store: store, initialTab: .display).frame(width: SettingsWindowLayout.size.width, height: SettingsWindowLayout.size.height), folder: folder, scheme: .dark)
@@ -651,29 +654,22 @@ struct MenuBarStrip: View {
     }
 }
 
-/// The collapsed HUD on a screen in logo mode: the queue on its strip, sized from a menu bar of
-/// `menuBar` points exactly as a real screen sizes it.
+/// The collapsed HUD on a screen in logo mode. It is the settings pane's own preview, so a snapshot can
+/// never drift from what the pane shows — and both are built the way the real HUD builds its backdrop.
 struct LogoQueueScene: View {
-    let rows: [(vendor: String, isWorking: Bool)]
+    let settings: SettingsStore
+    let store: UsageStore
     let placement: ScreenPlacement
-    let settings: AgentHUDCore.Settings
-    let appearance: GlowAppearance
-    var light = false
     var menuBar: CGFloat = 24
+    var marks: [LogoQueueItem]?
+    var width: CGFloat = 640
 
     var body: some View {
-        let config = LogoQueueConfig(items: LogoQueueItem.queue(rows: rows), placement: placement,
-                                     settings: settings, menuBarHeight: menuBar)
-        // The glow radiates from a flat line through the marks, so it reads as a backdrop behind them
-        // rather than a rim around a shape — the same field the notch wears as a halo.
-        ZStack {
-            GlowPreview(appearance: appearance, settings: settings,
-                        islandSize: config.size, islandRadius: config.logo / 2,
-                        previewsMotion: true, drawsIsland: false)
-            LogoQueueView(config: config, light: light)
-                .frame(height: max(menuBar, config.logo))
-        }
-        .padding(28)
-        .background(Color(white: light ? 0.96 : 0.10))
+        LogoQueuePreview(settings: settings, store: store, placement: placement,
+                         metrics: ScreenMetrics(menuBar: menuBar, notch: nil), marks: marks)
+            // The preview measures itself against the space it is given; a snapshot has to name one.
+            .frame(width: width, height: 132)
+            .padding(24)
+            .background(Color(white: 0.10))
     }
 }

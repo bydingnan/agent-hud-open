@@ -98,9 +98,12 @@ struct NotchGeometry: Equatable {
     var centerX: CGFloat { rect.midX }
     var top: CGFloat { screenFrame.maxY }
 
-    /// Collapsed window: the HUD plus the flares where it meets the screen edge.
+    /// Collapsed window: the HUD plus the flares where it meets the screen edge. A logo queue gets the slack
+    /// on both axes — its marks carry an outline that overflows them, and the backdrop is clipped to `rect`
+    /// rather than to this, so widening the window does not widen the backdrop.
     var islandFrame: CGRect {
-        edge.isHorizontal ? rect.insetBy(dx: -Self.collapsedTopRadius, dy: 0) : rect.insetBy(dx: 0, dy: -Self.collapsedTopRadius)
+        guard mode != .logos else { return rect.insetBy(dx: -Self.collapsedTopRadius, dy: -Self.collapsedTopRadius) }
+        return edge.isHorizontal ? rect.insetBy(dx: -Self.collapsedTopRadius, dy: 0) : rect.insetBy(dx: 0, dy: -Self.collapsedTopRadius)
     }
 
     /// Core of the expanded panel: anchored to the same edge, centred on the collapsed rect, growing inward.

@@ -160,16 +160,22 @@ struct LogoQueuePreview: View {
     let store: UsageStore
     let placement: ScreenPlacement
     let metrics: ScreenMetrics
+    /// Overrides what the queue shows. Only the snapshot runner uses it, to lay out every bundled mark.
+    var marks: [LogoQueueItem]?
 
     var body: some View {
-        let items = LogoQueueItem.queue(rows: store.rows.map { row in
+        let items = marks ?? LogoQueueItem.queue(rows: store.rows.map { row in
             (vendor: row.agent.vendor,
              isWorking: store.sessions.contains { $0.agentId == row.agent.id && $0.endedAt == nil })
         })
-        let config = LogoQueueConfig(items: items, placement: placement,
-                                     settings: settings.settings, menuBarHeight: metrics.menuBar)
+        let config = LogoQueueConfig(items: items, placement: placement, settings: settings.settings)
+        let strip = max(metrics.menuBar, config.logo)
+        let margin = GlowWindowController.logoEdgeMargin(stripThickness: strip)
         GeometryReader { proxy in
-            let width = max(1, min(proxy.size.width, config.size.width + 48))
+            // The marks' run plus the same margin the real backdrop reaches past them, faded over exactly
+            // that distance so the ends die away instead of being cut.
+            let width = max(1, min(proxy.size.width, config.size.width + margin * 2))
+            let stop = margin / width
             ZStack(alignment: .top) {
                 GlowPreview(
                     appearance: store.glowAppearance(light: false), settings: settings.settings,
@@ -177,8 +183,16 @@ struct LogoQueuePreview: View {
                 )
                 .frame(width: width, alignment: .center)
                 .clipped()
+                .mask(alignment: .top) {
+                    LinearGradient(stops: [
+                        .init(color: .clear, location: 0),
+                        .init(color: .black, location: stop),
+                        .init(color: .black, location: 1 - stop),
+                        .init(color: .clear, location: 1),
+                    ], startPoint: .leading, endPoint: .trailing)
+                }
                 LogoQueueView(config: config, light: false)
-                    .frame(width: width, height: max(metrics.menuBar, config.logo))
+                    .frame(width: width, height: strip)
             }
             .frame(width: proxy.size.width, alignment: .center)
         }

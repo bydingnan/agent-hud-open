@@ -41,15 +41,6 @@ struct ScreensPane: View {
         )
     }
 
-    /// Sizes are stored as a share of the menu bar so they carry across displays, but the slider reads in
-    /// points, which is what the user is actually looking at.
-    private var menuBarHeight: CGFloat {
-        guard let key = current?.key,
-              let screen = NSScreen.screens.first(where: { ScreenIdentity.key(for: $0) == key })
-        else { return 24 }
-        return ScreenIdentity.menuBarHeight(of: screen)
-    }
-
     var body: some View {
         SettingsSection(title: L10n.text("屏幕", "Screens"),
                         subtitle: L10n.text("每块屏幕单独设置。", "Set each display on its own."), theme: theme) {
@@ -68,16 +59,15 @@ struct ScreensPane: View {
                 ], selection: binding(\.mode), theme: theme)
             }
             if placement.mode == .logos {
-                let bar = menuBarHeight
-                let points: (Double) -> String = { String(format: L10n.text("%.0f pt", "%.0f pt"), $0 * bar) }
+                let size = placement.logoSize
+                let points: (Double) -> String = { String(format: L10n.text("%.0f pt", "%.0f pt"), $0) }
                 SettingsDivider(theme: theme)
-                SliderRow(label: L10n.text("Logo 大小", "Logo size"), value: binding(\.logoScale),
-                          range: ScreenPlacement.logoScaleRange, step: 0.02, format: points, theme: theme)
+                SliderRow(label: L10n.text("Logo 大小", "Logo size"), value: binding(\.logoSize),
+                          range: ScreenPlacement.logoSizeRange, step: 1, format: points, theme: theme)
                 SettingsDivider(theme: theme)
                 SliderRow(label: L10n.text("Logo 间距", "Logo spacing"), value: binding(\.gapScale),
                           range: ScreenPlacement.gapScaleRange, step: 0.05,
-                          format: { String(format: L10n.text("%.0f pt", "%.0f pt"), $0 * placement.logoScale * bar) },
-                          theme: theme)
+                          format: { points($0 * size) }, theme: theme)
             }
         }
         .onAppear { refresh() }

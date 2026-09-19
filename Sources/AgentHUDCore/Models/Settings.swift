@@ -40,10 +40,14 @@ public enum GlowEffect: String, Codable, Sendable, CaseIterable {
 
 /// User-tunable settings. Every field has a default so older stored JSON still decodes.
 public struct Settings: Hashable, Codable, Sendable {
-    public static let glowSizeRange: ClosedRange<Double> = 0...20
+    /// A collapsed island or a logo queue's backdrop can afford this much; a panel tall enough to fill the
+    /// screen cannot, and shrinks its glow to fit through `GlowGeometry.fitted(within:)`.
+    public static let glowSizeRange: ClosedRange<Double> = 0...36
     public static let breathSecondsRange: ClosedRange<Double> = 1...24
-    public static let glowGridPitchRange: ClosedRange<Double> = 4...16
-    public static let glowGridSpreadRange: ClosedRange<Double> = 1...4
+    // The grid's reach is set by the logo queue rather than the notch: a backdrop carrying marks several
+    // times the notch's height needs a spread to match, where a rim around the notch never did.
+    public static let glowGridPitchRange: ClosedRange<Double> = 4...24
+    public static let glowGridSpreadRange: ClosedRange<Double> = 1...5
     public static let glowGridDensityRange: ClosedRange<Double> = 0.6...2
 
     /// Breath period while an agent is working.

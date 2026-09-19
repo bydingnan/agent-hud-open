@@ -9,8 +9,16 @@ import AgentHUDCore
 final class GlowAnimator {
     static let framesPerSecond: Float = 24
     static let fadeDuration: CFTimeInterval = 0.6
+    /// The design's rate is for the working period. A resting HUD runs the same effect several times slower,
+    /// and sampling slow motion at the full rate buys nothing but CPU, so the rate follows the period down to
+    /// this floor.
+    static let idleFramesPerSecond: Float = 8
     /// The link may still fire at the display's full refresh rate; frames closer than this are skipped.
-    private static let frameInterval: CFTimeInterval = 1 / CFTimeInterval(framesPerSecond) - 0.002
+    private var frameInterval: CFTimeInterval {
+        let rate = max(Self.idleFramesPerSecond,
+                       Self.framesPerSecond * Float(GlowMotion.breathePeriod / max(0.5, breathSeconds)))
+        return 1 / CFTimeInterval(min(Self.framesPerSecond, rate)) - 0.002
+    }
     /// Frames are spaced at least this many times their own drawing time, so a large glow such as the one around
     /// an expanded panel lowers its frame rate instead of spending more than about a tenth of a core.
     private static let frameCostSpacing: CFTimeInterval = 10
@@ -92,7 +100,7 @@ final class GlowAnimator {
         guard let renderer else { return }
         let now = CACurrentMediaTime()
         let rested = fadeTo == 0 && now - fadeStart >= Self.fadeDuration
-        guard rested || now - lastFrame >= max(Self.frameInterval, frameCost * Self.frameCostSpacing) else { return }
+        guard rested || now - lastFrame >= max(frameInterval, frameCost * Self.frameCostSpacing) else { return }
         lastFrame = now
         let frame = renderer.render(time: now - startTime, blend: blend(at: now),
                                     breathSeconds: breathSeconds, breathAmplitude: breathAmplitude)

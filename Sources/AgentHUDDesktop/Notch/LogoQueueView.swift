@@ -21,8 +21,7 @@ struct LogoQueueItem: Identifiable, Equatable {
     }
 }
 
-/// A queue resolved for one screen: what to draw, how big, and how fast. Sizes come from the screen's menu
-/// bar height scaled by the placement, so the queue fits the bar it sits in on any display.
+/// A queue resolved for one screen: what to draw, how big, and how fast.
 struct LogoQueueConfig: Equatable {
     var items: [LogoQueueItem]
     var edge: HUDEdge
@@ -32,10 +31,10 @@ struct LogoQueueConfig: Equatable {
     var workingSeconds: Double
     var idleSeconds: Double
 
-    init(items: [LogoQueueItem], placement: ScreenPlacement, settings: AgentHUDCore.Settings, menuBarHeight: CGFloat) {
+    init(items: [LogoQueueItem], placement: ScreenPlacement, settings: AgentHUDCore.Settings) {
         self.items = items
         edge = placement.edge
-        logo = menuBarHeight * placement.logoScale
+        logo = placement.logoSize
         gap = logo * placement.gapScale
         workingSeconds = settings.breathSeconds
         idleSeconds = settings.idleBreathSeconds
@@ -96,6 +95,13 @@ final class LogoQueueLayerView: NSView {
         position(config: applied.config)
     }
 
+    /// The marks are laid out against the view's own bounds, so a size change has to reach them even when
+    /// AppKit does not consider the bounds themselves changed.
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        if let applied { position(config: applied.config) }
+    }
+
     func apply(config: LogoQueueConfig, light: Bool, scale: CGFloat, animates: Bool) {
         if let applied, applied.config == config, applied.light == light,
            applied.scale == scale, applied.animates == animates { return }
@@ -146,18 +152,20 @@ final class LogoQueueLayerView: NSView {
         CATransaction.commit()
     }
 
+    /// The bob is a translation, not a move to a second point: an absolute animation on `position` outlives
+    /// every relayout — it keeps driving the presentation from the coordinates it was built with, so a mark
+    /// sits where the old size put it however often the layout is redone.
     private func animate(config: LogoQueueConfig, animates: Bool) {
         let travel = config.logo * Self.travel
+        let axis = config.edge.inward
+        let vertical = axis.y != 0
         for (index, mark) in marks.enumerated() {
             mark.removeAnimation(forKey: "bob")
             guard animates, index < config.items.count else { continue }
             let period = max(0.25, config.items[index].isWorking ? config.workingSeconds : config.idleSeconds)
-            let axis = config.edge.inward
-            let animation = CABasicAnimation(keyPath: "position")
-            let from = mark.position
-            animation.fromValue = NSValue(point: from)
-            animation.toValue = NSValue(point: CGPoint(x: from.x + travel * CGFloat(axis.x),
-                                                       y: from.y + travel * CGFloat(axis.y)))
+            let animation = CABasicAnimation(keyPath: vertical ? "transform.translation.y" : "transform.translation.x")
+            animation.fromValue = 0
+            animation.toValue = travel * CGFloat(vertical ? axis.y : axis.x)
             animation.duration = period / 2
             animation.autoreverses = true
             animation.repeatCount = .infinity

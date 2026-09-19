@@ -207,22 +207,18 @@ final class IslandController {
         })
     }
 
-    /// Logo mode needs the queue's size to size the strip, and the queue needs the menu bar height to size
-    /// its marks, so the screen is measured once before the strip is laid out.
+    /// Logo mode sizes the strip from the queue it has to hold.
     private func resolveGeometry() -> NotchGeometry {
         let placement = placement
         guard placement.mode == .logos else { return NotchGeometry.detect(placement: placement) }
-        let menuBar = NotchGeometry.detect().menuBarHeight
-        let config = LogoQueueConfig(items: queueItems, placement: placement,
-                                     settings: settings.settings, menuBarHeight: menuBar)
+        let config = LogoQueueConfig(items: queueItems, placement: placement, settings: settings.settings)
         guard !config.items.isEmpty else { return NotchGeometry.detect(placement: .default(hasNotch: geometry.hasNotch)) }
         return NotchGeometry.detect(placement: placement, queue: config.size)
     }
 
     private var logoQueue: LogoQueueConfig? {
         guard geometry.mode == .logos else { return nil }
-        let config = LogoQueueConfig(items: queueItems, placement: placement,
-                                     settings: settings.settings, menuBarHeight: geometry.menuBarHeight)
+        let config = LogoQueueConfig(items: queueItems, placement: placement, settings: settings.settings)
         return config.items.isEmpty ? nil : config
     }
 
@@ -267,16 +263,17 @@ final class IslandController {
         // panel then clips that field back to the queue's own column, cutting off the ends that would dip.
         let backdrop = geometry.mode == .logos && !expanded
         let overhang = current.glowRange + current.glowBlur * 3 + NotchGeometry.fallbackWidth
-        // The lip's bottom edge sits on the marks' centre line, not the screen's top edge: the field fades
-        // with distance from that edge, so anchoring it to the screen would leave a tall queue hanging in
-        // the faint tail of its own backdrop.
+        // The lip is a flat line on the screen's top edge, run wider than the queue: every cell's nearest
+        // point is then straight above it, so the field falls vertically instead of curling in at the ends,
+        // and the marks sit inside the field rather than below where it starts.
         let glowIsland = backdrop
-            ? CGRect(x: geometry.rect.minX - overhang, y: islandFrame.midY,
-                     width: geometry.rect.width + overhang * 2,
-                     height: geometry.screenFrame.maxY - islandFrame.midY + overhang)
+            ? CGRect(x: geometry.rect.minX - overhang, y: geometry.screenFrame.maxY,
+                     width: geometry.rect.width + overhang * 2, height: 2)
             : islandFrame
         let glowRadius = backdrop ? 0 : radius
-        let glowGeometry = current.glowGeometry(islandWidth: glowIsland.width, islandHeight: glowIsland.height, islandRadius: glowRadius)
+        let glowGeometry = current
+            .glowGeometry(islandWidth: glowIsland.width, islandHeight: glowIsland.height, islandRadius: glowRadius)
+            .fitted(within: geometry.screenFrame.height)
         let appearance = store.glowAppearance(light: systemIsLight)
 
         if !animated || targetWindowFrame != windowFrame {

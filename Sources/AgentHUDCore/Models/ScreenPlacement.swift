@@ -29,10 +29,10 @@ public enum HUDEdge: String, Codable, Sendable, CaseIterable {
 /// different edges and size their logos differently. The glow style is not — it is the HUD's material,
 /// shared by every screen; what changes per screen is the shape it is drawn around.
 public struct ScreenPlacement: Hashable, Codable, Sendable {
-    /// Logo height as a share of the menu bar height, so the default fits the bar on any display. The top
-    /// of the range is a mark half again the bar's height; past that the queue stops reading as part of the
-    /// menu bar and starts covering the windows under it.
-    public static let logoScaleRange: ClosedRange<Double> = 0.5...1.6
+    /// Side of one mark in points. A share of the menu bar reads badly as a control, and the bar is not the
+    /// same height on every Mac — near 38pt on a notched one against 24 elsewhere — so a multiple of it gave
+    /// wildly different marks for the same setting.
+    public static let logoSizeRange: ClosedRange<Double> = 18...36
     /// Gap between logos, as a share of the logo's height. A gap wider than about half a mark reads as
     /// separate marks rather than one queue.
     public static let gapScaleRange: ClosedRange<Double> = 0.1...0.6
@@ -41,20 +41,20 @@ public struct ScreenPlacement: Hashable, Codable, Sendable {
     /// The queue's centre along its edge, as a fraction of that edge's length, so it survives a
     /// resolution change.
     public var offset: Double
-    public var logoScale: Double
+    public var logoSize: Double
     public var gapScale: Double
 
     public init(
         mode: HUDMode = .logos,
         edge: HUDEdge = .top,
         offset: Double = 0.5,
-        logoScale: Double = 0.82,
+        logoSize: Double = 24,
         gapScale: Double = 0.4
     ) {
         self.mode = mode
         self.edge = edge
         self.offset = Self.clamp(offset, to: 0...1)
-        self.logoScale = Self.clamp(logoScale, to: Self.logoScaleRange)
+        self.logoSize = Self.clamp(logoSize, to: Self.logoSizeRange)
         self.gapScale = Self.clamp(gapScale, to: Self.gapScaleRange)
     }
 
@@ -68,7 +68,7 @@ public struct ScreenPlacement: Hashable, Codable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case mode, edge, offset, logoScale, gapScale
+        case mode, edge, offset, logoSize, gapScale
     }
 
     public init(from decoder: Decoder) throws {
@@ -78,7 +78,7 @@ public struct ScreenPlacement: Hashable, Codable, Sendable {
             mode: (try? c.decodeIfPresent(HUDMode.self, forKey: .mode)) ?? d.mode,
             edge: (try? c.decodeIfPresent(HUDEdge.self, forKey: .edge)) ?? d.edge,
             offset: try c.decodeIfPresent(Double.self, forKey: .offset) ?? d.offset,
-            logoScale: try c.decodeIfPresent(Double.self, forKey: .logoScale) ?? d.logoScale,
+            logoSize: try c.decodeIfPresent(Double.self, forKey: .logoSize) ?? d.logoSize,
             gapScale: try c.decodeIfPresent(Double.self, forKey: .gapScale) ?? d.gapScale
         )
     }

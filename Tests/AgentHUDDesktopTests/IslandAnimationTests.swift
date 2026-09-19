@@ -90,8 +90,10 @@ final class IslandAnimationTests: XCTestCase {
 
             func update(height: CGFloat, animated: Bool) {
                 let island = geometry.expandedFrame(size: CGSize(width: IslandController.expandedWidth, height: height))
+                // The controller shrinks a glow that would not fit the screen; the test drives the same path.
                 let glow = GlowGeometry.compute(islandWidth: island.width, islandHeight: island.height,
                     islandRadius: IslandController.expandedRadius, range: maximum, blur: maximum)
+                    .fitted(within: screenHeight)
                 controller.update(geometry: geometry, island: island, islandRadius: IslandController.expandedRadius,
                     glow: glow, outwardOnly: true, appearance: .idle(), animated: animated)
             }

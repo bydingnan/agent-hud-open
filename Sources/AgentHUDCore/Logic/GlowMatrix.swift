@@ -20,6 +20,7 @@ public struct GlowPattern: Hashable, Sendable {
     }
 
     public var usesGrid: Bool { style != .blur }
+
 }
 
 public extension Settings {
