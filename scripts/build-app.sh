@@ -6,7 +6,11 @@ CONFIG="${1:-debug}"
 case "$CONFIG" in debug|release) ;; *) echo "Usage: $0 [debug|release]" >&2; exit 2;; esac
 APP_NAME="Agent HUD Open"
 APP_DIR="$ROOT/build/$APP_NAME.app"
-BUILD_FLAGS=(--package-path "$ROOT" --disable-sandbox -c "$CONFIG")
+# Swift 6.4 made XCBuild the default backend, and it stamps LC_BUILD_VERSION's sdk field with the
+# deployment target instead of the SDK actually compiled against. AppKit reads that field to decide
+# whether an app gets the macOS 26 control design, so a default build silently ships legacy controls.
+# Drop this flag once XCBuild stamps the SDK correctly; it is deprecated and will be removed.
+BUILD_FLAGS=(--package-path "$ROOT" --disable-sandbox --build-system native -c "$CONFIG")
 if [[ -n "${SWIFT_SCRATCH_PATH:-}" ]]; then BUILD_FLAGS+=(--scratch-path "$SWIFT_SCRATCH_PATH"); fi
 swift build "${BUILD_FLAGS[@]}" --product AgentHUDOpen >&2
 BIN_DIR="$(swift build "${BUILD_FLAGS[@]}" --show-bin-path)"
