@@ -31,6 +31,12 @@ public struct GlowAppearance: Hashable, Sendable {
         self.hidden = hidden
     }
 
+    /// The same glow with drawing suppressed, for surfaces that have no silhouette to rim.
+    public func suppressed() -> GlowAppearance {
+        GlowAppearance(stops: stops, peakOpacity: peakOpacity, troughOpacity: troughOpacity,
+                       breathing: breathing, breathSeconds: breathSeconds, hidden: true)
+    }
+
     public static let idleOpacity = 0.35
 
     public static func idle(hidden: Bool = false) -> GlowAppearance {
@@ -38,9 +44,10 @@ public struct GlowAppearance: Hashable, Sendable {
     }
 
     /// Resolves the glow from live status. The colours always follow the quota; activity only decides
-    /// whether the glow breathes, so a quiet stretch never makes the glow fade or vanish.
-    /// - paused: detection paused by the user → grey, no breathing.
-    /// - anyAgentActive: at least one agent has a running session → breathing.
+    /// how fast the effect runs, so a quiet stretch never makes the glow fade or vanish.
+    /// - paused: detection paused by the user → grey, still.
+    /// - anyAgentActive: at least one agent has a running session → the working period; otherwise the
+    ///   idle period, which is longer. The HUD keeps moving either way, so resting still reads as alive.
     public static func resolve(
         levels: [StatusLevel],
         paused: Bool,
@@ -50,15 +57,16 @@ public struct GlowAppearance: Hashable, Sendable {
     ) -> GlowAppearance {
         if paused { return .idle() }
         if levels.isEmpty { return .idle() }
-        let breathing = anyAgentActive
+        // Always in motion: working breathes fast, resting breathes slowly.
+        let period = anyAgentActive ? settings.breathSeconds : settings.idleBreathSeconds
         let peak = min(1, max(0, settings.glowBrightness))
         let trough = peak * (1 - min(1, max(0, settings.breathAmplitude)))
         return GlowAppearance(
             stops: GlowGradient.stops(levels: levels, light: light),
             peakOpacity: peak,
             troughOpacity: trough,
-            breathing: breathing,
-            breathSeconds: max(0.5, settings.breathSeconds),
+            breathing: true,
+            breathSeconds: max(0.5, period),
             hidden: false
         )
     }

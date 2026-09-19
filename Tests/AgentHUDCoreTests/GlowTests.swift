@@ -41,10 +41,15 @@ final class GlowAppearanceTests: XCTestCase {
         XCTAssertFalse(a.hidden)
     }
 
-    func testIdleKeepsColoursAndOnlyStopsBreathing() {
-        let idle = GlowAppearance.resolve(levels: [.ok, .critical], paused: false, anyAgentActive: false, settings: Settings())
+    func testIdleKeepsColoursAndOnlySlowsDown() {
+        let settings = Settings()
+        let idle = GlowAppearance.resolve(levels: [.ok, .critical], paused: false, anyAgentActive: false, settings: settings)
+        let working = GlowAppearance.resolve(levels: [.ok, .critical], paused: false, anyAgentActive: true, settings: settings)
         XCTAssertFalse(idle.hidden)
-        XCTAssertFalse(idle.breathing)
+        XCTAssertTrue(idle.breathing, "resting still reads as alive; only the pace changes")
+        XCTAssertEqual(idle.breathSeconds, settings.idleBreathSeconds)
+        XCTAssertEqual(working.breathSeconds, settings.breathSeconds)
+        XCTAssertGreaterThan(idle.breathSeconds, working.breathSeconds)
         XCTAssertEqual(idle.stops, GlowGradient.stops(levels: [.ok, .critical]), "a quiet stretch never greys the glow")
         XCTAssertEqual(idle.peakOpacity, 0.9, accuracy: 0.001)
     }
@@ -218,13 +223,27 @@ final class GlowMotionTests: XCTestCase {
     }
 
     func gain(_ effect: GlowEffect, _ cell: GlowMatrix.Cell, at time: Double) -> Double {
-        GlowMotion.gain(effect, cell: cell, time: time, pitch: pitch, glowWidth: 400, breathSeconds: 3, breathAmplitude: 0.6)
+        GlowMotion.gain(effect, cell: cell, time: time, pitch: pitch, glowWidth: 400, breathAmplitude: 0.6)
     }
 
     func testBreatheStartsFullAndDipsByTheBreathDepth() {
         XCTAssertEqual(gain(.breathe, cell(), at: 0), 1, accuracy: 1e-9)
         XCTAssertEqual(gain(.breathe, cell(), at: 1.5), 0.4, accuracy: 1e-9, "the design's 40% trough at half the period")
         XCTAssertEqual(gain(.breathe, cell(), at: 3), 1, accuracy: 1e-9)
+    }
+
+    func testThePeriodScalesEveryEffectAndKeepsTheirProportions() {
+        // One chosen period drives them all: each effect's own tuned cycle is stretched onto it, so a cycle
+        // of any effect lands at the same wall-clock time.
+        for effect in GlowEffect.allCases {
+            let scaled = GlowMotion.time(effect, since: 8, period: 8)
+            XCTAssertEqual(scaled, GlowMotion.basePeriod(effect), accuracy: 1e-9,
+                           "one period of \(effect) must be one cycle of its own clock")
+        }
+        // Breathing returns to full at the period the user picked, not at the design's three seconds.
+        XCTAssertEqual(gain(.breathe, cell(), at: GlowMotion.time(.breathe, since: 8, period: 8)), 1, accuracy: 1e-9)
+        XCTAssertEqual(gain(.breathe, cell(), at: GlowMotion.time(.breathe, since: 4, period: 8)), 0.4, accuracy: 1e-9,
+                       "half the chosen period is still the design's 40% trough")
     }
 
     func testScanBandSweepsLeftToRight() {

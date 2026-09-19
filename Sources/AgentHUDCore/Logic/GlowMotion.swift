@@ -8,19 +8,41 @@ public enum GlowMotion {
     /// The highest gain any effect applies (scan's bright band).
     public static let maximumGain = 1.2
 
+    /// Seconds one cycle takes at the design's tuning. The user picks one period and every effect scales to
+    /// it, so each keeps the proportion it was tuned with instead of needing a slider of its own.
+    public static let breathePeriod = 3.0
     public static let scanPeriod = 2.6
     public static let ripplePeriod = 1.8
     public static let flowPeriod = 6.0
     public static let bootPeriod = 4.4
+    /// Shimmer has no cycle of its own; this is the clock its eight-times-a-second twinkle scales against.
+    public static let shimmerPeriod = 3.0
 
+    public static func basePeriod(_ effect: GlowEffect) -> Double {
+        switch effect {
+        case .breathe: return breathePeriod
+        case .flow: return flowPeriod
+        case .scan: return scanPeriod
+        case .ripple: return ripplePeriod
+        case .shimmer: return shimmerPeriod
+        case .boot: return bootPeriod
+        }
+    }
+
+    /// Effect time for a user-chosen period. Stretching the clock slows every effect down together —
+    /// shimmer's twinkle and boot's sweep included — and the effects keep their relative pace.
+    public static func time(_ effect: GlowEffect, since seconds: Double, period: Double) -> Double {
+        seconds * basePeriod(effect) / max(0.25, period)
+    }
+
+    /// - t: effect time from `time(_:since:period:)`, already scaled to the user's period.
     public static func gain(_ effect: GlowEffect, cell: GlowMatrix.Cell, time t: Double, pitch: Double,
-                            glowWidth: Double, breathSeconds: Double, breathAmplitude: Double) -> Double {
+                            glowWidth: Double, breathAmplitude: Double) -> Double {
         switch effect {
         case .breathe:
-            let period = max(0.5, breathSeconds)
             let depth = min(1, max(0, breathAmplitude))
             // Starts at full size so the effect eases out of the resting frame.
-            return 1 - depth * (0.5 - 0.5 * cos(2 * .pi * t / period))
+            return 1 - depth * (0.5 - 0.5 * cos(2 * .pi * t / breathePeriod))
         case .flow:
             return 1
         case .scan:

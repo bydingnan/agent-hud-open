@@ -5,18 +5,30 @@ struct GlowPane: View {
     let settings: SettingsStore
     let store: UsageStore
     let theme: Theme
+    /// The selected screen's placement, so the preview shows the shape that screen actually wears.
+    var placement: ScreenPlacement = .default(hasNotch: true)
+
+    private var title: String {
+        placement.mode == .logos
+            ? L10n.text("背景光晕", "Backdrop glow")
+            : L10n.text("灵动岛光晕", "Notch glow")
+    }
 
     var body: some View {
         let current = settings.settings
         let grid = current.glowStyle != .blur
-        SettingsSection(title: L10n.text("灵动岛光晕", "Notch glow"), theme: theme) {
+        SettingsSection(title: title, theme: theme) {
             SettingsPreview {
                 Color.clear.frame(height: 112)
                     .overlay(alignment: .top) {
-                        GlowPreview(
-                            appearance: store.glowAppearance(light: false), settings: current,
-                            islandSize: CGSize(width: 240, height: 30), islandRadius: 13, previewsMotion: true
-                        )
+                        if placement.mode == .logos {
+                            LogoQueuePreview(settings: settings, store: store, placement: placement)
+                        } else {
+                            GlowPreview(
+                                appearance: store.glowAppearance(light: false), settings: current,
+                                islandSize: CGSize(width: 240, height: 30), islandRadius: 13, previewsMotion: true
+                            )
+                        }
                     }
             }
             SettingRow(label: L10n.text("光晕样式", "Glow style")) {
@@ -26,7 +38,7 @@ struct GlowPane: View {
             }
             SettingsDivider(theme: theme)
             SettingRow(label: L10n.text("动效", "Effect"),
-                       subtitle: L10n.text("Agent 运行时播放，空闲时停在静态光晕。", "Plays while an agent is running and rests when idle.")) {
+                       subtitle: L10n.text("一直在动：工作时按工作周期，空闲时慢下来。", "Always in motion: the working period while an agent runs, slower when idle.")) {
                 SelectionMenu(title: L10n.text("动效", "Effect"),
                               options: GlowEffect.allCases.map { SegmentOption(value: $0, label: $0.label) },
                               selection: settings.binding(\.glowEffect), theme: theme)
@@ -53,9 +65,13 @@ struct GlowPane: View {
                     isOn: settings.binding(\.glowOutwardOnly)
                 )
             }
+            let seconds: (Double) -> String = { String(format: L10n.text("%.1f 秒", "%.1f s"), $0) }
+            // The period drives whichever effect is selected, not just breathing; only the depth is breathe's own.
+            SettingsDivider(theme: theme)
+            SliderRow(label: L10n.text("工作时周期", "Working period"), value: settings.binding(\.breathSeconds), range: 1...12, step: 0.5, format: seconds, theme: theme)
+            SettingsDivider(theme: theme)
+            SliderRow(label: L10n.text("空闲时周期", "Idle period"), value: settings.binding(\.idleBreathSeconds), range: 1...24, step: 0.5, format: seconds, theme: theme)
             if current.glowEffect == .breathe {
-                SettingsDivider(theme: theme)
-                SliderRow(label: L10n.text("呼吸周期", "Breath period"), value: settings.binding(\.breathSeconds), range: 1...8, step: 0.5, format: { String(format: L10n.text("%.1f 秒", "%.1f s"), $0) }, theme: theme)
                 SettingsDivider(theme: theme)
                 SliderRow(label: L10n.text("呼吸幅度", "Breath depth"), value: percentBinding(\.breathAmplitude), range: 0...100, step: 5, format: { "\(Int($0))%" }, theme: theme)
             }
@@ -105,6 +121,40 @@ private extension GlowEffect {
         case .ripple: L10n.text("涟漪", "Ripple")
         case .shimmer: L10n.text("闪烁", "Shimmer")
         case .boot: L10n.text("启动", "Boot")
+        }
+    }
+}
+
+/// What a screen in logo mode looks like: the marks with the backdrop falling behind them. The curtain is
+/// the same trick the real HUD uses — a flat lip run wider than the preview, clipped back to it, so the
+/// field falls straight down instead of curling in at the ends.
+struct LogoQueuePreview: View {
+    let settings: SettingsStore
+    let store: UsageStore
+    let placement: ScreenPlacement
+    /// The menu bar the preview pretends to sit in.
+    private static let menuBar: CGFloat = 24
+
+    var body: some View {
+        let items = LogoQueueItem.queue(rows: store.rows.map { row in
+            (vendor: row.agent.vendor,
+             isWorking: store.sessions.contains { $0.agentId == row.agent.id && $0.endedAt == nil })
+        })
+        let config = LogoQueueConfig(items: items, placement: placement,
+                                     settings: settings.settings, menuBarHeight: Self.menuBar)
+        GeometryReader { proxy in
+            let width = max(1, min(proxy.size.width, config.size.width + 48))
+            ZStack(alignment: .top) {
+                GlowPreview(
+                    appearance: store.glowAppearance(light: false), settings: settings.settings,
+                    islandSize: CGSize(width: width + 400, height: 2), islandRadius: 0, previewsMotion: true
+                )
+                .frame(width: width, alignment: .center)
+                .clipped()
+                LogoQueueView(config: config, light: false)
+                    .frame(width: width, height: max(Self.menuBar, config.logo))
+            }
+            .frame(width: proxy.size.width, alignment: .center)
         }
     }
 }

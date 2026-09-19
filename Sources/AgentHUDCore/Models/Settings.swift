@@ -41,11 +41,16 @@ public enum GlowEffect: String, Codable, Sendable, CaseIterable {
 /// User-tunable settings. Every field has a default so older stored JSON still decodes.
 public struct Settings: Hashable, Codable, Sendable {
     public static let glowSizeRange: ClosedRange<Double> = 0...20
+    public static let breathSecondsRange: ClosedRange<Double> = 1...24
     public static let glowGridPitchRange: ClosedRange<Double> = 4...16
     public static let glowGridSpreadRange: ClosedRange<Double> = 1...4
     public static let glowGridDensityRange: ClosedRange<Double> = 0.6...2
 
+    /// Breath period while an agent is working.
     public var breathSeconds: Double = 3
+    /// Breath period while every agent is idle. The glow never stops breathing; it only slows down,
+    /// so a resting HUD still reads as alive.
+    public var idleBreathSeconds: Double = 7
     /// 0…1. Glow opacity oscillates between `1 - amplitude` and 1 (times brightness).
     public var breathAmplitude: Double = 0.6
     public var glowRange: Double = 14
@@ -77,22 +82,26 @@ public struct Settings: Hashable, Codable, Sendable {
     public var showMenuBarIcon: Bool = true
     public var appearance: AppearanceMode = .system
     public var language: AppLanguage = .system
+    /// Per-screen HUD placement, keyed by the display's stable UUID. A screen missing from the map takes
+    /// `ScreenPlacement.default(hasNotch:)` for its hardware, so a newly attached display needs no setup.
+    public var screens: [String: ScreenPlacement] = [:]
 
     public init() {}
 
     private enum CodingKeys: String, CodingKey {
-        case breathSeconds, breathAmplitude, glowRange, glowBlur, glowBrightness, glowOutwardOnly
+        case breathSeconds, idleBreathSeconds, breathAmplitude, glowRange, glowBlur, glowBrightness, glowOutwardOnly
         case glowStyle, glowGridPitch, glowGridSpread, glowGridDensity, glowEffect
         case hoverDelayMs, collapseDelayMs, showResetCountdown
         case showIslandQuota, showIslandTokens, showIslandSessions
         case disabledLiveStatusSources, readCopilotQuota
-        case launchAtLogin, showMenuBarIcon, appearance, language
+        case launchAtLogin, showMenuBarIcon, appearance, language, screens
     }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let d = Settings()
         breathSeconds = try c.decodeIfPresent(Double.self, forKey: .breathSeconds) ?? d.breathSeconds
+        idleBreathSeconds = Self.clamp(try c.decodeIfPresent(Double.self, forKey: .idleBreathSeconds), to: Self.breathSecondsRange, default: d.idleBreathSeconds)
         breathAmplitude = try c.decodeIfPresent(Double.self, forKey: .breathAmplitude) ?? d.breathAmplitude
         glowRange = Self.clampGlowSize(try c.decodeIfPresent(Double.self, forKey: .glowRange) ?? d.glowRange)
         glowBlur = Self.clampGlowSize(try c.decodeIfPresent(Double.self, forKey: .glowBlur) ?? d.glowBlur)
@@ -116,11 +125,13 @@ public struct Settings: Hashable, Codable, Sendable {
         showMenuBarIcon = try c.decodeIfPresent(Bool.self, forKey: .showMenuBarIcon) ?? d.showMenuBarIcon
         appearance = try c.decodeIfPresent(AppearanceMode.self, forKey: .appearance) ?? d.appearance
         language = try c.decodeIfPresent(AppLanguage.self, forKey: .language) ?? d.language
+        screens = (try? c.decodeIfPresent([String: ScreenPlacement].self, forKey: .screens)) ?? d.screens
     }
 
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(breathSeconds, forKey: .breathSeconds)
+        try c.encode(idleBreathSeconds, forKey: .idleBreathSeconds)
         try c.encode(breathAmplitude, forKey: .breathAmplitude)
         try c.encode(glowRange, forKey: .glowRange)
         try c.encode(glowBlur, forKey: .glowBlur)
@@ -143,6 +154,7 @@ public struct Settings: Hashable, Codable, Sendable {
         try c.encode(showMenuBarIcon, forKey: .showMenuBarIcon)
         try c.encode(appearance, forKey: .appearance)
         try c.encode(language, forKey: .language)
+        try c.encode(screens, forKey: .screens)
     }
 
     private static func clampGlowSize(_ value: Double) -> Double {

@@ -164,12 +164,15 @@ final class DisplayPerformanceTests: XCTestCase {
         XCTAssertGreaterThan(renderer.cellCount, 100)
     }
 
-    func testMotionPlaysWhileAnAgentRuns() {
+    func testMotionPlaysWhetherOrNotAnAgentRuns() {
         let running = GlowAppearance.resolve(levels: [.ok], paused: false, anyAgentActive: true, settings: Settings())
         let idle = GlowAppearance.resolve(levels: [.ok], paused: false, anyAgentActive: false, settings: Settings())
         let dots = GlowPattern(style: .dots)
         XCTAssertTrue(GlowWindowController.playsMotion(pattern: dots, appearance: running, reduceMotion: false))
-        XCTAssertFalse(GlowWindowController.playsMotion(pattern: dots, appearance: idle, reduceMotion: false))
+        XCTAssertTrue(GlowWindowController.playsMotion(pattern: dots, appearance: idle, reduceMotion: false),
+                      "an idle HUD keeps moving at the idle period; only a paused or hidden one stops")
+        XCTAssertFalse(GlowWindowController.playsMotion(pattern: dots, appearance: .idle(), reduceMotion: false),
+                       "pausing detection does stop it")
         XCTAssertFalse(GlowWindowController.playsMotion(pattern: dots, appearance: running, reduceMotion: true))
         XCTAssertFalse(GlowWindowController.playsMotion(pattern: dots, appearance: .idle(hidden: true), reduceMotion: false))
         XCTAssertFalse(GlowWindowController.playsMotion(pattern: GlowPattern(style: .blur), appearance: running, reduceMotion: false),

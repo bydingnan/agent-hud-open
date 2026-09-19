@@ -97,11 +97,13 @@ final class GlowFrameRenderer {
     }
 
     /// - time: seconds since the effect started.
+    /// - breathSeconds: the effect's period. Every effect scales to it, not just breathing.
     /// - blend: 0 draws the resting glow and 1 the full effect; values in between ease the effect in or out.
     func render(time: Double, blend: Double, breathSeconds: Double, breathAmplitude: Double) -> GlowImage? {
-        let motion = Motion(effect: key.pattern.effect, time: time, blend: min(1, max(0, blend)), pitch: matrix.pitch,
-                            glowWidth: key.glow.width, breathSeconds: breathSeconds, breathAmplitude: breathAmplitude,
-                            levels: levels)
+        let effect = key.pattern.effect
+        let motion = Motion(effect: effect, time: GlowMotion.time(effect, since: time, period: breathSeconds),
+                            blend: min(1, max(0, blend)), pitch: matrix.pitch,
+                            glowWidth: key.glow.width, breathAmplitude: breathAmplitude, levels: levels)
         if let soft { return renderSoft(soft, motion: motion) }
         return GlowRenderer.renderBitmap(width: key.glow.width, height: key.glow.height, blur: 0, padding: 0, scale: key.scale,
                                          colorSpace: key.colorSpace) { _, context, _ in
@@ -279,7 +281,7 @@ final class GlowFrameRenderer {
     }
 
     /// Braille dot diameter in pitches; the lattice spacing is half a pitch.
-    private static let brailleDotDiameter = 0.34
+    static let brailleDotDiameter = 0.34
     /// Brightness levels Braille dots are grouped into for batched fills.
     private static let brailleAlphaSteps = 8
 
@@ -300,17 +302,17 @@ final class GlowFrameRenderer {
     }
 
     /// A density level in 0..<count, shifted by jitter and clamped.
-    private static func level(_ value: Double, count: Int, shift: Int) -> Int {
+    static func level(_ value: Double, count: Int, shift: Int) -> Int {
         min(count - 1, max(0, min(count - 1, Int(value * Double(count))) + shift))
     }
 
     private struct Motion {
         let effect: GlowEffect
+        /// Effect time, already scaled to the user's period.
         let time: Double
         let blend: Double
         let pitch: Double
         let glowWidth: Double
-        let breathSeconds: Double
         let breathAmplitude: Double
         let levels: Int
 
@@ -324,7 +326,7 @@ final class GlowFrameRenderer {
         func value(_ cell: GlowMatrix.Cell) -> Double {
             guard blend > 0 else { return cell.intensity }
             let gain = GlowMotion.gain(effect, cell: cell, time: time, pitch: pitch, glowWidth: glowWidth,
-                                       breathSeconds: breathSeconds, breathAmplitude: breathAmplitude)
+                                       breathAmplitude: breathAmplitude)
             return min(1, cell.intensity * (1 + (gain - 1) * blend))
         }
 
@@ -342,7 +344,7 @@ final class GlowFrameRenderer {
 
 /// The glyphs one character style draws, in a font that has them, with offsets that centre each glyph in its cell.
 /// Density scales the font within the fixed grid, so dense glyphs may overlap their neighbours.
-private struct GlyphSet {
+struct GlyphSet {
     let font: CTFont
     let glyphs: [CGGlyph]
     let advances: [CGFloat]
