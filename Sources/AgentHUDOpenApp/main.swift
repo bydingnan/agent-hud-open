@@ -14,10 +14,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             return
         }
-        if options.resetDefaults, let bundleID = Bundle.main.bundleIdentifier {
-            UserDefaults.standard.removePersistentDomain(forName: bundleID)
+        let demoSuite = "app.agenthud.open.demo"
+        if options.resetDefaults {
+            // The demo keeps its own suite, so resetting has to clear that too or a stale demo survives it.
+            UserDefaults.standard.removePersistentDomain(forName: demoSuite)
+            if let bundleID = Bundle.main.bundleIdentifier {
+                UserDefaults.standard.removePersistentDomain(forName: bundleID)
+            }
         }
-        let defaults = options.demo ? UserDefaults(suiteName: "app.agenthud.open.demo")! : .standard
+        let defaults = options.demo ? UserDefaults(suiteName: demoSuite)! : .standard
         let settings = SettingsStore(defaults: defaults, defaultAgents: options.demo ? DemoData.agents : DefaultAgents.list)
         if let language = options.language { settings.update { $0.language = language } }
         L10n.setLanguage(settings.settings.language)
