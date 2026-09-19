@@ -60,6 +60,40 @@ public enum SnapshotRunner {
             save("island-collapsed-\(style.rawValue)-dense", IslandScene(store: store, settings: settings, open: false, light: false, glowTime: 0), folder: folder, scheme: .dark)
         }
         settings.update { $0.glowGridDensity = 1 }
+        // Logo mode: the agents' own marks over the glow backdrop, one shot per style.
+        do {
+            let rows = store.rows.enumerated().map { index, row in
+                (vendor: row.agent.vendor, isWorking: index % 3 == 0)
+            }
+            let saved = settings.settings
+            for style in GlowStyle.allCases {
+                settings.update { $0.glowStyle = style; $0.glowEffect = .breathe }
+                for (name, scale) in [("", 0.82), ("-large", 1.6)] {
+                    let placement = ScreenPlacement(mode: .logos, logoScale: scale)
+                    save("logo-queue-\(style.rawValue)\(name)",
+                         LogoQueueScene(rows: rows, placement: placement, settings: settings.settings,
+                                        appearance: store.glowAppearance(light: false)),
+                         folder: folder, scheme: .dark)
+                }
+            }
+            // Every bundled mark at queue size, to check each one reads at this scale and is not invisible.
+            settings.update { $0.glowStyle = .dots; $0.glowEffect = .breathe }
+            let everyVendor = AgentArtwork.allVendors
+            for (name, scale) in [("", 0.82), ("-large", 1.6)] {
+                save("logo-queue-all\(name)",
+                     LogoQueueScene(rows: everyVendor.map { (vendor: $0, isWorking: false) },
+                                    placement: ScreenPlacement(mode: .logos, logoScale: scale),
+                                    settings: settings.settings, appearance: store.glowAppearance(light: false)),
+                     folder: folder, scheme: .dark)
+                save("logo-queue-all\(name)-light",
+                     LogoQueueScene(rows: everyVendor.map { (vendor: $0, isWorking: false) },
+                                    placement: ScreenPlacement(mode: .logos, logoScale: scale),
+                                    settings: settings.settings, appearance: store.glowAppearance(light: true),
+                                    light: true),
+                     folder: folder, scheme: .light)
+            }
+            settings.update { $0 = saved }
+        }
         settings.update { $0.glowStyle = .dots; $0.glowEffect = .ripple }
         save("settings-display-dots-dark", SettingsView(settings: settings, store: store, initialTab: .display).frame(width: SettingsWindowLayout.size.width, height: SettingsWindowLayout.size.height), folder: folder, scheme: .dark)
         settings.update { $0.glowStyle = .blur; $0.glowEffect = .breathe }
@@ -614,5 +648,32 @@ struct MenuBarStrip: View {
         .padding(.horizontal, 14)
         .frame(width: 340, height: 30)
         .background(light ? Color(hex: 0xe9e9ec) : Color(hex: 0x2c2c2e))
+    }
+}
+
+/// The collapsed HUD on a screen in logo mode: the queue on its strip, sized from a menu bar of
+/// `menuBar` points exactly as a real screen sizes it.
+struct LogoQueueScene: View {
+    let rows: [(vendor: String, isWorking: Bool)]
+    let placement: ScreenPlacement
+    let settings: AgentHUDCore.Settings
+    let appearance: GlowAppearance
+    var light = false
+    var menuBar: CGFloat = 24
+
+    var body: some View {
+        let config = LogoQueueConfig(items: LogoQueueItem.queue(rows: rows), placement: placement,
+                                     settings: settings, menuBarHeight: menuBar)
+        // The glow radiates from a flat line through the marks, so it reads as a backdrop behind them
+        // rather than a rim around a shape — the same field the notch wears as a halo.
+        ZStack {
+            GlowPreview(appearance: appearance, settings: settings,
+                        islandSize: config.size, islandRadius: config.logo / 2,
+                        previewsMotion: true, drawsIsland: false)
+            LogoQueueView(config: config, light: light)
+                .frame(height: max(menuBar, config.logo))
+        }
+        .padding(28)
+        .background(Color(white: light ? 0.96 : 0.10))
     }
 }

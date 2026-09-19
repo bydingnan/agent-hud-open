@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import AgentHUDCore
 
@@ -5,10 +6,21 @@ struct DisplayPane: View {
     let settings: SettingsStore
     let store: UsageStore
     let theme: Theme
+    /// Which display the panes below are editing. Owned here so the glow preview can show that screen's
+    /// mode rather than always the notch.
+    @State private var screen: String = ScreensPane.attached().first?.key ?? ""
+
+    private var placement: ScreenPlacement {
+        guard let match = NSScreen.screens.first(where: { ScreenIdentity.key(for: $0) == screen }) else {
+            return .default(hasNotch: NSScreen.main.map(ScreenIdentity.hasNotch) ?? false)
+        }
+        return ScreenIdentity.placement(for: match, in: settings.settings)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 28) {
-            GlowPane(settings: settings, store: store, theme: theme)
+            ScreensPane(settings: settings, theme: theme, selected: $screen)
+            GlowPane(settings: settings, store: store, theme: theme, placement: placement)
             IslandPane(settings: settings, theme: theme)
             SettingsSection(title: L10n.text("菜单栏", "Menu bar"), theme: theme) {
                 SettingsToggleRow(

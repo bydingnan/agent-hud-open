@@ -66,7 +66,14 @@ final class GlowWindowController {
     }
 
     static func panelFrame(for geometry: NotchGeometry) -> CGRect {
-        CGRect(
+        // A logo queue's backdrop falls only under the marks. The panel is exactly that column and clips
+        // the field to it: the lip the field radiates from runs wider, so what is cut away is the part that
+        // would otherwise curl in at the ends.
+        guard geometry.mode != .logos else {
+            return CGRect(x: geometry.rect.minX, y: geometry.screenFrame.minY,
+                          width: geometry.rect.width, height: geometry.screenFrame.height)
+        }
+        return CGRect(
             x: geometry.centerX - panelWidth / 2,
             y: geometry.screenFrame.minY,
             width: panelWidth,

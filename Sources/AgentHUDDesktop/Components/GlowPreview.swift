@@ -24,6 +24,9 @@ struct GlowPreview: View {
     var lightBorder = false
     /// Plays the grid effect even while no agent is running, so settings can show what each effect looks like.
     var previewsMotion = false
+    /// Draws the island the glow radiates from. A logo queue has no silhouette — the field is its backdrop —
+    /// so it asks for the glow alone.
+    var drawsIsland = true
 
     var body: some View {
         let glow = settings.glowGeometry(islandWidth: islandSize.width, islandHeight: islandSize.height,
@@ -65,14 +68,16 @@ struct GlowPreview: View {
                         .opacity(frozenTime != nil ? appearance.peakOpacity : Self.opacity(appearance, at: context.date))
                         .offset(y: glow.topOffset)
                 }
-                BottomRoundedRectangle(radius: islandRadius)
-                    .fill(Color.black)
-                    .overlay {
-                        if lightBorder {
-                            BottomRoundedRectangle(radius: islandRadius).stroke(Color.white.opacity(0.18), lineWidth: 1)
+                if drawsIsland {
+                    BottomRoundedRectangle(radius: islandRadius)
+                        .fill(Color.black)
+                        .overlay {
+                            if lightBorder {
+                                BottomRoundedRectangle(radius: islandRadius).stroke(Color.white.opacity(0.18), lineWidth: 1)
+                            }
                         }
-                    }
-                    .frame(width: islandSize.width, height: islandSize.height)
+                        .frame(width: islandSize.width, height: islandSize.height)
+                }
             }
         }
     }

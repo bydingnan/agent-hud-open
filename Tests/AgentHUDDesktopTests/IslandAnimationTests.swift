@@ -80,9 +80,9 @@ final class IslandAnimationTests: XCTestCase {
         _ = NSApplication.shared
         for screenHeight: CGFloat in [900, 1117, 1440] {
             let screen = CGRect(x: -20000, y: -20000, width: 1728, height: screenHeight)
-            let geometry = NotchGeometry(screenFrame: screen, hasNotch: true,
+            let geometry = NotchGeometry(screenFrame: screen, mode: .notch, edge: .top, hasNotch: true,
                 rect: CGRect(x: screen.midX - 108, y: screen.maxY - 32, width: 216, height: 32),
-                cornerRadius: 12, backingScale: 2)
+                cornerRadius: 12, backingScale: 2, menuBarHeight: 24)
             let controller = GlowWindowController(geometry: geometry)
             defer { controller.panel.orderOut(nil) }
             let canvas = controller.panel.frame

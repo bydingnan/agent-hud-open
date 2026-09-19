@@ -17,6 +17,9 @@ struct IslandRootView: View {
     var presentationSize: CGSize? = nil
     var animatesGeometry = true
     var onContentHeight: (CGFloat) -> Void = { _ in }
+    /// Set on a screen in logo mode: the marks ride on top of the silhouette, collapsed or open, so hovering
+    /// never makes the agents disappear.
+    var logoQueue: LogoQueueConfig? = nil
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     static let expandedTopRadius: CGFloat = NotchGeometry.expandedTopRadius
@@ -37,14 +40,24 @@ struct IslandRootView: View {
                 topRadius: isOpen ? Self.expandedTopRadius : collapsedTopRadius,
                 bottomRadius: isOpen ? Self.expandedBottomRadius : max(collapsedBottomRadius, alert == nil ? 0 : 14)
             )
+            // A collapsed logo queue is the marks alone: no silhouette behind them, so they read as agents
+            // sitting on the desktop rather than as a bar. The silhouette comes back the moment the panel
+            // opens or an event needs somewhere to be shown.
+            let bare = logoQueue != nil && !visible
             ZStack(alignment: .top) {
-                shape.fill(.black)
-                    .overlay {
-                        if lightBorder && alert == nil { shape.stroke(.white.opacity(0.18), lineWidth: 1) }
-                    }
-                    .frame(width: size.width, height: size.height)
+                if !bare {
+                    shape.fill(.black)
+                        .overlay {
+                            if lightBorder && alert == nil { shape.stroke(.white.opacity(0.18), lineWidth: 1) }
+                        }
+                        .frame(width: size.width, height: size.height)
+                }
                 content
                     .mask(alignment: .top) { shape.frame(width: size.width, height: size.height) }
+                if let logoQueue, alert == nil {
+                    LogoQueueView(config: logoQueue, light: lightBorder)
+                        .frame(width: size.width, height: collapsedSize.height)
+                }
             }
             .frame(width: bounds.width, height: bounds.height, alignment: .top)
             .animation(animatesGeometry && !reduceMotion ? IslandAnimation.curve : nil, value: size)

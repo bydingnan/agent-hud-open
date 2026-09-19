@@ -38,7 +38,9 @@ final class IslandController {
     init(store: UsageStore, settings: SettingsStore) {
         self.store = store
         self.settings = settings
-        let geometry = NotchGeometry.detect()
+        // The stored placement decides notch or queue before the first frame, so the HUD never flashes
+        // the wrong shape on launch.
+        let geometry = NotchGeometry.detect(placement: NSScreen.main.map { ScreenIdentity.placement(for: $0, in: settings.settings) })
         self.geometry = geometry
         glow = GlowWindowController(geometry: geometry)
         island = IslandWindowController(frame: geometry.islandFrame, rootView: IslandRootView.placeholder)
@@ -183,12 +185,50 @@ final class IslandController {
     }
 
     func relayout() {
-        geometry = NotchGeometry.detect()
         apply(animated: false)
+    }
+
+    /// The screen the HUD lives on, and how that screen is set to present it. Still one screen; the queue's
+    /// size feeds back into the geometry, so the strip is exactly as wide as the marks it holds.
+    private var hudScreen: NSScreen? {
+        NSScreen.screens.first(where: { ScreenIdentity.hasNotch($0) }) ?? NSScreen.main ?? NSScreen.screens.first
+    }
+
+    private var placement: ScreenPlacement {
+        hudScreen.map { ScreenIdentity.placement(for: $0, in: settings.settings) }
+            ?? .default(hasNotch: false)
+    }
+
+    /// The marks this screen shows, one per vendor, in the order the agents are watched in.
+    private var queueItems: [LogoQueueItem] {
+        LogoQueueItem.queue(rows: store.rows.map { row in
+            (vendor: row.agent.vendor,
+             isWorking: store.sessions.contains { $0.agentId == row.agent.id && $0.endedAt == nil })
+        })
+    }
+
+    /// Logo mode needs the queue's size to size the strip, and the queue needs the menu bar height to size
+    /// its marks, so the screen is measured once before the strip is laid out.
+    private func resolveGeometry() -> NotchGeometry {
+        let placement = placement
+        guard placement.mode == .logos else { return NotchGeometry.detect(placement: placement) }
+        let menuBar = NotchGeometry.detect().menuBarHeight
+        let config = LogoQueueConfig(items: queueItems, placement: placement,
+                                     settings: settings.settings, menuBarHeight: menuBar)
+        guard !config.items.isEmpty else { return NotchGeometry.detect(placement: .default(hasNotch: geometry.hasNotch)) }
+        return NotchGeometry.detect(placement: placement, queue: config.size)
+    }
+
+    private var logoQueue: LogoQueueConfig? {
+        guard geometry.mode == .logos else { return nil }
+        let config = LogoQueueConfig(items: queueItems, placement: placement,
+                                     settings: settings.settings, menuBarHeight: geometry.menuBarHeight)
+        return config.items.isEmpty ? nil : config
     }
 
     func apply(animated: Bool) {
         let open = machine.isOpen
+        geometry = resolveGeometry()
         let animated = animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         var root = IslandRootView(
             store: store,
@@ -204,6 +244,7 @@ final class IslandController {
             showsAlertDetails: showsAlertDetails,
             animatesGeometry: animated
         )
+        root.logoQueue = logoQueue
         if open {
             let height = max(80, min(island.contentHeight(for: root).rounded(), geometry.screenFrame.height - 80))
             if showsAlertDetails { alertDetailHeight = height }
@@ -219,7 +260,19 @@ final class IslandController {
         let windowFrame = expanded ? islandFrame.insetBy(dx: -flare, dy: 0) : geometry.islandFrame
         let radius = open ? Self.expandedRadius : max(geometry.cornerRadius, activeAlert == nil ? 0 : 14)
         let current = settings.settings
-        let glowGeometry = current.glowGeometry(islandWidth: islandFrame.width, islandHeight: islandFrame.height, islandRadius: radius)
+        // The glow style is the HUD's backdrop in both modes, but the shape it radiates from differs. The
+        // notch is a small silhouette, so the field reads as a rim around it. A logo queue wants a curtain
+        // exactly as wide as the marks: the shape is a flat lip at the screen's top edge, run wider than the
+        // queue so every cell's nearest point is straight above it and the field falls vertically. The glow
+        // panel then clips that field back to the queue's own column, cutting off the ends that would dip.
+        let backdrop = geometry.mode == .logos && !expanded
+        let overhang = current.glowRange + current.glowBlur * 3 + NotchGeometry.fallbackWidth
+        let glowIsland = backdrop
+            ? CGRect(x: geometry.rect.minX - overhang, y: geometry.screenFrame.maxY - 2,
+                     width: geometry.rect.width + overhang * 2, height: 2)
+            : islandFrame
+        let glowRadius = backdrop ? 0 : radius
+        let glowGeometry = current.glowGeometry(islandWidth: glowIsland.width, islandHeight: glowIsland.height, islandRadius: glowRadius)
         let appearance = store.glowAppearance(light: systemIsLight)
 
         if !animated || targetWindowFrame != windowFrame {
@@ -245,8 +298,8 @@ final class IslandController {
         // Render changed bitmaps before starting SwiftUI; expensive blur work must not consume animation frames.
         glow.update(
             geometry: geometry,
-            island: islandFrame,
-            islandRadius: radius,
+            island: glowIsland,
+            islandRadius: glowRadius,
             glow: glowGeometry,
             outwardOnly: current.glowOutwardOnly,
             appearance: appearance,
