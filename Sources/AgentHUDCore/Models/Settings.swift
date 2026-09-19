@@ -71,6 +71,9 @@ public struct Settings: Hashable, Codable, Sendable {
     /// How much of its cell each dot or character fills; above 1 marks grow into their neighbours. The grid stays put.
     public var glowGridDensity: Double = 1
     public var glowEffect: GlowEffect = .breathe
+    /// Hovering alone opens the panel. With this on it takes Option as well, so a HUD parked over the menu
+    /// bar or a window's title bar does not open every time the pointer crosses it.
+    public var requiresOptionToOpen: Bool = false
     public var hoverDelayMs: Int = 400
     public var collapseDelayMs: Int = 200
     public var showResetCountdown: Bool = true
@@ -95,7 +98,7 @@ public struct Settings: Hashable, Codable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case breathSeconds, idleBreathSeconds, breathAmplitude, glowRange, glowBlur, glowBrightness, glowOutwardOnly
         case glowStyle, glowGridPitch, glowGridSpread, glowGridDensity, glowEffect
-        case hoverDelayMs, collapseDelayMs, showResetCountdown
+        case requiresOptionToOpen, hoverDelayMs, collapseDelayMs, showResetCountdown
         case showIslandQuota, showIslandTokens, showIslandSessions
         case disabledLiveStatusSources, readCopilotQuota
         case launchAtLogin, showMenuBarIcon, appearance, language, screens
@@ -117,6 +120,7 @@ public struct Settings: Hashable, Codable, Sendable {
         glowGridSpread = Self.clamp(try c.decodeIfPresent(Double.self, forKey: .glowGridSpread), to: Self.glowGridSpreadRange, default: d.glowGridSpread)
         glowGridDensity = Self.clamp(try c.decodeIfPresent(Double.self, forKey: .glowGridDensity), to: Self.glowGridDensityRange, default: d.glowGridDensity)
         glowEffect = (try? c.decodeIfPresent(GlowEffect.self, forKey: .glowEffect)) ?? d.glowEffect
+        requiresOptionToOpen = try c.decodeIfPresent(Bool.self, forKey: .requiresOptionToOpen) ?? d.requiresOptionToOpen
         hoverDelayMs = try c.decodeIfPresent(Int.self, forKey: .hoverDelayMs) ?? d.hoverDelayMs
         collapseDelayMs = try c.decodeIfPresent(Int.self, forKey: .collapseDelayMs) ?? d.collapseDelayMs
         showResetCountdown = try c.decodeIfPresent(Bool.self, forKey: .showResetCountdown) ?? d.showResetCountdown
@@ -146,6 +150,7 @@ public struct Settings: Hashable, Codable, Sendable {
         try c.encode(glowGridSpread, forKey: .glowGridSpread)
         try c.encode(glowGridDensity, forKey: .glowGridDensity)
         try c.encode(glowEffect, forKey: .glowEffect)
+        try c.encode(requiresOptionToOpen, forKey: .requiresOptionToOpen)
         try c.encode(hoverDelayMs, forKey: .hoverDelayMs)
         try c.encode(collapseDelayMs, forKey: .collapseDelayMs)
         try c.encode(showResetCountdown, forKey: .showResetCountdown)

@@ -31,6 +31,10 @@ final class IslandController {
     private var activeAlert: IslandAlert? { alerts.current?.alert }
     private var showsAlertDetails: Bool { machine.isOpen && alerts.current?.inUsagePanel == false }
     private var pointerInside = false
+    /// Whether the hover currently counts as one that opens the panel; see `reevaluateHover`.
+    private var hoverOpens = false
+    private var modifierWatch: Timer?
+    private var pointerMonitors: [Any] = []
 
     var onOpenStats: (() -> Void)?
     var onOpenSettings: (() -> Void)?
@@ -92,11 +96,66 @@ final class IslandController {
     // MARK: Hover
 
     func pointer(inside: Bool) {
+        guard pointerInside != inside else { return }
         pointerInside = inside
         alerts.hold(inside)
+        // Whether Option is down can change without the pointer moving, so while it is over the HUD the
+        // modifier is watched. A global keyboard monitor would ask for accessibility; this does not.
+        modifierWatch?.invalidate()
+        modifierWatch = nil
+        if inside, settings.settings.requiresOptionToOpen {
+            modifierWatch = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+                Task { @MainActor in self?.reevaluateHover() }
+            }
+        }
+        reevaluateHover()
+    }
+
+    /// A collapsed logo queue must not swallow clicks: it sits over the menu bar and whatever window is
+    /// under it, and nothing about a row of marks says "target". The panel stops taking mouse events, which
+    /// also costs it its tracking, so the pointer is followed with an event monitor instead. An open panel
+    /// has buttons and takes its events back.
+    private func updateClickThrough(_ passes: Bool) {
+        guard island.panel.ignoresMouseEvents != passes else { return }
+        island.panel.ignoresMouseEvents = passes
+    }
+
+    private func startPointerMonitors() {
+        guard pointerMonitors.isEmpty else { return }
+        let matching: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged, .rightMouseDragged]
+        if let global = NSEvent.addGlobalMonitorForEvents(matching: matching, handler: { [weak self] _ in
+            Task { @MainActor in self?.samplePointer() }
+        }) {
+            pointerMonitors.append(global)
+        }
+        if let local = NSEvent.addLocalMonitorForEvents(matching: matching, handler: { [weak self] event in
+            Task { @MainActor in self?.samplePointer() }
+            return event
+        }) {
+            pointerMonitors.append(local)
+        }
+    }
+
+    private func stopPointerMonitors() {
+        pointerMonitors.forEach(NSEvent.removeMonitor)
+        pointerMonitors.removeAll()
+    }
+
+    /// The region that counts as hovering: the marks while collapsed, the panel once it is open. The target
+    /// frame rather than the window's, which is briefly grown into a canvas for the opening animation.
+    private func samplePointer() {
+        let region = machine.isOpen ? (targetWindowFrame ?? island.panel.frame) : geometry.rect
+        pointer(inside: region.contains(NSEvent.mouseLocation))
+    }
+
+    /// Hovering opens the panel, unless the user asked for Option as well.
+    private func reevaluateHover() {
+        let opens = pointerInside
+            && (!settings.settings.requiresOptionToOpen || NSEvent.modifierFlags.contains(.option))
+        guard opens != hoverOpens else { return }
+        hoverOpens = opens
         let now = Date()
-        let event: HoverMachine.Event = inside ? .pointerEntered(at: now) : .pointerExited(at: now)
-        transition(machine.reduce(event, config: config))
+        transition(machine.reduce(opens ? .pointerEntered(at: now) : .pointerExited(at: now), config: config))
     }
 
     func forceOpen() {
@@ -117,7 +176,7 @@ final class IslandController {
         timer?.invalidate()
         timer = nil
         if !machine.isOpen { machine = HoverMachine() }
-        if pointerInside {
+        if hoverOpens {
             transition(machine.reduce(.pointerEntered(at: Date()), config: config))
         }
         apply(animated: true)
@@ -313,6 +372,16 @@ final class IslandController {
         // measured rather than assumed to be the window's own top edge — which moves when the panel opens.
         root.logoQueueInset = max(0, windowFrame.maxY - geometry.rect.maxY)
         root.logoQueueHeight = geometry.rect.height
+        updateClickThrough(geometry.mode == .logos && !expanded)
+        if geometry.mode == .logos {
+            startPointerMonitors()
+            // One source of truth for the pointer: the panel's own tracking disagrees with the monitor about
+            // the parts of the window the silhouette does not cover, and the two would fight over the state.
+            island.onPointerChange = nil
+        } else {
+            stopPointerMonitors()
+            island.onPointerChange = { [weak self] inside in self?.pointer(inside: inside) }
+        }
         root.presentationSize = windowFrame.size
         root.onContentHeight = { [weak self] height in self?.updatePanelHeight(height) }
         island.setRootView(root)

@@ -29,6 +29,12 @@ struct IslandPane: View {
                 }
             }
             SettingsSection(title: L10n.text("悬停交互", "Hover behavior"), theme: theme) {
+                SettingsToggleRow(
+                    label: L10n.text("按住 Option 才展开", "Hold Option to open"),
+                    subtitle: L10n.text("指针经过不展开，按住 Option 悬停才打开面板。", "Hovering alone leaves it closed; hold Option to open the panel."),
+                    isOn: settings.binding(\.requiresOptionToOpen)
+                )
+                SettingsDivider(theme: theme)
                 SliderRow(label: L10n.text("展开延迟", "Hover delay"), value: settings.doubleBinding(\.hoverDelayMs), range: 0...1500, step: 50, format: { "\(Int($0)) ms" }, theme: theme)
                 SettingsDivider(theme: theme)
                 SliderRow(label: L10n.text("收起延迟", "Collapse delay"), value: settings.doubleBinding(\.collapseDelayMs), range: 0...1500, step: 50, format: { "\(Int($0)) ms" }, theme: theme)
