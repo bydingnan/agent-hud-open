@@ -309,6 +309,10 @@ final class IslandController {
             quotaVendors: store.rows.filter { $0.level != nil }.map { $0.agent.vendor },
             pattern: current.glowPattern()
         )
+        // The strip's place on screen is fixed; the window around it is not, so the offset between them is
+        // measured rather than assumed to be the window's own top edge — which moves when the panel opens.
+        root.logoQueueInset = max(0, windowFrame.maxY - geometry.rect.maxY)
+        root.logoQueueHeight = geometry.rect.height
         root.presentationSize = windowFrame.size
         root.onContentHeight = { [weak self] height in self?.updatePanelHeight(height) }
         island.setRootView(root)

@@ -20,6 +20,10 @@ struct IslandRootView: View {
     /// Set on a screen in logo mode: the marks ride on top of the silhouette, collapsed or open, so hovering
     /// never makes the agents disappear.
     var logoQueue: LogoQueueConfig? = nil
+    /// Where the queue's strip sits inside the window, in points down from its top edge, and how tall it is.
+    /// The window's own top edge moves between the collapsed and the expanded frame; the marks must not.
+    var logoQueueInset: CGFloat = 0
+    var logoQueueHeight: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     static let expandedTopRadius: CGFloat = NotchGeometry.expandedTopRadius
@@ -56,7 +60,8 @@ struct IslandRootView: View {
                     .mask(alignment: .top) { shape.frame(width: size.width, height: size.height) }
                 if let logoQueue, alert == nil {
                     LogoQueueView(config: logoQueue, light: lightBorder)
-                        .frame(width: size.width, height: collapsedSize.height)
+                        .frame(width: size.width, height: logoQueueHeight)
+                        .padding(.top, logoQueueInset)
                 }
             }
             .frame(width: bounds.width, height: bounds.height, alignment: .top)

@@ -98,12 +98,23 @@ struct NotchGeometry: Equatable {
     var centerX: CGFloat { rect.midX }
     var top: CGFloat { screenFrame.maxY }
 
-    /// Collapsed window: the HUD plus the flares where it meets the screen edge. A logo queue gets the slack
-    /// on both axes — its marks carry an outline that overflows them, and the backdrop is clipped to `rect`
-    /// rather than to this, so widening the window does not widen the backdrop.
+    /// Collapsed window: the HUD plus the flares where it meets the screen edge.
+    ///
+    /// A logo queue needs slack for the outline its marks carry, but only away from the edge it is parked on:
+    /// the window's edge-side boundary has to match the expanded panel's, or the marks shift by the slack
+    /// every time the panel opens and closes. Past the screen's edge there is nothing to show anyway.
     var islandFrame: CGRect {
-        guard mode != .logos else { return rect.insetBy(dx: -Self.collapsedTopRadius, dy: -Self.collapsedTopRadius) }
-        return edge.isHorizontal ? rect.insetBy(dx: -Self.collapsedTopRadius, dy: 0) : rect.insetBy(dx: 0, dy: -Self.collapsedTopRadius)
+        let slack = Self.collapsedTopRadius
+        guard mode != .logos else {
+            let grown = rect.insetBy(dx: -slack, dy: -slack)
+            switch edge {
+            case .top: return CGRect(x: grown.minX, y: grown.minY, width: grown.width, height: grown.height - slack)
+            case .bottom: return CGRect(x: grown.minX, y: rect.minY, width: grown.width, height: grown.height - slack)
+            case .left: return CGRect(x: rect.minX, y: grown.minY, width: grown.width - slack, height: grown.height)
+            case .right: return CGRect(x: grown.minX, y: grown.minY, width: grown.width - slack, height: grown.height)
+            }
+        }
+        return edge.isHorizontal ? rect.insetBy(dx: -slack, dy: 0) : rect.insetBy(dx: 0, dy: -slack)
     }
 
     /// Core of the expanded panel: anchored to the same edge, centred on the collapsed rect, growing inward.
