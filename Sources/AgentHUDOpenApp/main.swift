@@ -23,7 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         let defaults = options.demo ? UserDefaults(suiteName: demoSuite)! : .standard
-        let settings = SettingsStore(defaults: defaults, defaultAgents: options.demo ? DemoData.agents : DefaultAgents.list)
+        let settings = SettingsStore(defaults: defaults, defaultAgents: options.demo ? DemoData.everyAgent : DefaultAgents.list)
         if let language = options.language { settings.update { $0.language = language } }
         L10n.setLanguage(settings.settings.language)
         let provider: any UsageProvider = options.demo ? DemoUsageProvider() : CombinedUsageProvider.standard()

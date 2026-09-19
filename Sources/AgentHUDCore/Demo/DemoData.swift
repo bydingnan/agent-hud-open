@@ -11,6 +11,26 @@ public enum DemoData {
         AgentDescriptor(id: "deepseek", vendor: "DeepSeek", model: "Harness", source: L10n.sourceNotConnected, enabled: false, connected: false),
     ]
 
+    /// Every vendor the app ships artwork for, all switched on. `agents` is the small set the tests and
+    /// snapshots are written against; this is what the running demo uses, so the HUD is shown carrying a
+    /// full queue rather than the three marks a minimal set produces.
+    public static let everyAgent: [AgentDescriptor] = agents.map {
+        AgentDescriptor(id: $0.id, vendor: $0.vendor, model: $0.model, source: $0.source, enabled: true)
+    } + [
+        AgentDescriptor(id: "cursor", vendor: "Cursor", model: "Agent", source: L10n.sourceNotConnected, enabled: true),
+        AgentDescriptor(id: "copilot", vendor: "GitHub Copilot", model: "Agent", source: L10n.sourceNotConnected, enabled: true),
+        AgentDescriptor(id: "grok", vendor: "Grok", model: "Code", source: L10n.sourceNotConnected, enabled: true),
+        AgentDescriptor(id: "kimi", vendor: "Kimi", model: "K2", source: L10n.sourceNotConnected, enabled: true),
+        AgentDescriptor(id: "glm", vendor: "GLM", model: "Coding", source: L10n.sourceNotConnected, enabled: true),
+        AgentDescriptor(id: "opencode", vendor: "OpenCode", model: "CLI", source: L10n.sourceNotConnected, enabled: true),
+        AgentDescriptor(id: "openclaw", vendor: "OpenClaw", model: "Agent", source: L10n.sourceNotConnected, enabled: true),
+        AgentDescriptor(id: "hermes", vendor: "Hermes", model: "Agent", source: L10n.sourceNotConnected, enabled: true),
+        AgentDescriptor(id: "zcode", vendor: "ZCode", model: "CLI", source: L10n.sourceNotConnected, enabled: true),
+        AgentDescriptor(id: "codebuddy", vendor: "CodeBuddy", model: "Agent", source: L10n.sourceNotConnected, enabled: true),
+        AgentDescriptor(id: "workbuddy", vendor: "WorkBuddy", model: "Agent", source: L10n.sourceNotConnected, enabled: true),
+        AgentDescriptor(id: "pi", vendor: "Pi", model: "Agent", source: L10n.sourceNotConnected, enabled: true),
+    ]
+
     /// Remaining % and seconds until reset per agent.
     public static let quota: [String: (remaining: Double, resetIn: TimeInterval?, weekly: Double?)] = [
         "claude-opus": (72, 2 * 3600 + 14 * 60, 61),
@@ -19,6 +39,19 @@ public enum DemoData {
         "codex": (7, 51 * 60, nil),
         "antigravity": (91, 6 * 3600 + 40 * 60, nil),
         "deepseek": (44, nil, nil),
+        // Only `everyAgent` carries these; a reading each, spread across the thresholds.
+        "cursor": (83, 3 * 3600 + 12 * 60, nil),
+        "copilot": (12, 5 * 3600, nil),
+        "grok": (66, 90 * 60, nil),
+        "kimi": (38, 2 * 3600, nil),
+        "glm": (95, 8 * 3600, nil),
+        "opencode": (51, nil, nil),
+        "openclaw": (4, 33 * 60, nil),
+        "hermes": (77, 4 * 3600 + 25 * 60, nil),
+        "zcode": (29, 70 * 60, nil),
+        "codebuddy": (88, 6 * 3600, nil),
+        "workbuddy": (19, 45 * 60, nil),
+        "pi": (60, 3 * 3600, nil),
     ]
 
     public static func snapshots(now: Date) -> [UsageSnapshot] {
