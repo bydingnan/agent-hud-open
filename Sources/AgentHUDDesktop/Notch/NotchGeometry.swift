@@ -4,8 +4,7 @@ import AgentHUDCore
 /// Where the HUD sits on one screen, in global screen coordinates.
 ///
 /// In notch mode the collapsed rect is the physical notch, or a bar standing in for one on a display
-/// without. In logo mode it is the queue's strip, parked along an edge at the placement's offset — and on
-/// a notched screen the strip slides clear of the notch rather than hiding behind it.
+/// without. In logo mode it is the queue's strip, parked along an edge at the placement's offset.
 struct NotchGeometry: Equatable {
     let screenFrame: CGRect
     let mode: HUDMode
@@ -44,7 +43,7 @@ struct NotchGeometry: Equatable {
         let placement = placement ?? .default(hasNotch: notch != nil)
 
         if placement.mode == .logos, let queue {
-            let rect = stripRect(queue: queue, frame: frame, menuBar: menuBar, placement: placement, notch: notch)
+            let rect = stripRect(queue: queue, frame: frame, menuBar: menuBar, placement: placement)
             return NotchGeometry(screenFrame: frame, mode: .logos, edge: placement.edge, hasNotch: notch != nil,
                                  rect: rect, cornerRadius: logoCornerRadius, backingScale: scale, menuBarHeight: menuBar)
         }
@@ -69,21 +68,17 @@ struct NotchGeometry: Equatable {
     /// here — the marks stand on their own — so the rect only has to hold them and catch the pointer; the
     /// padding is hover slack, not a visible strip.
     private static func stripRect(queue: CGSize, frame: CGRect, menuBar: CGFloat,
-                                  placement: ScreenPlacement, notch: CGRect?) -> CGRect {
+                                  placement: ScreenPlacement) -> CGRect {
         // The run is the marks themselves: the backdrop is clipped to this rect, and anything added here
         // would show up as backdrop reaching past the last mark.
         let long = placement.edge.isHorizontal ? queue.width : queue.height
         let thick = max(menuBar, placement.edge.isHorizontal ? queue.height : queue.width)
         switch placement.edge {
         case .top, .bottom:
+            // The notch is not avoided: a queue centred on the screen reads as centred, and sliding it off
+            // to one side to clear the notch costs more than the marks the notch covers.
             let width = min(long, frame.width)
-            var x = frame.minX + (frame.width - width) * placement.offset
-            // A notched screen's top edge has a hole in the middle; slide the strip to the roomier side.
-            if placement.edge == .top, let notch, x < notch.maxX, x + width > notch.minX {
-                let leftRoom = notch.minX - frame.minX, rightRoom = frame.maxX - notch.maxX
-                x = leftRoom >= rightRoom ? notch.minX - width : notch.maxX
-            }
-            x = min(frame.maxX - width, max(frame.minX, x))
+            let x = min(frame.maxX - width, max(frame.minX, frame.minX + (frame.width - width) * placement.offset))
             let y = placement.edge == .top ? frame.maxY - thick : frame.minY
             return CGRect(x: x, y: y, width: width, height: thick)
         case .left, .right:
