@@ -26,21 +26,15 @@ struct NotchGeometry: Equatable {
     static let collapsedTopRadius: CGFloat = 8
     static let expandedTopRadius: CGFloat = 16
 
-    /// - placement: how this screen presents the HUD. Defaults to the notch behaviour this app has always had.
+    /// - screen: the display this HUD belongs to. Each screen is measured on its own — its own notch, its
+    ///   own menu bar, its own scale — because two displays can be in different modes at once.
+    /// - placement: how that screen presents the HUD.
     /// - queue: the measured size of the logo queue's marks, when the placement asks for one.
-    static func detect(
-        screens: [NSScreen] = NSScreen.screens,
-        main: NSScreen? = NSScreen.main,
-        placement: ScreenPlacement? = nil,
-        queue: CGSize? = nil
-    ) -> NotchGeometry {
-        let notched = screens.first(where: { $0.safeAreaInsets.top > 0 })
-        let screen = notched ?? main ?? screens.first
+    static func detect(screen: NSScreen?, placement: ScreenPlacement, queue: CGSize? = nil) -> NotchGeometry {
         let frame = screen?.frame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
         let menuBar = screen.map { max(22, $0.frame.maxY - $0.visibleFrame.maxY) } ?? 24
         let scale = screen?.backingScaleFactor ?? 2
-        let notch = notched.map { notchRect(of: $0) }
-        let placement = placement ?? .default(hasNotch: notch != nil)
+        let notch = screen.flatMap { $0.safeAreaInsets.top > 0 ? notchRect(of: $0) : nil }
 
         if placement.mode == .logos, let queue {
             let rect = stripRect(queue: queue, frame: frame, menuBar: menuBar, placement: placement)
