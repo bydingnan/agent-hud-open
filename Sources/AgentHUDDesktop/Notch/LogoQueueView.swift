@@ -29,7 +29,6 @@ struct LogoQueueConfig: Equatable {
     var logo: CGFloat
     var gap: CGFloat
     var workingSeconds: Double
-    var idleSeconds: Double
 
     init(items: [LogoQueueItem], placement: ScreenPlacement, settings: AgentHUDCore.Settings) {
         self.items = items
@@ -37,7 +36,6 @@ struct LogoQueueConfig: Equatable {
         logo = placement.logoSize
         gap = logo * placement.gapScale
         workingSeconds = settings.breathSeconds
-        idleSeconds = settings.idleBreathSeconds
     }
 
     /// What the marks occupy.
@@ -48,9 +46,10 @@ struct LogoQueueConfig: Equatable {
     }
 }
 
-/// The collapsed HUD on a screen in logo mode: every watched agent's own mark, bobbing in place. Working
-/// agents bob at the working period and resting ones at the idle one, so a glance says which agent is busy.
-/// The marks keep their own artwork; status colour is carried by the glow behind them, not by the logos.
+/// The collapsed HUD on a screen in logo mode: every watched agent's own mark. Only the ones with work
+/// running bob; the rest hold still and sit back a little, so motion means exactly one thing and a glance
+/// finds the busy agent without reading anything. The marks keep their own artwork; status colour is
+/// carried by the glow behind them, not by the logos.
 ///
 /// The marks are plain layers holding baked bitmaps, animated by Core Animation. Driving the bob from
 /// SwiftUI instead re-evaluates every mark on the main thread each frame, which on a full queue costs more
@@ -74,6 +73,8 @@ final class LogoQueueLayerView: NSView {
     /// How far a mark travels, as a share of its side, and the stagger that turns a row of bobs into a wave.
     private static let travel: CGFloat = 0.14
     private static let stagger = 0.13
+    /// What a resting mark fades to. Enough to recede behind the working ones, not enough to look disabled.
+    private static let restingOpacity: Float = 0.65
 
     private var marks: [CALayer] = []
     private var applied: (config: LogoQueueConfig, light: Bool, scale: CGFloat, animates: Bool)?
@@ -159,10 +160,13 @@ final class LogoQueueLayerView: NSView {
         let travel = config.logo * Self.travel
         let axis = config.edge.inward
         let vertical = axis.y != 0
+        var bobbing = 0
         for (index, mark) in marks.enumerated() {
             mark.removeAnimation(forKey: "bob")
-            guard animates, index < config.items.count else { continue }
-            let period = max(0.25, config.items[index].isWorking ? config.workingSeconds : config.idleSeconds)
+            let working = index < config.items.count && config.items[index].isWorking
+            mark.opacity = working ? 1 : Self.restingOpacity
+            guard animates, working else { continue }
+            let period = max(0.25, config.workingSeconds)
             let animation = CABasicAnimation(keyPath: vertical ? "transform.translation.y" : "transform.translation.x")
             animation.fromValue = 0
             animation.toValue = travel * CGFloat(vertical ? axis.y : axis.x)
@@ -170,8 +174,10 @@ final class LogoQueueLayerView: NSView {
             animation.autoreverses = true
             animation.repeatCount = .infinity
             animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            // A negative time offset starts each mark further into the cycle than the one before it.
-            animation.timeOffset = -Double(index) * Self.stagger
+            // A negative time offset starts each mark further into the cycle than the one before it. Counted
+            // over the bobbing marks alone, so the wave has no gaps where a resting agent sits.
+            animation.timeOffset = -Double(bobbing) * Self.stagger
+            bobbing += 1
             animation.isRemovedOnCompletion = false
             mark.add(animation, forKey: "bob")
         }
