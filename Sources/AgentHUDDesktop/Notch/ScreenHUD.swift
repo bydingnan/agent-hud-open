@@ -199,10 +199,8 @@ final class ScreenHUD {
 
     /// The marks this screen shows, one per vendor, in the order the agents are watched in.
     private var queueItems: [LogoQueueItem] {
-        LogoQueueItem.queue(rows: store.rows.map { row in
-            (vendor: row.agent.vendor,
-             isWorking: store.sessions.contains { $0.agentId == row.agent.id && $0.endedAt == nil })
-        })
+        let working = store.workingVendors
+        return LogoQueueItem.queue(rows: store.rows.map { (vendor: $0.agent.vendor, isWorking: working.contains($0.agent.vendor)) })
     }
 
     /// Logo mode sizes the strip from the queue it has to hold.

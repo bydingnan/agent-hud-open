@@ -325,6 +325,13 @@ public final class UsageStore {
         }
     }
 
+    /// The vendors with work in flight, by the same liveness the panel ranks sessions with. A session names
+    /// the model it spends rather than the quota row it belongs to, so its vendor is resolved instead of its
+    /// id being compared with an agent's — which matched only in the demo, where the two happen to be equal.
+    public var workingVendors: Set<String> {
+        Set(sessions.filter { isSessionLive($0) }.compactMap { sessionSource($0).vendor })
+    }
+
     public func sessionSource(_ session: LiveSession) -> SessionSource {
         let vendor = consumers.first { $0.id == session.agentId }?.vendor
             ?? settings.agents.first { $0.id == session.agentId }?.vendor

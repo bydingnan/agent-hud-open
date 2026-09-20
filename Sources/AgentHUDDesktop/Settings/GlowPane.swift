@@ -193,10 +193,8 @@ struct LogoQueuePreview: View {
     var marks: [LogoQueueItem]?
 
     var body: some View {
-        let items = marks ?? LogoQueueItem.queue(rows: store.rows.map { row in
-            (vendor: row.agent.vendor,
-             isWorking: store.sessions.contains { $0.agentId == row.agent.id && $0.endedAt == nil })
-        })
+        let working = store.workingVendors
+        let items = marks ?? LogoQueueItem.queue(rows: store.rows.map { (vendor: $0.agent.vendor, isWorking: working.contains($0.agent.vendor)) })
         let config = LogoQueueConfig(items: items, placement: placement, settings: settings.settings)
         let strip = max(metrics.menuBar, config.logo)
         let margin = GlowWindowController.logoEdgeMargin(stripThickness: strip)
