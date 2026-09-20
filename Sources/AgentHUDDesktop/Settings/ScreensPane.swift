@@ -25,7 +25,7 @@ struct ScreensPane: View {
 
     private var placement: ScreenPlacement {
         guard let current else { return .default(hasNotch: false) }
-        return settings.settings.screens[current.key] ?? .default(hasNotch: current.hasNotch)
+        return settings.settings.placement(on: current.key, hasNotch: current.hasNotch)
     }
 
     /// Edits one field of the selected screen's placement, leaving the rest as stored.

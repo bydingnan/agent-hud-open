@@ -55,7 +55,7 @@ enum ScreenIdentity {
     /// The stored placement for a screen, or the default its hardware deserves.
     @MainActor
     static func placement(for screen: NSScreen, in settings: AgentHUDCore.Settings) -> ScreenPlacement {
-        settings.screens[key(for: screen)] ?? .default(hasNotch: hasNotch(screen))
+        settings.placement(on: key(for: screen), hasNotch: hasNotch(screen))
     }
 
     /// The screen the pointer is on, which is the one alerts belong on.

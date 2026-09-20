@@ -54,8 +54,6 @@ final class ScreenHUD {
             self?.pointer(inside: inside)
         }
         alerts.onExpire = { [weak self] in self?.dismissAlert() }
-        NSLog("[AgentHUD] notch=%@ rect=%@", geometry.hasNotch ? "yes" : "no", NSStringFromRect(geometry.rect))
-
 
         apply(animated: false)
         island.show()
@@ -256,6 +254,8 @@ final class ScreenHUD {
             animatesGeometry: animated
         )
         root.logoQueue = logoQueue
+        // The mode decides the silhouette, not whether there are marks to draw.
+        root.hidesSilhouette = geometry.mode == .logos
         if open {
             let height = max(80, min(island.contentHeight(for: root).rounded(), geometry.screenFrame.height - 80))
             if showsAlertDetails { alertDetailHeight = height }
@@ -279,7 +279,7 @@ final class ScreenHUD {
         // queue so every cell's nearest point is straight above it and the field falls vertically. The glow
         // panel then clips that field back to the queue's own column, cutting off the ends that would dip.
         let backdrop = geometry.mode == .logos && !expanded
-        let overhang = glowSettings.range + glowSettings.blur * 3 + NotchGeometry.fallbackWidth
+        let overhang = GlowWindowController.backdropOverhang(glowSettings)
         // The lip is a flat line on the screen's top edge, run wider than the queue: every cell's nearest
         // point is then straight above it, so the field falls vertically instead of curling in at the ends,
         // and the marks sit inside the field rather than below where it starts.

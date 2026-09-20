@@ -75,7 +75,14 @@ final class GlowWindowController {
     }
 
     static func logoEdgeMargin(for geometry: NotchGeometry) -> CGFloat {
-        logoEdgeMargin(stripThickness: geometry.rect.height)
+        logoEdgeMargin(stripThickness: geometry.edge.isHorizontal ? geometry.rect.height : geometry.rect.width)
+    }
+
+    /// How far the backdrop's lip is run past the queue on each side, so that every cell's nearest point on
+    /// it is straight above and the field falls vertically instead of curling in at the ends. The settings
+    /// preview builds its own lip from this rule rather than a number of its own.
+    static func backdropOverhang(_ glow: GlowSettings) -> CGFloat {
+        glow.range + glow.blur * 3 + NotchGeometry.fallbackWidth
     }
 
     static func panelFrame(for geometry: NotchGeometry) -> CGRect {

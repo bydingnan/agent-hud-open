@@ -101,6 +101,12 @@ public struct Settings: Hashable, Codable, Sendable {
     /// `ScreenPlacement.default(hasNotch:)` for its hardware, so a newly attached display needs no setup.
     public var screens: [String: ScreenPlacement] = [:]
 
+    /// This screen's placement, or the default its hardware deserves. The companion to `glow(on:)`: both
+    /// resolve "what this display uses" in one place, so a caller cannot invent its own fallback.
+    public func placement(on screen: String, hasNotch: Bool) -> ScreenPlacement {
+        screens[screen] ?? .default(hasNotch: hasNotch)
+    }
+
     public init() {}
 
     private enum CodingKeys: String, CodingKey {

@@ -79,7 +79,7 @@ struct NotchGeometry: Equatable {
         case .left, .right:
             let height = min(long, frame.height)
             // Offset runs the way the edge is read: top to bottom.
-            let y = min(frame.maxY - height, max(frame.minY, frame.maxY - height - (frame.height - height) * (placement.offset - 1)))
+            let y = min(frame.maxY - height, max(frame.minY, frame.maxY - height - (frame.height - height) * placement.offset))
             let x = placement.edge == .left ? frame.minX : frame.maxX - thick
             return CGRect(x: x, y: y, width: thick, height: height)
         }

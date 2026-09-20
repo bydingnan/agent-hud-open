@@ -200,6 +200,9 @@ struct LogoQueuePreview: View {
         let config = LogoQueueConfig(items: items, placement: placement, settings: settings.settings)
         let strip = max(metrics.menuBar, config.logo)
         let margin = GlowWindowController.logoEdgeMargin(stripThickness: strip)
+        // The lip is run past the marks by the same amount the real backdrop uses, so the preview's field
+        // falls as steeply as the one on screen instead of by a number of its own.
+        let overhang = GlowWindowController.backdropOverhang(settings.settings.glow(on: screen))
         GeometryReader { proxy in
             // The marks' run plus the same margin the real backdrop reaches past them, faded over exactly
             // that distance so the ends die away instead of being cut.
@@ -209,7 +212,7 @@ struct LogoQueuePreview: View {
                 GlowPreview(
                     appearance: store.glowAppearance(light: false, on: screen),
                     settings: settings.settings.glow(on: screen),
-                    islandSize: CGSize(width: width + 400, height: 2), islandRadius: 0, previewsMotion: true
+                    islandSize: CGSize(width: width + overhang * 2, height: 2), islandRadius: 0, previewsMotion: true
                 )
                 .frame(width: width, alignment: .center)
                 .clipped()

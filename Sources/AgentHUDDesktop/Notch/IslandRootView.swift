@@ -20,6 +20,10 @@ struct IslandRootView: View {
     /// Set on a screen in logo mode: the marks ride on top of the silhouette, collapsed or open, so hovering
     /// never makes the agents disappear.
     var logoQueue: LogoQueueConfig? = nil
+    /// Set on a screen whose HUD is a logo queue. Collapsed, such a HUD has no silhouette: it is the marks
+    /// over whatever is behind them. Kept apart from `logoQueue`, which only says whether marks are drawn —
+    /// hiding them leaves the backdrop alone and must not bring the black shape back.
+    var hidesSilhouette = false
     /// Where the queue's strip sits inside the window, in points down from its top edge, and how tall it is.
     /// The window's own top edge moves between the collapsed and the expanded frame; the marks must not.
     var logoQueueInset: CGFloat = 0
@@ -46,8 +50,8 @@ struct IslandRootView: View {
             )
             // A collapsed logo queue is the marks alone: no silhouette behind them, so they read as agents
             // sitting on the desktop rather than as a bar. The silhouette comes back the moment the panel
-            // opens or an event needs somewhere to be shown.
-            let bare = logoQueue != nil && !visible
+            // opens or an event needs somewhere to be shown — but never because the marks were hidden.
+            let bare = hidesSilhouette && !visible
             ZStack(alignment: .top) {
                 if !bare {
                     shape.fill(.black)
