@@ -75,6 +75,13 @@ public final class SettingsStore {
         updateAgents { list in list.map { $0.id == id ? $0.with(enabled: enabled) : $0 } }
     }
 
+    /// Applies a vendor preset without removing discovered rows or replacing any other preference.
+    public func enableOnlyVendors(_ vendors: Set<String>) {
+        updateAgents { list in
+            list.map { $0.with(enabled: vendors.contains($0.vendor)) }
+        }
+    }
+
     public func moveAgent(id: String, to index: Int) {
         updateAgents { $0.moving(id: id, to: index) }
     }
@@ -148,7 +155,8 @@ public final class SettingsStore {
                     continue
                 }
                 let anchor = list.lastIndex { $0.vendor == found.vendor }
-                list.insert(found, at: anchor.map { $0 + 1 } ?? 0)
+                let enabled = anchor.map { list[$0].enabled } ?? PreferredVendors.personal.contains(found.vendor)
+                list.insert(found.with(enabled: enabled), at: anchor.map { $0 + 1 } ?? 0)
             }
             return list
         }()

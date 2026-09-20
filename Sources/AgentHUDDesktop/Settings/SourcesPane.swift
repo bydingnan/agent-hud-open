@@ -21,6 +21,11 @@ struct SourcesPane: View {
         let groups = AgentSettingsGroup.make(sources: detected, agents: settings.agents, report: store.report)
         VStack(alignment: .leading, spacing: 24) {
             VStack(alignment: .leading, spacing: 10) {
+                Button(L10n.text("只用我的七家", "Use my seven sources only")) {
+                    settings.enableOnlyVendors(PreferredVendors.personal)
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("enable-preferred-vendors")
                 ForEach(groups) { group in
                     AgentSettingsCard(group: group, settings: settings, theme: theme,
                         isExpanded: Binding(get: { expanded.contains(group.id) }, set: { value in
@@ -52,6 +57,15 @@ struct AgentSettingsCard: View {
             if isExpanded && group.id == AdditionalSource.copilot.vendor {
                 SettingsDivider(theme: theme)
                 CopilotQuotaSettings(settings: settings)
+            }
+            if isExpanded && group.id == "ZenMux" {
+                SettingsDivider(theme: theme)
+                Text(L10n.text(
+                    "设置环境变量 ZENMUX_MANAGEMENT_API_KEY（或 ZENMUX_MGMT_API_KEY）后即可读取 ZenMux 用量。",
+                    "Set ZENMUX_MANAGEMENT_API_KEY (or ZENMUX_MGMT_API_KEY) to read ZenMux usage."))
+                    .font(.ui(11)).foregroundStyle(theme.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 42).padding(.vertical, 12)
             }
             if isExpanded && !group.agents.isEmpty {
                 SettingsDivider(theme: theme)

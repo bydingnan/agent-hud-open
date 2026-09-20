@@ -98,12 +98,14 @@ final class AgentSettingsInteractionTests: XCTestCase {
         await settle()
         let collapsedHeight = documentHeight()
         XCTAssertGreaterThan(collapsedHeight, 0, "Settings content renders")
-        click(x: 450, yFromTop: 130)
+        let preferredButtonOffset: CGFloat = 34
+        let groupHeaderY: CGFloat = 130 + preferredButtonOffset
+        click(x: 450, yFromTop: groupHeaderY)
         await settle(until: { documentHeight() > collapsedHeight + 100 })
         XCTAssertGreaterThan(documentHeight(), collapsedHeight + 100, "The group expands to show its windows")
 
         // The first window switch sits below the group's Live status row.
-        let windowSwitchY: CGFloat = 246
+        let windowSwitchY: CGFloat = 246 + preferredButtonOffset
         let agentsBefore = settings.agents
         let liveStatusBefore = settings.settings.liveStatusEnabled(for: "Claude")
         click(x: 700, yFromTop: windowSwitchY)
@@ -123,7 +125,7 @@ final class AgentSettingsInteractionTests: XCTestCase {
             scroll.reflectScrolledClipView(scroll.contentView)
         }
         await settle()
-        click(x: 450, yFromTop: 130)
+        click(x: 450, yFromTop: groupHeaderY)
         await settle(until: { abs(documentHeight() - collapsedHeight) <= 2 })
         XCTAssertEqual(documentHeight(), collapsedHeight, accuracy: 2, "The group collapses again")
     }

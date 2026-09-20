@@ -199,6 +199,48 @@ final class SettingsStoreTests: XCTestCase {
         return defaults
     }
 
+    func testPreferredVendorsAndDefaultsMatchPersonalSources() {
+        XCTAssertEqual(PreferredVendors.personal, [
+            "Kimi", "GLM", "Cursor", "OpenCode", "OpenCode Go", "Codex", "ZenMux", "Grok",
+        ])
+        let preferredDefaults = DefaultAgents.list.filter { PreferredVendors.personal.contains($0.vendor) }
+        XCTAssertEqual(Set(preferredDefaults.map(\.vendor)), PreferredVendors.personal)
+        XCTAssertTrue(preferredDefaults.allSatisfy(\.enabled))
+        XCTAssertTrue(preferredDefaults.allSatisfy { !$0.connected })
+        XCTAssertTrue(DefaultAgents.list.filter { !PreferredVendors.personal.contains($0.vendor) }.allSatisfy { !$0.enabled })
+    }
+
+    func testEnableOnlyVendorsPreservesRowsAndPersistsSwitches() {
+        let defaults = makeDefaults()
+        let original = [
+            AgentDescriptor(id: "claude-session", vendor: "Claude", model: "5h", source: "", enabled: true),
+            AgentDescriptor(id: "kimi", vendor: "Kimi", model: "K2", source: "", enabled: false),
+            AgentDescriptor(id: "codex", vendor: "Codex", model: "5h", source: "", enabled: false),
+        ]
+        let store = SettingsStore(defaults: defaults, defaultAgents: original)
+
+        store.enableOnlyVendors(["Kimi", "Codex"])
+
+        XCTAssertEqual(store.agents.map(\.id), original.map(\.id))
+        XCTAssertEqual(store.enabledAgents.map(\.id), ["kimi", "codex"])
+        XCTAssertEqual(SettingsStore(defaults: defaults).enabledAgents.map(\.id), ["kimi", "codex"])
+    }
+
+    func testMergeDiscoveredDefaultsFromSiblingThenPreferredVendors() {
+        let store = SettingsStore(defaults: makeDefaults(), defaultAgents: [
+            AgentDescriptor(id: "kimi-existing", vendor: "Kimi", model: "Existing", source: "", enabled: false),
+        ])
+        store.mergeDiscovered([
+            AgentDescriptor(id: "kimi-new", vendor: "Kimi", model: "New", source: "", enabled: true),
+            AgentDescriptor(id: "zenmux-new", vendor: "ZenMux", model: "New", source: "", enabled: false),
+            AgentDescriptor(id: "claude-new", vendor: "Claude", model: "New", source: "", enabled: true),
+        ])
+
+        XCTAssertFalse(store.agents.first { $0.id == "kimi-new" }!.enabled, "a sibling switch wins")
+        XCTAssertTrue(store.agents.first { $0.id == "zenmux-new" }!.enabled, "a new preferred vendor starts enabled")
+        XCTAssertFalse(store.agents.first { $0.id == "claude-new" }!.enabled, "other new vendors stay disabled")
+    }
+
     func testPersistsSettingsAndAgents() {
         let defaults = makeDefaults()
         let store = SettingsStore(defaults: defaults, defaultAgents: DemoData.agents)
@@ -225,7 +267,7 @@ final class SettingsStoreTests: XCTestCase {
         let store = SettingsStore(defaults: makeDefaults())
         XCTAssertEqual(store.settings, Settings())
         XCTAssertEqual(store.agents, DefaultAgents.list)
-        XCTAssertEqual(store.enabledAgents.map(\.id), ["codex"], "Claude rows are discovered from local data")
+        XCTAssertEqual(Set(store.enabledAgents.map(\.vendor)), PreferredVendors.personal)
         XCTAssertFalse(store.hasCompletedOnboarding)
     }
 
@@ -248,7 +290,10 @@ final class SettingsStoreTests: XCTestCase {
     }
 
     func testMergeDiscoveredInsertsByVendorAndUpdatesNames() {
-        let store = SettingsStore(defaults: makeDefaults())
+        let store = SettingsStore(defaults: makeDefaults(), defaultAgents: [
+            AgentDescriptor(id: "codex", vendor: "Codex", model: "Desktop / CLI", source: L10n.sourceCodexAppServer, enabled: true, connected: false),
+            AgentDescriptor(id: "deepseek", vendor: "DeepSeek", model: "Harness", source: L10n.sourceDeepSeekSessions, enabled: false, connected: false),
+        ])
         let fable = AgentDescriptor(id: "claude-fable", vendor: "Claude", model: "Fable 5.1", source: "Claude Code", enabled: true)
         let sonnet = AgentDescriptor(id: "claude-sonnet", vendor: "Claude", model: "Sonnet 5", source: "Claude Code", enabled: true)
         store.mergeDiscovered([fable, sonnet])

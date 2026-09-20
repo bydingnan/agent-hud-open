@@ -244,7 +244,9 @@ public final class UsageStore {
     }
 
     public var rows: [AgentRow] {
-        enabledAgents.filter { !$0.isAPIBilled }.enumerated().map { index, agent in
+        enabledAgents.filter { agent in
+            !agent.isAPIBilled && (agent.connected || report?.snapshot(for: agent.id) != nil)
+        }.enumerated().map { index, agent in
             let snapshot = report?.snapshot(for: agent.id)
             let isCurrent = report?.isCurrent(agent) ?? true
             return AgentRow(
