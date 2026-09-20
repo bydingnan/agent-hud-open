@@ -197,10 +197,9 @@ final class ScreenHUD {
         screen.map { ScreenIdentity.placement(for: $0, in: settings.settings) } ?? .default(hasNotch: false)
     }
 
-    /// The marks this screen shows, one per vendor, in the order the agents are watched in.
+    /// The marks this screen shows: the watched agents and anything else run in the last day.
     private var queueItems: [LogoQueueItem] {
-        let working = store.workingVendors
-        return LogoQueueItem.queue(rows: store.rows.map { (vendor: $0.agent.vendor, isWorking: working.contains($0.agent.vendor)) })
+        LogoQueueItem.queue(rows: store.queueVendors)
     }
 
     /// Logo mode sizes the strip from the queue it has to hold.

@@ -325,6 +325,28 @@ public final class UsageStore {
         }
     }
 
+    /// How long after its last turn a vendor still belongs in a logo queue.
+    public static let queueRecency: TimeInterval = 24 * 3600
+
+    /// What a logo queue shows: every watched window's vendor, in the order they are watched, then any
+    /// vendor that ran within the last day and has no window on that list, most recently used first. An
+    /// agent used this morning belongs in the row whether or not its quota is being followed; one nobody
+    /// has run for a day and nobody watches does not. A vendor whose Live status is off is not counted as
+    /// having run, since that switch is what says its runs may be reported at all.
+    public var queueVendors: [(vendor: String, isWorking: Bool)] {
+        let working = workingVendors
+        var order = rows.map(\.agent.vendor)
+        var seen = Set(order)
+        let cutoff = now.addingTimeInterval(-Self.queueRecency)
+        let events = lastTurnEvents
+        for session in sessions where session.lastEvent(turnAt: events[session.id]) >= cutoff {
+            guard liveStatusEnabled(for: session), let vendor = sessionSource(session).vendor,
+                  seen.insert(vendor).inserted else { continue }
+            order.append(vendor)
+        }
+        return order.map { (vendor: $0, isWorking: working.contains($0)) }
+    }
+
     /// The vendors with work in flight, by the same liveness the panel ranks sessions with. A session names
     /// the model it spends rather than the quota row it belongs to, so its vendor is resolved instead of its
     /// id being compared with an agent's — which matched only in the demo, where the two happen to be equal.
