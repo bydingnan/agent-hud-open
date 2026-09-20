@@ -11,14 +11,14 @@ public struct GlowSettings: Hashable, Codable, Sendable {
     /// screen cannot, and shrinks its glow to fit through `GlowGeometry.fitted(within:)`.
     public static let sizeRange: ClosedRange<Double> = 0...36
     public static let breathSecondsRange: ClosedRange<Double> = 1...24
-    // The grid's reach is set by the logo queue rather than the notch: a backdrop carrying marks several
-    // times the notch's height needs a spread to match, where a rim around the notch never did.
-    public static let gridPitchRange: ClosedRange<Double> = 4...24
+    // Depth is what the logo queue's backdrop needed, not a coarser grid: past this the marks stop reading
+    // as a field and start reading as scattered shapes, and density past 150% is solid either way.
+    public static let gridPitchRange: ClosedRange<Double> = 4...12
     /// Rows, both of them. Kept short on purpose: the cell count is the width times these, and a backdrop
     /// as wide as a logo queue pays for every row of it.
     public static let gridCoreRange: ClosedRange<Double> = 0...8
     public static let gridFadeRange: ClosedRange<Double> = 0...8
-    public static let gridDensityRange: ClosedRange<Double> = 0.6...2
+    public static let gridDensityRange: ClosedRange<Double> = 0.5...1.5
 
     public var style: GlowStyle = .blur
     public var effect: GlowEffect = .breathe
