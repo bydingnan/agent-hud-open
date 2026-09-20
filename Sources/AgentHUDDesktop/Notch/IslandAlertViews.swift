@@ -6,9 +6,13 @@ struct IslandAlertCompactView: View {
     let cameraWidth: CGFloat
     let height: CGFloat
     let onOpen: () -> Void
+    var waitingRequests: [PermissionRequest] = []
 
     var body: some View {
         switch alert {
+        case .permission(let request):
+            PermissionAlertCompactView(request: request, cameraWidth: cameraWidth, height: height,
+                                       waiting: max(1, waitingRequests.count))
         case .quota(let event):
             QuotaAlertCompactView(alert: event, cameraWidth: cameraWidth, height: height, onOpen: onOpen)
         case .completion(let event):
@@ -38,8 +42,14 @@ struct IslandAlertCompactView: View {
 struct IslandAlertDetailView: View {
     let alert: IslandAlert
     let onOpen: () -> Void
+    let onDecide: (PermissionDecision) -> Void
+    var waitingRequests: [PermissionRequest] = []
+    var onSelectRequest: (String) -> Void = { _ in }
     var body: some View {
         switch alert {
+        case .permission(let request):
+            PermissionAlertDetailView(request: request, onDecide: onDecide,
+                                      all: waitingRequests, onSelect: onSelectRequest)
         case .quota(let event): QuotaAlertDetailView(alert: event, onOpen: onOpen)
         case .completion(let event):
             VStack(alignment: .leading, spacing: 18) {
@@ -76,8 +86,12 @@ struct IslandAlertDetailView: View {
 struct IslandAlertInlineView: View {
     let alert: IslandAlert
     let onOpen: () -> Void
+    let onDecide: (PermissionDecision) -> Void
+    var waitingRequests: [PermissionRequest] = []
     var body: some View {
         switch alert {
+        case .permission(let request): PermissionAlertInlineView(request: request, onDecide: onDecide,
+                                                                 waiting: max(1, waitingRequests.count))
         case .quota(let event): QuotaAlertInlineView(alert: event, onOpen: onOpen)
         case .completion(let event):
             Button(action: onOpen) {

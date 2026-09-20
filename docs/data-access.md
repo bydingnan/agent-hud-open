@@ -38,6 +38,7 @@ Per-client fields, endpoints and stored data: [providers](providers.md). Token c
 - Saved readings appear immediately after a restart with their original observation times; a failed refresh keeps them and reports the failure. Unavailable quotas are never inferred from token counts.
 - Readings of an account a client is no longer signed in to stay until the account has not been seen for 30 days.
 - A completed credential scan retires expired, removed or rejected OpenCode Go, Kimi and GLM quota rows, including cached rows and saved display settings.
+- The approval hook adds one handler to a client's own settings file, leaving every other hook in it alone, and refuses to rewrite a layout it does not recognize. What it carries — the tool, its input, the folder and the client's own rule suggestions — is read in memory to draw the card and is never stored; the answer goes straight back to the client that asked ([approvals](hud.md#approvals)).
 - Optional completion hooks write one small local record per finished turn (session and turn identity, model, workspace folder name and time) and nothing else; they send no notifications and upload nothing ([completion hooks](session-lifecycle.md#completion-hooks)).
 
 ## Related

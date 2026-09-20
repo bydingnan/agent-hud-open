@@ -13,6 +13,13 @@ struct IslandRootView: View {
     var onOpenSettings: () -> Void = {}
     var alert: IslandAlert? = nil
     var onOpenAlert: () -> Void = {}
+    /// The user's answer to a request waiting on the island; the alert's own id says which request it answers.
+    var onDecideAlert: (PermissionDecision) -> Void = { _ in }
+    /// Every request waiting for this user, oldest first and across screens: the expanded card stacks the rest under
+    /// the one being decided, and the collapsed island only counts them.
+    var waitingRequests: [PermissionRequest] = []
+    /// Brings one of the stacked requests to the front.
+    var onSelectRequest: (String) -> Void = { _ in }
     var showsAlertDetails = false
     var presentationSize: CGSize? = nil
     var animatesGeometry = true
@@ -78,18 +85,19 @@ struct IslandRootView: View {
     @ViewBuilder
     var content: some View {
         if isOpen, showsAlertDetails, let alert {
-            IslandAlertDetailView(alert: alert, onOpen: onOpenAlert)
-                .padding(.horizontal, 24)
-                .padding(.top, collapsedSize.height + 16)
-                .padding(.bottom, 22)
-                .frame(width: IslandController.alertDetailWidth)
+            IslandAlertDetailView(alert: alert, onOpen: onOpenAlert, onDecide: onDecideAlert,
+                                  waitingRequests: waitingRequests, onSelectRequest: onSelectRequest)
+                .padding(alert.detailInsets
+                    ?? EdgeInsets(top: collapsedSize.height + alert.detailTopInset, leading: 24, bottom: 22, trailing: 24))
+                .frame(width: alert.detailWidth(queued: max(1, waitingRequests.count)))
                 .fixedSize(horizontal: false, vertical: true)
                 .background(GeometryReader { proxy in Color.clear.preference(key: PanelHeightKey.self, value: proxy.size.height) })
                 .onPreferenceChange(PanelHeightKey.self, perform: onContentHeight)
                 .transition(detailTransition)
         } else if isOpen, let store {
             HoverPanelView(store: store, onOpenStats: onOpenStats, onOpenSettings: onOpenSettings,
-                           alert: alert, onOpenAlert: onOpenAlert)
+                           alert: alert, onOpenAlert: onOpenAlert, onDecideAlert: onDecideAlert,
+                           waitingRequests: waitingRequests)
                 .frame(width: IslandController.expandedWidth, alignment: .top)
                 .fixedSize(horizontal: false, vertical: true)
                 .onPreferenceChange(PanelHeightKey.self, perform: onContentHeight)
@@ -97,7 +105,8 @@ struct IslandRootView: View {
         } else if let alert {
             IslandAlertCompactView(alert: alert,
                                   cameraWidth: collapsedSize.width - collapsedTopRadius * 2,
-                                  height: max(38, collapsedSize.height), onOpen: onOpenAlert)
+                                  height: max(38, collapsedSize.height), onOpen: onOpenAlert,
+                                  waitingRequests: waitingRequests)
                 .id(alert.id)
                 .transition(.opacity.animation(.easeOut(duration: 0.2).delay(0.08)))
         }

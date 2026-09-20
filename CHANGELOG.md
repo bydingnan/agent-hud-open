@@ -2,6 +2,15 @@
 
 Releases of Agent HUD Open. A version is a git tag `vX.Y.Z` on `main`; `CFBundleShortVersionString` in `scripts/build-app.sh` carries the same number. Each entry lists what changed for people using the application and, under **Host API**, what changed for applications that embed `AgentHUDCore` and `AgentHUDDesktop`. Dates are tag dates.
 
+## 0.4.17 — 2026-09-20
+
+- A client that stops to ask whether a tool may run can be answered from the HUD. The request arrives on the island and stays there until it is settled, where every other event expires after a few seconds; hovering opens it, with the file or command it wants, the folder it runs in and, for an edit, the lines it would change. Deny and allow once are always offered, and a third answer appears when the client itself suggested a rule, which the HUD echoes back untouched rather than composing one of its own. Several requests stack into a queue, oldest open, any line of it openable, and answering one hands over to whichever has waited longest.
+- Saying nothing stays available and costs nothing: a HUD that is closed, paused or simply not looked at leaves the client's own permission flow exactly as it would be with no hook installed, and a client that gives up — answered in its terminal, timed out, killed — takes its request off the island by itself. Nothing is ever answered on the user's behalf.
+- Answering does not take the terminal's focus, because the island never becomes the key window; it is also why the card has no keyboard shortcuts.
+- The clients that carry Claude Code's hook schema are covered: Claude Code and the Qoder, Qoder CN and QoderWork builds. Qoder's mark is bundled, and a client whose artwork is not bundled now draws a lettered badge instead of nothing at all.
+- Demo mode shows the queue, so the feature can be seen without a client waiting behind it.
+- Host API: `PermissionRequests`, `PermissionRequest`, `PermissionDecision`, `PermissionHooks` and `PermissionHookClient` in `AgentHUDCore`; `DesktopApplication` opens the channel on start and closes it on stop, and seeds the demo's requests in demo mode.
+
 ## 0.4.16 — 2026-09-20
 
 - A logo queue also shows the agents you have actually been using: any vendor that ran in the last day joins the watched ones, most recently used first, and leaves again a day after its last turn. A client whose quota you do not follow was invisible on the HUD however much you ran it. A vendor whose Live status is off never arrives this way, since that switch is what says its runs may be reported at all.

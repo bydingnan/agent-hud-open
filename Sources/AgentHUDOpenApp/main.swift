@@ -101,6 +101,14 @@ if CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--attention-ho
     exit(0)
 }
 
+// The client waits on this one: it holds the request open until the user answers on the HUD, and prints nothing
+// when it cannot be answered, which leaves the client's own permission prompt exactly as it was.
+if CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--permission-hook",
+   let source = PermissionHooks.Source(rawValue: CommandLine.arguments[2]) {
+    PermissionHookClient.run(source: source)
+    exit(0)
+}
+
 if CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--install-completion-hook",
    let source = CompletionHooks.Source(rawValue: CommandLine.arguments[2]) {
     do {

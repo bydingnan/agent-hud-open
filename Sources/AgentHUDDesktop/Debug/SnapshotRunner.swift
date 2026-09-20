@@ -40,6 +40,26 @@ public enum SnapshotRunner {
             save("alert-completion-\(vendor)-inline", IslandScene(store: store, settings: settings, open: true, light: false, alert: alert), folder: folder, scheme: .dark)
         }
 
+        // A tool call waiting for its user: the reminder that holds, and what hovering turns it into.
+        for (name, request) in [
+            ("bash", PermissionRequest(id: "snapshot-bash", source: .claude, sessionID: "snapshot", toolName: "Bash",
+                                       summary: L10n.text("删除构建产物", "Remove the build output"),
+                                       detail: "rm -rf .build/release", cwd: "/Users/me/agent-hud", at: Date())),
+            ("edit", PermissionRequest(id: "snapshot-edit", source: .claude, sessionID: "snapshot", toolName: "Edit",
+                                       summary: "PermissionRequests.swift", detail: nil,
+                                       cwd: "/Users/me/agent-hud-open", at: Date())),
+        ] {
+            let alert = IslandAlert.permission(request)
+            save("alert-permission-\(name)-compact", IslandScene(store: store, settings: settings, open: false, light: false, alert: alert), folder: folder, scheme: .dark)
+            save("alert-permission-\(name)-detail", IslandScene(store: store, settings: settings, open: true, light: false, alert: alert, showsAlertDetails: true), folder: folder, scheme: .dark)
+            save("alert-permission-\(name)-inline", IslandScene(store: store, settings: settings, open: true, light: false, alert: alert), folder: folder, scheme: .dark)
+            guard name == "bash" else { continue }
+            let queue = PermissionRequest.demo()
+            let queued = IslandAlert.permission(queue[0])
+            save("alert-permission-queued-compact", IslandScene(store: store, settings: settings, open: false, light: false, alert: queued, waitingRequests: queue), folder: folder, scheme: .dark)
+            save("alert-permission-queued-detail", IslandScene(store: store, settings: settings, open: true, light: false, alert: queued, showsAlertDetails: true, waitingRequests: queue), folder: folder, scheme: .dark)
+        }
+
         save("island-collapsed", IslandScene(store: store, settings: settings, open: false, light: false), folder: folder, scheme: .dark)
         for style in GlowStyle.allCases where style != .blur {
             settings.update { $0.glowStyle = style; $0.glowEffect = .breathe }
@@ -545,14 +565,16 @@ struct IslandScene: View {
     let light: Bool
     var alert: IslandAlert? = nil
     var showsAlertDetails = false
+    var waitingRequests: [PermissionRequest] = []
     /// A fixed effect time for the dot and ASCII glow styles.
     var glowTime: Double? = nil
 
     private var panelHeight: CGFloat {
         if showsAlertDetails, let alert {
-            let hosting = NSHostingView(rootView: IslandAlertDetailView(alert: alert, onOpen: {})
-                .padding(.horizontal, 24).padding(.top, 54).padding(.bottom, 22)
-                .frame(width: IslandController.alertDetailWidth).fixedSize(horizontal: false, vertical: true))
+            let hosting = NSHostingView(rootView: IslandAlertDetailView(alert: alert, onOpen: {}, onDecide: { _ in },
+                                                                         waitingRequests: waitingRequests)
+                .padding(alert.detailInsets ?? EdgeInsets(top: 38 + alert.detailTopInset, leading: 24, bottom: 22, trailing: 24))
+                .frame(width: alert.detailWidth(queued: max(1, waitingRequests.count))).fixedSize(horizontal: false, vertical: true))
             return hosting.fittingSize.height
         }
         let hosting = NSHostingView(rootView: HoverPanelView(store: store, onOpenStats: {}, alert: alert)
@@ -563,7 +585,7 @@ struct IslandScene: View {
     var body: some View {
         let cameraWidth: CGFloat = alert == nil ? 380 : 216
         let closedHeight: CGFloat = alert == nil ? 44 : 38
-        let islandSize = open ? CGSize(width: showsAlertDetails ? IslandController.alertDetailWidth : IslandController.expandedWidth, height: panelHeight)
+        let islandSize = open ? CGSize(width: showsAlertDetails ? (alert?.detailWidth(queued: max(1, waitingRequests.count)) ?? IslandController.alertDetailWidth) : IslandController.expandedWidth, height: panelHeight)
             : alert != nil ? CGSize(width: cameraWidth + 2 * (IslandController.alertWingWidth + IslandController.alertSidePadding), height: closedHeight)
             : CGSize(width: cameraWidth, height: closedHeight)
         let radius: CGFloat = open ? IslandController.expandedRadius : 14
@@ -608,7 +630,8 @@ struct IslandScene: View {
                 store: store, isOpen: open,
                 collapsedSize: CGSize(width: cameraWidth + NotchGeometry.collapsedTopRadius * 2, height: closedHeight),
                 collapsedTopRadius: NotchGeometry.collapsedTopRadius, collapsedBottomRadius: 14,
-                lightBorder: light, onOpenStats: {}, alert: alert, showsAlertDetails: showsAlertDetails
+                lightBorder: light, onOpenStats: {}, alert: alert, waitingRequests: waitingRequests,
+                showsAlertDetails: showsAlertDetails
             )
                 .frame(width: islandSize.width + flare * 2, height: islandSize.height)
                 .shadow(color: Color.black.opacity(0.35), radius: 15, y: 8)

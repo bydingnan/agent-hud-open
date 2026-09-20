@@ -10,6 +10,8 @@ public final class DesktopApplication {
     private let additionalSettingsPages: [DesktopSettingsPage]
     private let onIslandEvents: ((IslandEventTracker.Update, UsageReport, Date) -> Void)?
     private var islandEvents = IslandEventTracker()
+    /// The requests already on the island, so a change to the waiting list says which ones arrived and which left.
+    private var shownRequests: [String] = []
     private var notch: IslandController?
     private var statusItem: StatusItemController?
     private lazy var settingsWindow = SettingsWindowController(
@@ -81,6 +83,11 @@ public final class DesktopApplication {
             _ = self?.settings.agents
             _ = self?.settings.settings.disabledLiveStatusSources
         }, onChange: { [weak self] in self?.checkIslandEvents() })
+        // The channel is open whenever the app is: a client that asks while it is closed keeps its own prompt.
+        observeChanges({ PermissionRequests.shared.pending.map(\.id) },
+                       onChange: { [weak self] in self?.syncPermissionRequests() })
+        // Seeded after the island is listening, so the demo's requests arrive the way a client's would.
+        if options.demo { PermissionRequests.shared.seedDemo() } else { PermissionRequests.shared.start() }
         store.start()
         if options.openPanel { notch.forceOpen() }
         if store.isAccessAllowed, options.showOnboarding || !settings.hasCompletedOnboarding { showOnboarding() }
@@ -88,7 +95,23 @@ public final class DesktopApplication {
         if options.showStats { showStats() }
     }
 
-    public func stop() { store.stop() }
+    public func stop() {
+        // Quitting must never leave a client waiting on an answer that is no longer coming.
+        PermissionRequests.shared.stop()
+        store.stop()
+    }
+
+    /// Mirrors the requests waiting for the user onto the island: a new one is shown, and one the client took back
+    /// disappears without being answered.
+    private func syncPermissionRequests() {
+        let pending = PermissionRequests.shared.pending
+        let ids = pending.map(\.id)
+        for id in shownRequests where !ids.contains(id) { notch?.withdraw(requestID: id) }
+        for request in pending where !shownRequests.contains(request.id) { notch?.present(.permission(request)) }
+        shownRequests = ids
+        // A request that only joined or left the queue changes no card, but it does change how many are waiting.
+        notch?.apply(animated: true)
+    }
     public func showSettings(pageID: String? = nil) { settingsWindow.show(pageID: pageID) }
     public func showStats() {
         Task { await store.refreshAccounts() }

@@ -28,6 +28,8 @@ struct HoverPanelView: View {
     var onOpenSettings: () -> Void = {}
     var alert: IslandAlert? = nil
     var onOpenAlert: () -> Void = {}
+    var onDecideAlert: (PermissionDecision) -> Void = { _ in }
+    var waitingRequests: [PermissionRequest] = []
 
     private let theme = Theme.island
 
@@ -39,7 +41,8 @@ struct HoverPanelView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             if let alert {
-                IslandAlertInlineView(alert: alert, onOpen: onOpenAlert).id(alert.id)
+                IslandAlertInlineView(alert: alert, onOpen: onOpenAlert, onDecide: onDecideAlert,
+                                      waitingRequests: waitingRequests).id(alert.id)
                     .padding(.bottom, 4)
             }
             if store.settings.settings.showIslandQuota, !store.rows.isEmpty {

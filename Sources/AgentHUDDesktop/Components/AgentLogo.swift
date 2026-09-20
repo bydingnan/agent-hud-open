@@ -9,11 +9,14 @@ enum AgentArtwork {
         ["Claude": "claude", "ChatGPT": "chatgpt", "Antigravity": "antigravity", "DeepSeek": "deepseek", "Grok": "grok",
          "Cursor": "cursor", "OpenCode": "opencode", "OpenCode-dark": "opencode-dark", "Kimi": "kimi", "GLM": "glm", "Pi": "pi",
          "GitHub Copilot": "copilot", "OpenClaw": "openclaw", "Hermes": "hermes", "ZCode": "zcode", "CodeBuddy": "codebuddy",
-         "WorkBuddy": "workbuddy"]
+         "WorkBuddy": "workbuddy", "Qoder": "qoder", "Qoder-dark": "qoder-dark"]
 
+    // A mark that is named here but not bundled must not take the app down with it: the vendor falls back to its
+    // lettered badge instead, which is what a client whose artwork nobody has drawn yet already gets.
     @MainActor private static let images: [String: NSImage] = Dictionary(uniqueKeysWithValues:
-        fileNames.map { vendor, name in
-            let artwork = NSImage(contentsOf: AppResources.bundle.url(forResource: name, withExtension: "png")!)!
+        fileNames.compactMap { vendor, name -> (String, NSImage)? in
+            guard let url = AppResources.bundle.url(forResource: name, withExtension: "png"),
+                  let artwork = NSImage(contentsOf: url) else { return nil }
             let image = NSImage(size: NSSize(width: 16, height: 16), flipped: false) { rect in
                 artwork.draw(in: rect)
                 if vendor == "ChatGPT" {
@@ -70,9 +73,10 @@ enum AgentArtwork {
         monochromeVendors.contains(canonical(vendor))
     }
 
-    /// Vendors whose mark is bundled, for surfaces that show the whole catalog.
+    /// Vendors whose mark is bundled, for surfaces that show the whole catalog. The second copy of a mark that
+    /// ships in two variants is not a vendor of its own.
     static var allVendors: [String] {
-        fileNames.keys.filter { $0 != "OpenCode-dark" }.sorted()
+        fileNames.keys.filter { !$0.hasSuffix("-dark") }.sorted()
     }
 
     /// The mark a vendor is drawn with, as a key: vendors that share one piece of artwork share this one.
@@ -80,24 +84,22 @@ enum AgentArtwork {
     /// are two the eye cannot tell apart, and telling agents apart at a glance is what the queue is for.
     static func markKey(_ vendor: String) -> String { canonical(vendor) }
 
-    /// Codex and ChatGPT share the bundled OpenAI artwork, while keeping distinct names; OpenCode has one
-    /// file per background.
+    /// Codex and ChatGPT share the bundled OpenAI artwork, while keeping distinct names, and so do the three Qoder
+    /// builds. OpenCode and Qoder ship one file per background, because part of each mark is the background's own
+    /// colour and would disappear on the other one.
     private static func canonical(_ vendor: String, light: Bool = false) -> String {
         switch vendor {
         case "Codex": return "ChatGPT"
         case "OpenCode", "OpenCode Go": return light ? "OpenCode" : "OpenCode-dark"
+        case "Qoder", "Qoder CN", "QoderWork": return light ? "Qoder" : "Qoder-dark"
         default: return vendor
         }
     }
 
     @MainActor
     static func image(for vendor: String, dark: Bool? = nil) -> NSImage? {
-        // Codex and ChatGPT share the bundled OpenAI artwork, while keeping distinct names.
-        if vendor == "OpenCode" || vendor == "OpenCode Go" {
-            let isDark = dark ?? (NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
-            return images[isDark ? "OpenCode-dark" : "OpenCode"]
-        }
-        return images[vendor == "Codex" ? "ChatGPT" : vendor]
+        let isDark = dark ?? (NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
+        return images[canonical(vendor, light: !isDark)]
     }
 }
 
@@ -113,6 +115,14 @@ struct AgentLogo: View {
                 .resizable()
                 .scaledToFit()
                 .frame(width: size, height: size)
+                .accessibilityHidden(true)
+        } else if let initial = vendor.first {
+            // No bundled mark: a lettered one, the way the phone already does it. Drawing nothing would leave the
+            // row looking like it belongs to whoever is above it.
+            Text(String(initial).uppercased())
+                .font(.system(size: size * 0.6, weight: .semibold))
+                .frame(width: size, height: size)
+                .background(Color.secondary.opacity(0.25), in: RoundedRectangle(cornerRadius: size * 0.3))
                 .accessibilityHidden(true)
         }
     }

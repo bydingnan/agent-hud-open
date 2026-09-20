@@ -9,6 +9,10 @@ public enum SessionObservers {
             do { try AttentionHooks.configure(source, enabled: true, executable: executable) }
             catch { NSLog("[AgentHUD] Notification hook setup failed for %@: %@", source.rawValue, error.localizedDescription) }
         }
+        for source in PermissionHooks.Source.allCases where source.isInstalled() {
+            do { try PermissionHooks.configure(source, enabled: true, executable: executable) }
+            catch { NSLog("[AgentHUD] Permission hook setup failed for %@: %@", source.rawValue, error.localizedDescription) }
+        }
         for source in CompletionHooks.Source.allCases {
             guard AdditionalSource(rawValue: source.rawValue)?.isInstalled() == true else { continue }
             do { try CompletionHooks.configure(source, enabled: true, executable: executable) }

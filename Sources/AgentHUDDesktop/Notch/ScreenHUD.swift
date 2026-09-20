@@ -27,6 +27,8 @@ final class ScreenHUD {
     private var timer: Timer?
     private var shrinkTask: Task<Void, Never>?
     private var targetWindowFrame: CGRect?
+    /// The island's own shape while an event is showing: wider than the silhouette by the two wings it grew.
+    private var alertFrame: CGRect?
     private let alerts = IslandAlertQueue()
     private var activeAlert: IslandAlert? { alerts.current?.alert }
     private var showsAlertDetails: Bool { machine.isOpen && alerts.current?.inUsagePanel == false }
@@ -86,11 +88,23 @@ final class ScreenHUD {
         island.panel.ignoresMouseEvents = passes
     }
 
-    /// The region that counts as hovering: the marks while collapsed, the panel once it is open. The target
-    /// frame rather than the window's, which is briefly grown into a canvas for the opening animation.
+    /// The region that counts as hovering: the marks while collapsed, the wings an event grew, the panel once it is
+    /// open. The target frame rather than the window's, which is briefly grown into a canvas for the opening
+    /// animation. An event is the only thing on screen at that moment, so everything it draws is part of it — a
+    /// reminder you cannot point at is a reminder you cannot answer.
     func samplePointer() {
-        let region = machine.isOpen ? (targetWindowFrame ?? island.panel.frame) : geometry.rect
-        pointer(inside: region.contains(NSEvent.mouseLocation))
+        pointer(inside: hoverRegion.contains(NSEvent.mouseLocation))
+    }
+
+    private var hoverRegion: CGRect {
+        ScreenHUD.hoverRegion(open: machine.isOpen, panel: targetWindowFrame ?? island.panel.frame,
+                              alert: alertFrame, marks: geometry.rect)
+    }
+
+    /// Which shape the pointer has to be inside to count as hovering this HUD.
+    static func hoverRegion(open: Bool, panel: CGRect, alert: CGRect?, marks: CGRect) -> CGRect {
+        if open { return panel }
+        return alert ?? marks
     }
 
     /// Hovering opens the panel, unless the user asked for Option as well.
@@ -115,8 +129,13 @@ final class ScreenHUD {
 
     func present(_ alert: QuotaAlert) { present(.quota(alert)) }
 
-    func present(_ alert: IslandAlert) {
-        guard !store.glowHidden, !store.isPaused, alerts.show(alert, inUsagePanel: machine.isOpen) else { return }
+    /// `inUsagePanel` is passed on when one request hands over to the next: the surface the user is looking at is
+    /// theirs, and answering a card must not move the queue into the usage panel underneath it.
+    func present(_ alert: IslandAlert, inUsagePanel: Bool? = nil) {
+        // A hidden or paused glow silences news. A client waiting for an answer is not news: it is a question that
+        // was asked of this user, and hiding it would leave the session stuck with nobody knowing why.
+        let silenced = (store.glowHidden || store.isPaused) && !alert.isPersistent
+        guard !silenced, alerts.show(alert, inUsagePanel: inUsagePanel ?? machine.isOpen) else { return }
         // An event owns the brief expansion; a pending hover must not open the full panel underneath it.
         timer?.invalidate()
         timer = nil
@@ -128,9 +147,36 @@ final class ScreenHUD {
         island.show()
     }
 
+    /// The client withdrew its request: it timed out, it was answered in the terminal, or it was killed. Nothing is
+    /// answered on the user's behalf — the card simply stops being a question.
+    func withdraw(requestID: String) {
+        let surface = alerts.current?.inUsagePanel
+        let outcome = alerts.remove(id: requestID)
+        guard outcome.removed else { return }
+        if let next = outcome.next {
+            present(next, inUsagePanel: surface)
+        } else if alerts.current == nil {
+            if !pointerInside { machine = HoverMachine() }
+            apply(animated: true)
+        }
+    }
+
+    /// Brings a stacked request to the front, so the buttons act on the card the user is looking at.
+    private func selectRequest(_ id: String) {
+        guard alerts.promote(id: id) else { return }
+        apply(animated: true)
+    }
+
+    /// Hands the user's answer to the client that is waiting for it, and takes the card off the island.
+    private func decideAlert(_ decision: PermissionDecision) {
+        guard case .permission(let request)? = activeAlert else { return }
+        PermissionRequests.shared.resolve(request.id, decision)
+    }
+
     private func dismissAlert() {
+        let surface = alerts.current?.inUsagePanel
         if let next = alerts.dismiss() {
-            present(next)
+            present(next, inUsagePanel: surface)
         } else {
             if !pointerInside { machine = HoverMachine() }
             apply(animated: true)
@@ -247,6 +293,9 @@ final class ScreenHUD {
             onOpenSettings: { [weak self] in self?.onOpenSettings?() },
             alert: activeAlert,
             onOpenAlert: { [weak self] in self?.openAlert() },
+            onDecideAlert: { [weak self] decision in self?.decideAlert(decision) },
+            waitingRequests: PermissionRequests.shared.pending,
+            onSelectRequest: { [weak self] id in self?.selectRequest(id) },
             showsAlertDetails: showsAlertDetails,
             animatesGeometry: animated
         )
@@ -261,9 +310,15 @@ final class ScreenHUD {
         let expanded = open || activeAlert != nil
         let compactSize = CGSize(width: geometry.rect.width + 2 * (IslandController.alertWingWidth + IslandController.alertSidePadding),
                                  height: max(38, geometry.rect.height))
-        let size = open ? (showsAlertDetails ? CGSize(width: IslandController.alertDetailWidth, height: alertDetailHeight) : expandedSize) : compactSize
+        let size = open
+            ? (showsAlertDetails
+                ? CGSize(width: activeAlert?.detailWidth(queued: PermissionRequests.shared.pending.count)
+                    ?? IslandController.alertDetailWidth, height: alertDetailHeight)
+                : expandedSize)
+            : compactSize
         // Core frame drives the glow/shadow; the window frame adds the flared top corners.
         let islandFrame = expanded ? geometry.expandedFrame(size: size) : geometry.rect
+        alertFrame = (activeAlert != nil && !open) ? islandFrame : nil
         let flare = open ? NotchGeometry.expandedTopRadius : NotchGeometry.collapsedTopRadius
         let windowFrame = expanded ? islandFrame.insetBy(dx: -flare, dy: 0) : geometry.islandFrame
         let radius = open ? IslandController.expandedRadius : max(geometry.cornerRadius, activeAlert == nil ? 0 : 14)

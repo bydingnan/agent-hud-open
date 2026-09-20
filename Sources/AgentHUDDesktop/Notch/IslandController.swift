@@ -146,6 +146,9 @@ final class IslandController {
     /// An event is shown once, on the screen being looked at. Repeating it on every display would mean
     /// dismissing the same thing several times, and a screen nobody is facing is not where news belongs.
     func present(_ alert: IslandAlert) { underPointer?.present(alert) }
+
+    /// A withdrawn request is taken off whichever screen ended up showing it.
+    func withdraw(requestID: String) { huds.values.forEach { $0.withdraw(requestID: requestID) } }
 }
 
 enum SystemAppearance {

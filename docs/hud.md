@@ -41,6 +41,14 @@ The HUD sits at the top of every attached display, and each display carries its 
 - A queue's glow is a backdrop, never a rim: once the panel opens or an event widens the island, the field stops rather than following the new shape around. Only a notch is rimmed.
 - The marks ride over the panel while it is open, so opening the HUD never makes the agents disappear.
 
+### Approvals
+
+- A client that stops to ask whether a tool may run reaches the HUD through a socket of its own, and the request lives only as long as that client waits for it. Answering resumes the client; the client giving up — answered in its terminal, timed out, killed — takes the request off the HUD by itself, and nothing is answered on anyone's behalf.
+- A request holds the island until it is settled, where an event of any other kind expires after a few seconds. News that arrives while a request waits is dropped rather than queued behind it; a second request waits its turn.
+- Hovering opens the queue: the oldest request open, the rest a line each. Any line can be opened, which closes the one before it, and the answers always act on the open one. Answering hands over to whichever has waited longest.
+- Deny and allow-once are always offered. A third answer appears only when the client itself suggested a rule — the HUD echoes that suggestion back untouched rather than composing one, because a rule invented from outside is the kind that silently never matches.
+- Saying nothing is an answer the HUD can always give, and it is what a closed, paused or busy HUD gives: the client's own permission flow carries on as though no hook were installed. A hidden or paused glow silences events but never a request, which would otherwise leave a session waiting with nothing on screen to say why.
+
 ### The glow
 
 - Every display has its own glow: style, effect, speed, reach and density are set per screen, and a display with none of its own follows the default.
@@ -66,6 +74,8 @@ The HUD sits at the top of every attached display, and each display carries its 
 | `screenGlow[…].brightness` / `breathAmplitude` | 20–100% / how deep the breath dips | 90% / 60% |
 | `requiresOptionToOpen` | Hovering alone leaves the panel closed | `false` |
 
+The approval hook is installed for each detected client at startup, alongside the notification and completion hooks; `--permission-hook <source>` is the handler it points back at. See [command line](command-line.md) and [data access](data-access.md).
+
 `Settings.placement(on:hasNotch:)` and `glow(on:)` answer what one display uses, falling back to the default when it has none of its own. Both are keyed by the string `ScreenIdentity.key(for:)` returns for a display.
 
 ## Code map
@@ -78,6 +88,8 @@ The HUD sits at the top of every attached display, and each display carries its 
 | The marks and their motion | `Sources/AgentHUDDesktop/Notch/LogoQueueView.swift`, `LogoImages.swift` |
 | Glow geometry, falloff and frames | `Sources/AgentHUDCore/Logic/GlowGeometry.swift`, `GlowMatrix.swift`, `GlowMotion.swift`; `Sources/AgentHUDDesktop/Notch/GlowWindowController.swift`, `GlowFrameRenderer.swift`, `GlowAnimator.swift` |
 | Collapsed shape, panel and events | `Sources/AgentHUDDesktop/Notch/IslandRootView.swift`, `IslandWindowController.swift` |
+| Requests waiting, and the channel they wait on | `Sources/AgentHUDCore/Providers/Shared/PermissionRequests.swift`, `PermissionRequest.swift`, `PermissionHooks.swift`, `PermissionHookClient.swift` |
+| The card, the queue and the answers | `Sources/AgentHUDDesktop/Notch/PermissionAlertViews.swift`, `IslandAlert.swift` |
 | Settings for both | `Sources/AgentHUDDesktop/Settings/ScreensPane.swift`, `GlowPane.swift`, `DisplayPane.swift` |
 
 ## Related
