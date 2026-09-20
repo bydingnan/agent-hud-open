@@ -51,6 +51,35 @@ final class ProviderAccountTests: XCTestCase {
     }
 
     @MainActor
+    func testSettingsAndQuotaSectionsShareOneSummaryPerAccountAcrossClientHomes() throws {
+        let otherWorkspace = ProviderAccount.identified(provider: "Codex", user: "a@example.com", workspace: "workspace-2")!
+        let old = AccountObservation(account: accountA, label: "a@example.com", plan: "plus", observedAt: now, isCurrent: false)
+        let current = AccountObservation(account: accountA, home: "pi:", label: "a@example.com", plan: "plus",
+                                         observedAt: now.addingTimeInterval(60))
+        let agents = [accountA, accountB, otherWorkspace].map(descriptor)
+        let report = UsageReport(generatedAt: now.addingTimeInterval(60), snapshots: agents.map {
+            .init(agentId: $0.id, remainingPct: 100, updatedAt: now)
+        }, sessions: [], discoveredAgents: agents, accounts: ["Codex": [
+            old, current,
+            .init(account: accountB, label: "b@example.com", plan: "pro", observedAt: now),
+            .init(account: otherWorkspace, label: "a@example.com", plan: "plus", observedAt: now, isCurrent: false)
+        ]])
+        let group = try XCTUnwrap(AgentSettingsGroup.make(sources: [], agents: agents, report: report).first)
+        XCTAssertEqual(group.accounts.count, 3, "client-home history is not another account")
+        XCTAssertEqual(group.accounts.filter { $0.account == accountA }, [current])
+        XCTAssertTrue(group.accounts.contains { $0.account == otherWorkspace }, "same email in another workspace stays separate")
+        XCTAssertEqual(report.accounts?["Codex"]?.count, 4, "display grouping preserves source observations")
+
+        let suite = "AccountSummaryTests.\(UUID().uuidString)", defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = SettingsStore(defaults: defaults, defaultAgents: agents)
+        let store = UsageStore(provider: DemoUsageProvider(), settings: settings)
+        store.replace(report: report)
+        let panelAccounts = store.accountSections(store.rows).compactMap(\.account)
+        XCTAssertEqual(Set(group.accounts), Set(panelAccounts), "settings and quota surfaces use the same account summaries")
+    }
+
+    @MainActor
     func testSuccessfulCodexInventoryRetiresMissingWindowsButKeepsOtherAccounts() async throws {
         let spark = AgentDescriptor(id: accountA.windowID("codex:spark:primary"), vendor: "Codex", model: "Spark", source: "", enabled: true, account: accountA)
         let original = UsageReport(generatedAt: now, snapshots: [
