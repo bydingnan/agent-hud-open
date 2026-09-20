@@ -75,7 +75,10 @@ struct GlowPane: View {
                 SettingsDivider(theme: theme)
                 SliderRow(label: L10n.text("密度", "Density"), value: binding(\.gridDensity), range: GlowSettings.gridDensityRange, step: 0.05, format: { "\(Int(($0 * 100).rounded()))%" }, theme: theme)
                 SettingsDivider(theme: theme)
-                SliderRow(label: L10n.text("扩散", "Spread"), value: binding(\.gridSpread), range: GlowSettings.gridSpreadRange, step: 0.1, format: { String(format: L10n.text("%.1f 格", "%.1f cells"), $0) }, theme: theme)
+                // The stored value is a decay length in cells, which says nothing about what you see. What
+                // you see is how many rows are drawn before the glow falls under the cutoff.
+                SliderRow(label: L10n.text("扩散", "Spread"), value: binding(\.gridSpread), range: GlowSettings.gridSpreadRange, step: 0.1,
+                          format: { String(format: L10n.text("%d 排", "%d rows"), GlowSettings.rows(forSpread: $0)) }, theme: theme)
                 SettingsDivider(theme: theme)
             }
             SliderRow(label: L10n.text("光晕亮度", "Brightness"), value: percent(\.brightness), range: 20...100, step: 5, format: { "\(Int($0))%" }, theme: theme)
@@ -110,7 +113,7 @@ struct GlowPane: View {
     }
 
     private func caption(grid: Bool, effect: GlowEffect) -> String {
-        let density = grid ? L10n.text("密度决定点和字符占满格子的程度，调高后空隙更小，超过 100% 会互相重叠。", "Density sets how much of each cell a mark fills; raise it for smaller gaps, and past 100% marks overlap. ") : ""
+        let density = grid ? L10n.text("密度决定点和字符占满格子的程度，调高后空隙更小，超过 100% 会互相重叠。扩散是排数，最外几排本来就很淡。", "Density sets how much of each cell a mark fills; raise it for smaller gaps, and past 100% marks overlap. Spread is how many rows are drawn, the outermost of which are faint by design. ") : ""
         if !grid && effect == .breathe {
             return L10n.text("Agent 运行时自动呼吸，空闲时保持静态光晕。", "The glow breathes while an agent is running, and rests when it is idle.")
         }

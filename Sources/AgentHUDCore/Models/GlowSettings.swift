@@ -59,6 +59,12 @@ public struct GlowSettings: Hashable, Codable, Sendable {
                                     range: reach.rounded(.up), blur: 0)
     }
 
+    /// How many rows of marks a spread draws before the glow falls under the cutoff. The spread itself is a
+    /// decay length in cells; this is the count it produces, which is what anyone setting it is looking at.
+    public static func rows(forSpread spread: Double) -> Int {
+        Int(GlowMatrix.reach(pitch: 1, spread: spread))
+    }
+
     static func clamp(_ value: Double?, to range: ClosedRange<Double>, default fallback: Double) -> Double {
         guard let value, value.isFinite else { return fallback }
         return min(range.upperBound, max(range.lowerBound, value))
