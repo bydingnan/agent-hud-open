@@ -11,6 +11,7 @@ enum SourceDetector {
             case "claude-code": vendor = "Claude"
             case "codex-cli": vendor = "Codex"
             case "deepseek": vendor = "DeepSeek"
+            case "zenmux": vendor = "ZenMux"
             default:
                 if let additional = AdditionalSource(rawValue: source.id) { vendor = additional.vendor }
                 else if let additional = OpenAgentSource(rawValue: source.id) { vendor = additional.name }
@@ -39,6 +40,7 @@ enum SourceDetector {
         let claudeReady = engine != nil || fileManager.fileExists(atPath: home.appendingPathComponent(".claude/projects").path)
         let codexReady = CodexLocator.find() != nil
         let deepseekReady = DeepSeekLocator.isInstalled()
+        let zenmuxReady = ZenMuxCredentials.managementKey() != nil
         let claudeDetail: String
         if engine != nil {
             claudeDetail = L10n.text("额度、会话与用量统计", "Quota, sessions and usage")
@@ -65,6 +67,14 @@ enum SourceDetector {
                              ? L10n.text("Harness 会话、API 余额与费用", "Harness sessions, API balance and costs")
                              : L10n.text("启动 Harness 后读取用量", "Reads usage after starting Harness"),
                          state: deepseekReady ? .installed : .notDetected),
+            SourceStatus(
+                id: "zenmux", name: "ZenMux",
+                detail: zenmuxReady
+                    ? L10n.text("账户额度、用量与费用", "Account quota, usage and costs")
+                    : L10n.text("设置 ZENMUX_MANAGEMENT_API_KEY（或 ZENMUX_MGMT_API_KEY）后即可读取用量",
+                                "Set ZENMUX_MANAGEMENT_API_KEY (or ZENMUX_MGMT_API_KEY) to read usage"),
+                state: zenmuxReady ? .installed : .notDetected
+            ),
             SourceStatus(
                 id: "chatgpt", name: L10n.text("ChatGPT 聊天额度", "ChatGPT chat quota"),
                 detail: L10n.text("尚未接入", "Not available yet"),

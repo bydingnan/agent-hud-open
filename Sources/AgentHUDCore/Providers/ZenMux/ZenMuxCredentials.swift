@@ -1,7 +1,7 @@
 import Foundation
 
-enum ZenMuxCredentials {
-    static func managementKey(
+public enum ZenMuxCredentials {
+    public static func managementKey(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         home: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> String? {
