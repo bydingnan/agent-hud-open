@@ -2,6 +2,12 @@
 
 Releases of Agent HUD Open. A version is a git tag `vX.Y.Z` on `main`; `CFBundleShortVersionString` in `scripts/build-app.sh` carries the same number. Each entry lists what changed for people using the application and, under **Host API**, what changed for applications that embed `AgentHUDCore` and `AgentHUDDesktop`. Dates are tag dates.
 
+## 0.4.15 — 2026-09-20
+
+- A logo queue's marks bob again while their agent works. A session names the model it spends, not the quota window it belongs to, so comparing the two ids found a match only in the demo, where they happen to be equal: on a real Mac no mark ever moved. The vendor behind a session is resolved instead, by the same liveness the panel ranks sessions with.
+- Codex and ChatGPT are one mark in the queue rather than two identical ones. They share OpenAI's artwork, and a second copy of it took a place in the row while telling a glance nothing; whichever of them is running bobs the mark they share.
+- Host API: `UsageStore.workingVendors`.
+
 ## 0.4.14 — 2026-09-20
 
 - Every display gets its own HUD, set on its own. A screen with no notch stops drawing a bar pretending to have one: it can instead show the watched agents' own logos in a row, with the glow behind them as a backdrop rather than a rim around a shape. A mark bobs while its agent has work running and holds still otherwise, so motion means one thing. The marks can be hidden, which leaves the backdrop alone, still where they would have been. The queue takes no mouse events while collapsed, so clicks reach the menu bar and the window under it, and hovering can be asked to take Option as well. Opening the panel leaves the field behind rather than wrapping it around the panel: only a notch is rimmed. An event is shown once, on the screen the pointer is on.

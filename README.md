@@ -22,7 +22,7 @@
 
 ## At a glance
 
-- **Activity in your notch.** A breathing glow follows agent activity. Expand the panel to see quotas, token usage, and active sessions.
+- **Activity in your notch.** A breathing glow follows agent activity. Expand the panel to see quotas, token usage, and active sessions. Every display gets its own HUD — a screen without a notch shows the watched agents' logos in a row instead of a bar pretending to have one.
 - **Usage in context.** Track reset times, quota trends, model usage, and available API balances in one statistics window.
 - **Make it yours.** Choose visible agents, glow appearance (a soft blur or a halftone, ASCII, block, Braille or binary grid, each with breathe, flow, scan, ripple, shimmer and boot effects), language, and startup preferences. Usage alert levels are fixed at 70% / 90% used.
 
@@ -84,6 +84,7 @@ The libraries can also be consumed through Swift Package Manager. `DesktopApplic
 ## Documentation
 
 - [Architecture](docs/architecture.md) — modules, host integration, storage, design invariants, and versioning.
+- [The HUD on screen](docs/hud.md) — per-display placement, the logo queue, the glow, hovering, and events.
 - [Data access](docs/data-access.md) — provider queries, credentials, and local storage.
 - [Usage semantics](docs/usage-semantics.md) — token dimensions, percentages, alert levels, request intervals, and reading retention.
 - [Providers](docs/providers.md) — per-client data sources, credentials, endpoints, counting, billing pools, caches, tests, and upstream references.
