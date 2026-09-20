@@ -58,10 +58,12 @@ public actor ZenMuxUsageProvider: UsageProvider {
         )
     }
 
-    public nonisolated var watchedDirectories: [URL]? { [] }
+    /// `nil` (not `[]`) so the collector polls this account-only source; an empty list would never be read.
+    public nonisolated var watchedDirectories: [URL]? { nil }
     public nonisolated var seesLocalWork: Bool { false }
 
     public func refreshAccountUsage(historyHours: Int) async {
+        _ = historyHours
         guard hasKey() else {
             lastRefreshAt = nil
             quota = nil
@@ -74,11 +76,10 @@ public actor ZenMuxUsageProvider: UsageProvider {
             return
         }
         lastRefreshAt = now
+        // Island only needs quota. History is filled on a later poll after this step signals ZenMux.
         quota = await capture { try await readQuota() }
-        guard !Task.isCancelled else { return }
-        usage = await capture { try await readUsage(historyHours, now) }
-        guard !Task.isCancelled else { return }
-        costs = await capture { try await readCosts(historyHours, now) }
+        usage = nil
+        costs = nil
     }
 
     public func fetchUsage(agents: [AgentDescriptor], historyHours: Int) async throws -> UsageReport {
@@ -90,11 +91,22 @@ public actor ZenMuxUsageProvider: UsageProvider {
             return UsageReport(generatedAt: now, snapshots: [], sessions: [],
                                notice: message, sourceNotices: ["ZenMux": message])
         }
+        if quota == nil {
+            // First paint: quota alone. History waits for the next poll.
+            await refreshAccountUsage(historyHours: historyHours)
+        } else if usage == nil || costs == nil {
+            usage = await capture { try await readUsage(historyHours, now) }
+            guard !Task.isCancelled else { return makeReport(now: now) }
+            costs = await capture { try await readCosts(historyHours, now) }
+        }
+        return makeReport(now: now)
+    }
 
+    private func makeReport(now: Date) -> UsageReport {
+        let observedAt = lastRefreshAt ?? now
         let quotaValue = try? quota?.get()
         let usageValue = (try? usage?.get()) ?? []
         let costValue = (try? costs?.get()) ?? []
-        let observedAt = lastRefreshAt ?? now
         let windows = quotaValue?.windows ?? []
         let snapshots = windows.map {
             UsageSnapshot(agentId: $0.id, remainingPct: $0.remaining, resetAt: $0.reset,
@@ -106,12 +118,12 @@ public actor ZenMuxUsageProvider: UsageProvider {
         }
         let consumer = AgentDescriptor(id: "zenmux", vendor: "ZenMux", model: "API",
                                        source: L10n.text("ZenMux 账户用量", "ZenMux account usage"), enabled: true)
-        let notices = [failureMessage(quota), failureMessage(usage), failureMessage(costs)]
-            .compactMap { $0 }
+        let notices = [failureMessage(quota), failureMessage(usage), failureMessage(costs)].compactMap { $0 }
         let notice = notices.isEmpty ? nil : notices.joined(separator: " · ")
-        let billing = APIBilling(vendor: "ZenMux", balances: [], isAvailable: nil,
-                                 updatedAt: costs != nil && failureMessage(costs) == nil ? observedAt : nil,
-                                 costs: costValue, notice: failureMessage(costs))
+        let billing = APIBilling(
+            vendor: "ZenMux", balances: [], isAvailable: nil,
+            updatedAt: costs != nil && failureMessage(costs) == nil ? observedAt : nil,
+            costs: costValue, notice: failureMessage(costs))
         return UsageReport(
             generatedAt: now,
             snapshots: snapshots,

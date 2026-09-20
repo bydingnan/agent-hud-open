@@ -167,7 +167,7 @@ final class ZenMuxProviderTests: XCTestCase, @unchecked Sendable {
         XCTAssertEqual(report.usage, [usage])
         XCTAssertEqual(report.billing.first?.vendor, "ZenMux")
         XCTAssertEqual(report.billing.first?.costs, [cost])
-        XCTAssertEqual(provider.watchedDirectories, [])
+        XCTAssertNil(provider.watchedDirectories, "account-only ZenMux must be polled, not an empty watch list")
         XCTAssertFalse(provider.seesLocalWork)
 
         let empty = ZenMuxUsageProvider(
@@ -203,7 +203,7 @@ final class ZenMuxProviderTests: XCTestCase, @unchecked Sendable {
         let provider = CombinedUsageProvider.standard(ledger: .inMemory())
         let source = provider.sources.first { $0.name == "ZenMux" }
         XCTAssertNotNil(source)
-        XCTAssertEqual(source?.directories, [])
+        XCTAssertNil(source?.directories, "ZenMux has no local logs and must be polled")
         XCTAssertEqual(source?.accountSteps.count, 1)
     }
 }
