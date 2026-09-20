@@ -106,12 +106,21 @@ final class GlowMatrixTests: XCTestCase {
     let settings = Settings().with { $0.glowStyle = .dots }
     let radius = 22.0
     var glow: GlowGeometry { settings.glow.geometry(islandWidth: 380, islandHeight: 44, islandRadius: radius) }
-    var matrix: GlowMatrix { GlowMatrix.compute(glow: glow, islandRadius: radius, pitch: settings.glowGridPitch, spread: settings.glowGridSpread) }
+    var matrix: GlowMatrix { GlowMatrix.compute(glow: glow, islandRadius: radius, pitch: settings.glowGridPitch, core: settings.glowGridCore, fade: settings.glowGridFade) }
 
-    func testGridGeometryReachesTheFaintestDot() {
-        let reach = GlowMatrix.reach(pitch: 10, spread: 2.4)
-        XCTAssertEqual(reach, 24 * log(20), accuracy: 1e-9, "dots fade to the cutoff, even under scan's brightest band")
-        XCTAssertEqual(glow.sideInset, reach.rounded(.up))
+    func testGridGeometryReachesTheRowsItWasAskedFor() {
+        let reach = GlowMatrix.reach(pitch: 10, core: 2, fade: 5)
+        XCTAssertEqual(reach, 70, accuracy: 1e-9, "the field ends where the solid and fading rows run out")
+        XCTAssertEqual(GlowMatrix.strength(cells: 2, core: 2, fade: 5), 1, "the core is at full strength throughout")
+        XCTAssertEqual(GlowMatrix.strength(cells: 7, core: 2, fade: 5), GlowMatrix.cutoff / GlowMotion.maximumGain,
+                       accuracy: 1e-9, "the fade lands exactly on the cutoff")
+        // The fade leaves the core with no slope at all, so the two meet without a crease.
+        let step = 0.001
+        let slope = (GlowMatrix.strength(cells: 2 + step, core: 2, fade: 5) - 1) / step
+        XCTAssertEqual(slope, 0, accuracy: 1e-3, "an exponential would leave the core at its steepest")
+        XCTAssertEqual(glow.sideInset,
+                       GlowMatrix.reach(pitch: settings.glowGridPitch, core: settings.glowGridCore,
+                                        fade: settings.glowGridFade).rounded(.up))
         XCTAssertEqual(glow.blur, 0)
         XCTAssertEqual(glow.topOffset, 0, "grid styles have no blur margin above the screen edge")
         let blurred = Settings().glow.geometry(islandWidth: 380, islandHeight: 44, islandRadius: radius)
@@ -129,9 +138,11 @@ final class GlowMatrixTests: XCTestCase {
         }
     }
 
-    func testIntensityFollowsTheDesignDecay() {
+    func testIntensityFollowsTheSolidThenFadingCurve() {
         for cell in matrix.cells {
-            XCTAssertEqual(cell.intensity, exp(-cell.distance / 24), accuracy: 1e-9)
+            let expected = GlowMatrix.strength(cells: cell.distance / settings.glowGridPitch,
+                                               core: settings.glowGridCore, fade: settings.glowGridFade)
+            XCTAssertEqual(cell.intensity, expected, accuracy: 1e-9)
             XCTAssertGreaterThanOrEqual(cell.intensity, GlowMatrix.cutoff / GlowMotion.maximumGain)
         }
     }
@@ -143,8 +154,10 @@ final class GlowMatrixTests: XCTestCase {
         let centerX = cells.map { $0.x }.min { (a: Double, b: Double) -> Bool in abs(a - middle) < abs(b - middle) } ?? 0
         let column = cells.filter { $0.x == centerX && $0.y > bottom }.sorted { $0.y < $1.y }
         XCTAssertEqual(column.first?.y ?? 0, bottom + 5, accuracy: 0.001, "the first row sits half a pitch below the island")
-        XCTAssertEqual(column.first?.intensity ?? 0, exp(-5.0 / 24), accuracy: 1e-9)
-        XCTAssertGreaterThanOrEqual(column.count, 7, "the design's glow runs about seven rows deep")
+        XCTAssertEqual(column.first?.intensity ?? 0,
+                       GlowMatrix.strength(cells: 0.5, core: settings.glowGridCore, fade: settings.glowGridFade),
+                       accuracy: 1e-9)
+        XCTAssertGreaterThanOrEqual(column.count, 5, "the glow runs as deep as the rows it was asked for")
         XCTAssertTrue(zip(column, column.dropFirst()).allSatisfy { $0.intensity > $1.intensity })
     }
 
@@ -174,7 +187,10 @@ final class GlowMatrixTests: XCTestCase {
             XCTAssertEqual(dot.row, cell.row * 4 + layout.row)
             XCTAssertEqual(dot.x, cell.x - cell.width / 2 + (Double(layout.column) + 0.5) * cell.width / 2, accuracy: 1e-9)
             XCTAssertEqual(dot.y, cell.y - 5 + (Double(layout.row) + 0.5) * 2.5, accuracy: 1e-9)
-            XCTAssertEqual(dot.intensity, exp(-dot.distance / 24), accuracy: 1e-9)
+            XCTAssertEqual(dot.intensity,
+                           GlowMatrix.strength(cells: dot.distance / settings.glowGridPitch,
+                                               core: settings.glowGridCore, fade: settings.glowGridFade),
+                           accuracy: 1e-9)
         }
         // Cells tucked into the island's rounded corners lose the dots that fall over it.
         let dotted = matrix.cells.map { matrix.brailleDots(of: $0, glow: glow, islandRadius: radius) }
@@ -183,7 +199,7 @@ final class GlowMatrixTests: XCTestCase {
     }
 
     func testBrailleCellsTwiceAsTallPutDotsOnASquareLattice() throws {
-        let tall = GlowMatrix.compute(glow: glow, islandRadius: radius, pitch: 10, spread: 2.4, rowPitch: 20)
+        let tall = GlowMatrix.compute(glow: glow, islandRadius: radius, pitch: 10, core: 0, fade: 5, rowPitch: 20)
         let bottom = glow.height - glow.sideInset
         let rows = Set(tall.cells.filter { $0.y > bottom }.map(\.y)).sorted()
         XCTAssertEqual(rows.first ?? 0, bottom + 10, accuracy: 1e-9)
@@ -330,8 +346,13 @@ final class GlowStyleSettingsTests: XCTestCase {
         XCTAssertEqual(defaults.glowStyle, .blur)
         XCTAssertEqual(defaults.glowEffect, .breathe)
         XCTAssertEqual(defaults.glowGridPitch, 10)
-        XCTAssertEqual(defaults.glowGridSpread, 2.4)
+        XCTAssertEqual(defaults.glowGridCore, 0)
+        XCTAssertEqual(defaults.glowGridFade, 5)
         XCTAssertEqual(defaults.glowGridDensity, 1)
+        // Settings written before the falloff was split carry one decay length, read as a fade.
+        let oldSpread = try JSONDecoder().decode(Settings.self, from: Data(#"{"glowGridSpread":3}"#.utf8))
+        XCTAssertEqual(oldSpread.glowGridCore, 0)
+        XCTAssertEqual(oldSpread.glowGridFade, 6)
         let legacy = try JSONDecoder().decode(Settings.self, from: Data(#"{"glowRange":12}"#.utf8))
         XCTAssertEqual(legacy.glowStyle, .blur)
         XCTAssertEqual(legacy.glowEffect, .breathe)
@@ -343,11 +364,12 @@ final class GlowStyleSettingsTests: XCTestCase {
         XCTAssertEqual(decoded.glowStyle, .dots)
         XCTAssertEqual(decoded.glowEffect, .ripple)
         XCTAssertEqual(decoded.glowGridPitch, Settings.glowGridPitchRange.upperBound)
-        XCTAssertEqual(decoded.glowGridSpread, Settings.glowGridSpreadRange.lowerBound)
+        // The old decay length migrates to twice itself as a fade, and 0.4 rows is inside the new range.
+        XCTAssertEqual(decoded.glowGridFade, 0.4, accuracy: 1e-9)
         XCTAssertEqual(decoded.glowGridDensity, Settings.glowGridDensityRange.upperBound)
-        let encoded = try JSONEncoder().encode(decoded.with { $0.glowStyle = .ascii; $0.glowGridPitch = 6; $0.glowGridSpread = 3; $0.glowGridDensity = 1.3; $0.glowEffect = .boot })
+        let encoded = try JSONEncoder().encode(decoded.with { $0.glowStyle = .ascii; $0.glowGridPitch = 6; $0.glowGridCore = 2; $0.glowGridFade = 3; $0.glowGridDensity = 1.3; $0.glowEffect = .boot })
         let reloaded = try JSONDecoder().decode(Settings.self, from: encoded)
-        XCTAssertEqual(reloaded.glow.pattern(), GlowPattern(style: .ascii, pitch: 6, spread: 3, density: 1.3, effect: .boot))
+        XCTAssertEqual(reloaded.glow.pattern(), GlowPattern(style: .ascii, pitch: 6, core: 2, fade: 3, density: 1.3, effect: .boot))
         XCTAssertEqual(reloaded.glow.geometry(islandWidth: 200, islandHeight: 32, islandRadius: 12),
                        reloaded.with { $0.glowGridDensity = 0.6 }.glow.geometry(islandWidth: 200, islandHeight: 32, islandRadius: 12),
                        "density fills cells without changing the grid or the glow's reach")

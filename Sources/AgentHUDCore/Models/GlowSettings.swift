@@ -14,7 +14,10 @@ public struct GlowSettings: Hashable, Codable, Sendable {
     // The grid's reach is set by the logo queue rather than the notch: a backdrop carrying marks several
     // times the notch's height needs a spread to match, where a rim around the notch never did.
     public static let gridPitchRange: ClosedRange<Double> = 4...24
-    public static let gridSpreadRange: ClosedRange<Double> = 1...5
+    /// Rows, both of them. Kept short on purpose: the cell count is the width times these, and a backdrop
+    /// as wide as a logo queue pays for every row of it.
+    public static let gridCoreRange: ClosedRange<Double> = 0...8
+    public static let gridFadeRange: ClosedRange<Double> = 0...8
     public static let gridDensityRange: ClosedRange<Double> = 0.6...2
 
     public var style: GlowStyle = .blur
@@ -34,8 +37,11 @@ public struct GlowSettings: Hashable, Codable, Sendable {
     public var brightness: Double = 0.9
     /// Grid spacing in points for the dot and ASCII styles. A third of the notch height, as in the design.
     public var gridPitch: Double = 10
-    /// How far the grid glow reaches: its decay length in grid cells.
-    public var gridSpread: Double = 2.4
+    /// Rows held at full strength before the glow begins to fade. Zero is a glow that fades from the rim.
+    public var gridCore: Double = 0
+    /// Rows the glow fades over. Five reads like the exponential falloff this replaced; the same number of
+    /// rows under the new curve is denser, because it leaves the core flat instead of dropping at once.
+    public var gridFade: Double = 5
     /// How much of its cell each dot or character fills; above 1 marks grow into their neighbours. The grid
     /// stays put.
     public var gridDensity: Double = 1
@@ -44,7 +50,8 @@ public struct GlowSettings: Hashable, Codable, Sendable {
 
     /// Grid options with the pitch scaled like range and feather for small previews.
     public func pattern(scale: Double = 1) -> GlowPattern {
-        GlowPattern(style: style, pitch: gridPitch * scale, spread: gridSpread, density: gridDensity, effect: effect)
+        GlowPattern(style: style, pitch: gridPitch * scale, core: gridCore, fade: gridFade,
+                    density: gridDensity, effect: effect)
     }
 
     /// The glow rect around an island. The blurred style uses range and feather; the grid styles size the
@@ -54,15 +61,9 @@ public struct GlowSettings: Hashable, Codable, Sendable {
             return GlowGeometry.compute(islandWidth: islandWidth, islandHeight: islandHeight, islandRadius: islandRadius,
                                         range: range * scale, blur: blur * scale)
         }
-        let reach = GlowMatrix.reach(pitch: gridPitch * scale, spread: gridSpread)
+        let reach = GlowMatrix.reach(pitch: gridPitch * scale, core: gridCore, fade: gridFade)
         return GlowGeometry.compute(islandWidth: islandWidth, islandHeight: islandHeight, islandRadius: islandRadius,
                                     range: reach.rounded(.up), blur: 0)
-    }
-
-    /// How many rows of marks a spread draws before the glow falls under the cutoff. The spread itself is a
-    /// decay length in cells; this is the count it produces, which is what anyone setting it is looking at.
-    public static func rows(forSpread spread: Double) -> Int {
-        Int(GlowMatrix.reach(pitch: 1, spread: spread))
     }
 
     static func clamp(_ value: Double?, to range: ClosedRange<Double>, default fallback: Double) -> Double {

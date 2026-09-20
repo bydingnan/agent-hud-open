@@ -5,16 +5,20 @@ public struct GlowPattern: Hashable, Sendable {
     public var style: GlowStyle
     /// Grid spacing in points.
     public var pitch: Double
-    /// Decay length of the glow in grid cells.
-    public var spread: Double
+    /// Rows held at full strength before the glow starts to fade.
+    public var core: Double
+    /// Rows the glow fades over, from full strength down to the cutoff.
+    public var fade: Double
     /// How much of its cell each mark fills; 1 is the design's proportion.
     public var density: Double
     public var effect: GlowEffect
 
-    public init(style: GlowStyle = .blur, pitch: Double = 10, spread: Double = 2.4, density: Double = 1, effect: GlowEffect = .breathe) {
+    public init(style: GlowStyle = .blur, pitch: Double = 10, core: Double = 0, fade: Double = 7,
+                density: Double = 1, effect: GlowEffect = .breathe) {
         self.style = style
         self.pitch = pitch
-        self.spread = spread
+        self.core = core
+        self.fade = fade
         self.density = density
         self.effect = effect
     }
@@ -24,7 +28,7 @@ public struct GlowPattern: Hashable, Sendable {
 }
 
 /// The glow sampled on a square grid, following the ASCII HUD bar design: every cell's resting intensity is
-/// e^(−distance / (spread · pitch)), measured from the island's outline. Pure geometry; the desktop renderer
+/// full over the core rows and then fading, measured from the island's outline. Pure geometry; the desktop renderer
 /// decides how each cell is drawn. Coordinates are points from the glow rect's top-left corner.
 public struct GlowMatrix: Hashable, Sendable {
     public struct Cell: Hashable, Sendable {
@@ -57,31 +61,45 @@ public struct GlowMatrix: Hashable, Sendable {
     public let pitch: Double
     /// Spacing between rows; equal to the pitch except for Braille, whose cells are twice as tall as wide.
     public let rowPitch: Double
-    public let spread: Double
+    public let core: Double
+    public let fade: Double
 
-    public init(cells: [Cell], pitch: Double, spread: Double, rowPitch: Double? = nil) {
+    public init(cells: [Cell], pitch: Double, core: Double, fade: Double, rowPitch: Double? = nil) {
         self.cells = cells
         self.pitch = pitch
         self.rowPitch = rowPitch ?? pitch
-        self.spread = spread
+        self.core = core
+        self.fade = fade
     }
 
     /// Marks fainter than this are not drawn.
     public static let cutoff = 0.06
 
-    /// Farthest distance a mark can appear at, allowing for effects that lift the glow above rest.
-    public static func reach(pitch: Double, spread: Double) -> Double {
-        max(0, spread) * pitch * log(GlowMotion.maximumGain / cutoff)
+    /// Farthest distance a mark can appear at. The fade lands exactly on the cutoff, so the field ends
+    /// where the rows the user asked for run out.
+    public static func reach(pitch: Double, core: Double, fade: Double) -> Double {
+        (max(0, core) + max(0, fade)) * pitch
+    }
+
+    /// Resting strength at `cells` cells from the island's outline: full over the core, then fading over the
+    /// rest. The fade is Gaussian rather than exponential so it leaves the core with no slope at all — an
+    /// exponential starts dropping at its steepest, which shows as a crease where the two meet — and so it
+    /// reaches the cutoff exactly as the fade's last row is drawn.
+    public static func strength(cells: Double, core: Double, fade: Double) -> Double {
+        let core = max(0, core), fade = max(0.01, fade)
+        guard cells > core else { return 1 }
+        let t = (cells - core) / fade
+        guard t <= 1 else { return 0 }
+        return exp(-log(GlowMotion.maximumGain / cutoff) * t * t)
     }
 
     /// Columns beside the island start half a pitch from its sides and the row below it half a pitch from its
     /// bottom edge, so the first ring sits tangent to the rim. Cells over the island, above the screen edge or
     /// too faint for any effect to reveal are skipped.
-    public static func compute(glow: GlowGeometry, islandRadius: Double, pitch: Double, spread: Double,
+    public static func compute(glow: GlowGeometry, islandRadius: Double, pitch: Double, core: Double, fade: Double,
                                rowPitch: Double? = nil) -> GlowMatrix {
         let pitch = max(0.5, pitch)
         let rowPitch = max(0.5, rowPitch ?? pitch)
-        let decay = max(0.1, spread) * pitch
         let faintest = cutoff / GlowMotion.maximumGain
         let left = glow.sideInset
         let right = glow.width - glow.sideInset
@@ -109,13 +127,13 @@ public struct GlowMatrix: Hashable, Sendable {
             for (column, place) in columns.enumerated() {
                 let distance = distance(x: place.x, y: y, glow: glow, islandRadius: islandRadius)
                 guard distance >= 0 else { continue }
-                let intensity = exp(-distance / decay)
+                let intensity = strength(cells: distance / pitch, core: core, fade: fade)
                 guard intensity >= faintest else { continue }
                 cells.append(Cell(column: column, row: row, x: place.x, y: y, width: place.width, distance: distance,
                                   intensity: intensity, location: place.x / glow.width))
             }
         }
-        return GlowMatrix(cells: cells, pitch: pitch, spread: spread, rowPitch: rowPitch)
+        return GlowMatrix(cells: cells, pitch: pitch, core: core, fade: fade, rowPitch: rowPitch)
     }
 
     /// Dot positions of a Braille character as (column, row, Unicode bit).
@@ -127,14 +145,15 @@ public struct GlowMatrix: Hashable, Sendable {
     /// in the design. With rows twice the pitch the dots fall on a square lattice of half the pitch. Dots over the
     /// island are left out; grid indices are per dot for dithering and noise.
     public func brailleDots(of cell: Cell, glow: GlowGeometry, islandRadius: Double) -> [(bit: Int, dot: Cell)] {
-        let decay = max(0.1, spread) * pitch
         return Self.brailleLayout.compactMap { layout in
             let x = cell.x - cell.width / 2 + (Double(layout.column) + 0.5) * cell.width / 2
             let y = cell.y - rowPitch / 2 + (Double(layout.row) + 0.5) * rowPitch / 4
             let distance = Self.distance(x: x, y: y, glow: glow, islandRadius: islandRadius)
             guard distance >= 0 else { return nil }
             let dot = Cell(column: cell.column * 2 + layout.column, row: cell.row * 4 + layout.row, x: x, y: y,
-                           width: cell.width / 2, distance: distance, intensity: exp(-distance / decay), location: x / glow.width)
+                           width: cell.width / 2, distance: distance,
+                           intensity: Self.strength(cells: distance / pitch, core: core, fade: fade),
+                           location: x / glow.width)
             return (layout.bit, dot)
         }
     }

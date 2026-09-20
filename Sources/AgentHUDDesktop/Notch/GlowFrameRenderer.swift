@@ -56,9 +56,10 @@ final class GlowFrameRenderer {
         // Whole device pixels keep every mark the same size.
         let pitch = max(1 / scale, (key.pattern.pitch * scale).rounded() / scale)
         let matrix = key.pattern.usesGrid
-            ? GlowMatrix.compute(glow: key.glow, islandRadius: key.islandRadius, pitch: pitch, spread: key.pattern.spread,
+            ? GlowMatrix.compute(glow: key.glow, islandRadius: key.islandRadius, pitch: pitch,
+                                 core: key.pattern.core, fade: key.pattern.fade,
                                  rowPitch: key.pattern.style == .braille ? pitch * 2 : pitch)
-            : GlowMatrix(cells: [], pitch: Self.softPitch, spread: key.pattern.spread)
+            : GlowMatrix(cells: [], pitch: Self.softPitch, core: key.pattern.core, fade: key.pattern.fade)
         self.matrix = matrix
         let levels = key.pattern.effect == .flow ? Self.sheenLevels : 1
         self.levels = levels

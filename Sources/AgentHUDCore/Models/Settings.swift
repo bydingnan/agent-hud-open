@@ -43,7 +43,8 @@ public struct Settings: Hashable, Codable, Sendable {
     public static let glowSizeRange = GlowSettings.sizeRange
     public static let breathSecondsRange = GlowSettings.breathSecondsRange
     public static let glowGridPitchRange = GlowSettings.gridPitchRange
-    public static let glowGridSpreadRange = GlowSettings.gridSpreadRange
+    public static let glowGridCoreRange = GlowSettings.gridCoreRange
+    public static let glowGridFadeRange = GlowSettings.gridFadeRange
     public static let glowGridDensityRange = GlowSettings.gridDensityRange
 
     /// The glow every screen falls back to. A display with its own is in `screenGlow`.
@@ -74,7 +75,8 @@ public struct Settings: Hashable, Codable, Sendable {
     public var glowBrightness: Double { get { glow.brightness } set { glow.brightness = newValue } }
     public var glowStyle: GlowStyle { get { glow.style } set { glow.style = newValue } }
     public var glowGridPitch: Double { get { glow.gridPitch } set { glow.gridPitch = newValue } }
-    public var glowGridSpread: Double { get { glow.gridSpread } set { glow.gridSpread = newValue } }
+    public var glowGridCore: Double { get { glow.gridCore } set { glow.gridCore = newValue } }
+    public var glowGridFade: Double { get { glow.gridFade } set { glow.gridFade = newValue } }
     public var glowGridDensity: Double { get { glow.gridDensity } set { glow.gridDensity = newValue } }
     public var glowEffect: GlowEffect { get { glow.effect } set { glow.effect = newValue } }
     /// Hovering alone opens the panel. With this on it takes Option as well, so a HUD parked over the menu
@@ -103,7 +105,7 @@ public struct Settings: Hashable, Codable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case breathSeconds, idleBreathSeconds, breathAmplitude, glowRange, glowBlur, glowBrightness, glowOutwardOnly
-        case glowStyle, glowGridPitch, glowGridSpread, glowGridDensity, glowEffect
+        case glowStyle, glowGridPitch, glowGridSpread, glowGridCore, glowGridFade, glowGridDensity, glowEffect
         case requiresOptionToOpen, hoverDelayMs, collapseDelayMs, showResetCountdown
         case showIslandQuota, showIslandTokens, showIslandSessions
         case disabledLiveStatusSources, readCopilotQuota
@@ -123,7 +125,12 @@ public struct Settings: Hashable, Codable, Sendable {
         // A style saved by a newer build falls back to the blurred glow instead of failing the whole decode.
         glowStyle = (try? c.decodeIfPresent(GlowStyle.self, forKey: .glowStyle)) ?? d.glowStyle
         glowGridPitch = Self.clamp(try c.decodeIfPresent(Double.self, forKey: .glowGridPitch), to: Self.glowGridPitchRange, default: d.glowGridPitch)
-        glowGridSpread = Self.clamp(try c.decodeIfPresent(Double.self, forKey: .glowGridSpread), to: Self.glowGridSpreadRange, default: d.glowGridSpread)
+        glowGridCore = Self.clamp(try c.decodeIfPresent(Double.self, forKey: .glowGridCore), to: Self.glowGridCoreRange, default: d.glowGridCore)
+        // Settings written before the falloff was split carry one decay length. Twice it lands on a fade
+        // that reads like the exponential curve it replaced.
+        let storedFade = try c.decodeIfPresent(Double.self, forKey: .glowGridFade)
+            ?? (try c.decodeIfPresent(Double.self, forKey: .glowGridSpread)).map { $0 * 2 }
+        glowGridFade = Self.clamp(storedFade, to: Self.glowGridFadeRange, default: d.glowGridFade)
         glowGridDensity = Self.clamp(try c.decodeIfPresent(Double.self, forKey: .glowGridDensity), to: Self.glowGridDensityRange, default: d.glowGridDensity)
         glowEffect = (try? c.decodeIfPresent(GlowEffect.self, forKey: .glowEffect)) ?? d.glowEffect
         requiresOptionToOpen = try c.decodeIfPresent(Bool.self, forKey: .requiresOptionToOpen) ?? d.requiresOptionToOpen
@@ -154,7 +161,8 @@ public struct Settings: Hashable, Codable, Sendable {
         try c.encode(glowOutwardOnly, forKey: .glowOutwardOnly)
         try c.encode(glowStyle, forKey: .glowStyle)
         try c.encode(glowGridPitch, forKey: .glowGridPitch)
-        try c.encode(glowGridSpread, forKey: .glowGridSpread)
+        try c.encode(glowGridCore, forKey: .glowGridCore)
+        try c.encode(glowGridFade, forKey: .glowGridFade)
         try c.encode(glowGridDensity, forKey: .glowGridDensity)
         try c.encode(glowEffect, forKey: .glowEffect)
         try c.encode(requiresOptionToOpen, forKey: .requiresOptionToOpen)
