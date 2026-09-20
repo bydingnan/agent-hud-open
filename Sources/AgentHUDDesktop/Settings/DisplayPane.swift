@@ -54,6 +54,10 @@ struct SettingsPreview<Content: View>: View {
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .padding(12)
             .accessibilityHidden(true)
+            // A glow reaches past the box it is previewed in, and the preview sits in front of the rows
+            // above it. Left interactive, that overhang silently swallows their clicks: AppKit-backed
+            // controls keep working because they are real views, and plain SwiftUI buttons stop responding.
+            .allowsHitTesting(false)
     }
 }
 
