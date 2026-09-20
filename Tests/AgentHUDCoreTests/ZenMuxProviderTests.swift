@@ -140,6 +140,55 @@ final class ZenMuxProviderTests: XCTestCase, @unchecked Sendable {
         await XCTAssertThrowsErrorAsync(try await client.fetchUsageHistory(days: 1, now: Date()))
         await XCTAssertThrowsErrorAsync(try await client.fetchCostHistory(days: 1, now: Date()))
     }
+
+    func testProviderEmitsSnapshotsAndSurvivesMissingKey() async throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let usage = UsageBucket(start: now.addingTimeInterval(-900), agentId: "zenmux",
+                                tokensIn: 100, tokensOut: 25)
+        let cost = CostBucket(start: usage.start, amounts: ["usd": Decimal(string: "0.42")!])
+        let provider = ZenMuxUsageProvider(
+            readQuota: {
+                ProviderQuota(windows: [
+                    .init(id: "zenmux:5h", label: "5h", remaining: 80, reset: nil, duration: 5 * 3600),
+                ], plan: "pro")
+            },
+            readUsage: { [usage] },
+            readCosts: { [cost] },
+            hasKey: { true },
+            clock: { now }
+        )
+
+        await provider.refreshAccountUsage(historyHours: 168)
+        let report = try await provider.fetchUsage(agents: [], historyHours: 168)
+
+        XCTAssertEqual(report.subscriptions["ZenMux"], "pro")
+        XCTAssertEqual(report.snapshots.map(\.agentId), ["zenmux:5h"])
+        XCTAssertEqual(report.snapshots.first?.remainingPct, 80)
+        XCTAssertEqual(report.usage, [usage])
+        XCTAssertEqual(report.billing.first?.vendor, "ZenMux")
+        XCTAssertEqual(report.billing.first?.costs, [cost])
+        XCTAssertEqual(provider.watchedDirectories, [])
+        XCTAssertFalse(provider.seesLocalWork)
+
+        let empty = ZenMuxUsageProvider(
+            readQuota: { fatalError("must not call") },
+            readUsage: { fatalError("must not call") },
+            readCosts: { fatalError("must not call") },
+            hasKey: { false },
+            clock: { now }
+        )
+        let quiet = try await empty.fetchUsage(agents: [], historyHours: 168)
+        XCTAssertNotNil(quiet.sourceNotices["ZenMux"])
+        XCTAssertFalse((quiet.sourceNotices["ZenMux"] ?? "").contains("sk-"))
+    }
+
+    func testCombinedStandardRegistersZenMuxAsAccountSource() {
+        let provider = CombinedUsageProvider.standard(ledger: .inMemory())
+        let source = provider.sources.first { $0.name == "ZenMux" }
+        XCTAssertNotNil(source)
+        XCTAssertEqual(source?.directories, [])
+        XCTAssertEqual(source?.accountSteps.count, 1)
+    }
 }
 
 private func XCTAssertThrowsErrorAsync<T>(

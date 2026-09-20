@@ -38,6 +38,7 @@ public struct CombinedUsageProvider: UsageProvider {
             Source("Claude", ClaudeCodeProvider.standard(ledger: ledger)),
             Source("Codex", CodexUsageProvider.standard(ledger: ledger)),
             Source("DeepSeek", DeepSeekUsageProvider.standard(ledger: ledger)),
+            Source("ZenMux", ZenMuxUsageProvider.standard(ledger: ledger)),
         ] + AdditionalSource.allCases.map { Source($0.vendor, AdditionalUsageProvider.standard($0, ledger: ledger)) }
           + [Source("Open agents", OpenAgentUsageProvider.standard(ledger: ledger))], ledger: ledger)
     }
