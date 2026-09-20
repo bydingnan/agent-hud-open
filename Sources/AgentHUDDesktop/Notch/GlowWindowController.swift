@@ -136,7 +136,11 @@ final class GlowWindowController {
         quotaVendors: [String] = [],
         pattern: GlowPattern = GlowPattern(),
         /// The marks' own column, when the glow is a logo queue's backdrop rather than a rim around a shape.
-        backdrop: CGRect? = nil
+        backdrop: CGRect? = nil,
+        /// A logo queue's glow is a backdrop behind its marks, never a rim: once the panel has grown there
+        /// is no backdrop left to draw, so the field stops rather than following the new shape around. The
+        /// panel keeps its shadow, which lives here too.
+        drawsGlow: Bool = true
     ) {
         let frame = Self.panelFrame(for: geometry)
         if panel.frame != frame { panel.setFrame(frame, display: false) }
@@ -159,16 +163,23 @@ final class GlowWindowController {
         let glowTop = local.maxY - glow.topOffset
         let glowRect = CGRect(x: local.minX - glow.sideInset, y: glowTop - glow.height, width: glow.width, height: glow.height)
 
-        let motion = Self.playsMotion(pattern: pattern, appearance: appearance,
-                                      reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
-        if pattern.usesGrid {
-            updateGridImage(glow: glow, islandRadius: islandRadius, stops: appearance.stops, scale: geometry.backingScale,
-                            pattern: pattern, appearance: appearance, motion: motion)
+        if drawsGlow {
+            let motion = Self.playsMotion(pattern: pattern, appearance: appearance,
+                                          reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+            if pattern.usesGrid {
+                updateGridImage(glow: glow, islandRadius: islandRadius, stops: appearance.stops, scale: geometry.backingScale,
+                                pattern: pattern, appearance: appearance, motion: motion)
+            } else {
+                restingKey = nil
+                updateSoftImage(glow: glow, islandSize: island.size, islandRadius: islandRadius, outwardOnly: outwardOnly,
+                                stops: appearance.stops, scale: geometry.backingScale, pattern: pattern, appearance: appearance,
+                                motion: motion)
+            }
         } else {
+            animator.stop()
+            softKey = nil
             restingKey = nil
-            updateSoftImage(glow: glow, islandSize: island.size, islandRadius: islandRadius, outwardOnly: outwardOnly,
-                            stops: appearance.stops, scale: geometry.backingScale, pattern: pattern, appearance: appearance,
-                            motion: motion)
+            glowLayer.contents = nil
         }
         updateShadowImage(island: local, radius: islandRadius, scale: geometry.backingScale)
 
@@ -187,6 +198,12 @@ final class GlowWindowController {
 
         // A running grid effect carries the breathing itself; otherwise the whole layer pulses.
         applyBreathing(appearance, pulsesOpacity: !animator.isRunning)
+        // The alert's colour is carried by the glow, so it goes wherever the glow does.
+        guard drawsGlow else {
+            lastAlertID = nil
+            alertLayer.opacity = 0
+            return
+        }
         applyAlert(alert, vendors: quotaVendors, glow: glow, islandSize: island.size, radius: islandRadius,
                    outwardOnly: outwardOnly, scale: geometry.backingScale, pattern: pattern)
     }

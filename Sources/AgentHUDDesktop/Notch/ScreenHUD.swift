@@ -279,6 +279,10 @@ final class ScreenHUD {
         // queue so every cell's nearest point is straight above it and the field falls vertically. The glow
         // panel then clips that field back to the queue's own column, cutting off the ends that would dip.
         let backdrop = geometry.mode == .logos && !expanded
+        // Only a silhouette is worth rimming. A logo queue has none — its glow is the backdrop behind the
+        // marks — so once the panel or an event has grown over the place that field belonged, it stops
+        // rather than following the new shape around.
+        let drawsGlow = geometry.mode != .logos || backdrop
         let overhang = GlowWindowController.backdropOverhang(glowSettings)
         // The lip is a flat line on the screen's top edge, run wider than the queue: every cell's nearest
         // point is then straight above it, so the field falls vertically instead of curling in at the ends,
@@ -325,7 +329,8 @@ final class ScreenHUD {
             alert: activeAlert,
             quotaVendors: store.rows.filter { $0.level != nil }.map { $0.agent.vendor },
             pattern: glowSettings.pattern(),
-            backdrop: backdrop ? geometry.rect : nil
+            backdrop: backdrop ? geometry.rect : nil,
+            drawsGlow: drawsGlow
         )
         // The strip's place on screen is fixed; the window around it is not, so the offset between them is
         // measured rather than assumed to be the window's own top edge — which moves when the panel opens.
