@@ -2,6 +2,11 @@
 
 Releases of Agent HUD Open. A version is a git tag `vX.Y.Z` on `main`; `CFBundleShortVersionString` in `scripts/build-app.sh` carries the same number. Each entry lists what changed for people using the application and, under **Host API**, what changed for applications that embed `AgentHUDCore` and `AgentHUDDesktop`. Dates are tag dates.
 
+## 0.4.16 — 2026-09-20
+
+- A logo queue also shows the agents you have actually been using: any vendor that ran in the last day joins the watched ones, most recently used first, and leaves again a day after its last turn. A client whose quota you do not follow was invisible on the HUD however much you ran it. A vendor whose Live status is off never arrives this way, since that switch is what says its runs may be reported at all.
+- Host API: `UsageStore.queueVendors` and `queueRecency`.
+
 ## 0.4.15 — 2026-09-20
 
 - A logo queue's marks bob again while their agent works. A session names the model it spends, not the quota window it belongs to, so comparing the two ids found a match only in the demo, where they happen to be equal: on a real Mac no mark ever moved. The vendor behind a session is resolved instead, by the same liveness the panel ranks sessions with.

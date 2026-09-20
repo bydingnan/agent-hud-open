@@ -10,7 +10,7 @@ The HUD sits at the top of every attached display, and each display carries its 
 |---|---|
 | HUD | One display's presentation: a collapsed shape at the screen's top edge, the panel it opens into, and the glow behind both |
 | Notch mode | The island: the physical notch on a Mac that has one, or a bar standing in for it on a display that does not |
-| Logo queue | A row of marks, one per watched vendor, centred at the screen's top edge with no shape behind them |
+| Logo queue | A row of marks — the watched vendors and any run in the last day — centred at the screen's top edge with no shape behind them |
 | Glow | Colour drawn from the enabled windows' levels — a rim around the island, a curtain falling from the top edge behind a queue |
 | Placement | What one display shows and how large: mode, logo size, logo spacing, whether the marks are drawn |
 
@@ -26,10 +26,11 @@ The HUD sits at the top of every attached display, and each display carries its 
 
 ### What the queue shows
 
-- One mark per vendor among the enabled, non-API-billed agents, in the order the agents are watched in: two Claude windows are one Claude.
-- A mark is drawn whether or not that agent has ever reported anything; an enabled vendor always has one.
-- A mark bobs while any session of its vendor is live, including a turn blocked on the user, and holds still otherwise, so motion means exactly one thing.
-- A queue with nothing to show — no enabled agent — falls back to the screen's notch shape.
+- The enabled, non-API-billed agents first, in the order they are watched in, then any vendor that ran in the last day without a window on that list, most recently used first.
+- A watched vendor's mark is drawn whether or not it has ever reported anything; a vendor that is only there for having run leaves again a day after its last turn, and a vendor whose Live status is off never arrives that way, since that switch is what says its runs may be reported at all.
+- One mark per piece of artwork rather than per vendor: two Claude windows are one Claude, and so are Codex and ChatGPT, which share OpenAI's mark. A second identical mark would take a place in the row and tell a glance nothing.
+- A mark bobs while any session behind it is live, including a turn blocked on the user, and holds still otherwise, so motion means exactly one thing. Liveness is the store's, the same the panel ranks sessions by.
+- A queue with nothing to show — nothing watched and nothing run — falls back to the screen's notch shape.
 - Marks keep their own artwork at full strength with a hairline outline; a single-colour mark is drawn white. Status colour is carried by the glow behind them, never by the logos.
 
 ### Hovering and events
