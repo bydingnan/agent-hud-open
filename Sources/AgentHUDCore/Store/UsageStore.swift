@@ -24,6 +24,15 @@ public struct AgentRow: Hashable, Sendable, Identifiable {
     public var missingQuotaLabel: String {
         "—"
     }
+
+    public func resetLabel(now: Date, compact: Bool = false) -> String {
+        guard isCurrentAccount else { return "—" }
+        if let resetAt {
+            if resetAt <= now { return L10n.text("等待更新", "Pending update") }
+            if resetAt.timeIntervalSince(now) < 60 { return "<1m" }
+        }
+        return compact ? Countdown.resetLabelCompact(resetAt, now: now) : Countdown.resetLabel(resetAt, now: now)
+    }
 }
 
 extension UsageReport {
@@ -47,19 +56,26 @@ extension UsageReport {
     /// that finished after the last reading once more. An idle source's windows change only when they reset, and a
     /// source that cannot see this Mac's work keeps the account interval.
     func accountCheck(since: Date, now: Date, seesLocalWork: Bool) -> Date {
-        guard seesLocalWork else { return since.addingTimeInterval(UsageRefresh.accountInterval) }
+        // A deadline remains due until an account request has actually run at or after it.
+        // Comparing with `now` loses the scheduled refresh as soon as the deadline arrives.
+        let reset = snapshots.filter { snapshot in
+            discoveredAgents.first(where: { $0.id == snapshot.agentId }).map(isCurrent) ?? true
+        }.compactMap(\.resetAt).filter { $0 > since }.min()
+        let regular: Date
         let stale = now.addingTimeInterval(-UsageRefresh.activeTurnFreshness)
         if turns.contains(where: { $0.state == .running && RecordCoding.date($0.observedAtMs) > stale }) {
-            return since.addingTimeInterval(UsageRefresh.runningAccountInterval)
+            regular = since.addingTimeInterval(UsageRefresh.runningAccountInterval)
+        } else if sessions.contains(where: { $0.isLive(at: now) }) {
+            regular = since.addingTimeInterval(UsageRefresh.liveAccountInterval)
+        } else if !seesLocalWork {
+            regular = since.addingTimeInterval(UsageRefresh.accountInterval)
+        } else if sessions.contains(where: { ($0.endedAt ?? .distantPast) > since }) {
+            regular = now
+        } else {
+            regular = reset == nil || snapshots.contains(where: { ($0.resetAt ?? .distantFuture) <= since })
+                ? since.addingTimeInterval(UsageRefresh.accountInterval) : .distantFuture
         }
-        if sessions.contains(where: { $0.isLive(at: now) }) { return since.addingTimeInterval(UsageRefresh.liveAccountInterval) }
-        // Work that finished after the last reading spent quota the windows have not shown yet.
-        if sessions.contains(where: { ($0.endedAt ?? .distantPast) > since }) { return now }
-        // A reading without windows, or whose earliest reset has passed and not yet moved on, is taken again on the interval.
-        guard let reset = snapshots.compactMap(\.resetAt).min(), reset > now else {
-            return since.addingTimeInterval(UsageRefresh.accountInterval)
-        }
-        return reset
+        return min(regular, reset ?? .distantFuture)
     }
 }
 
@@ -234,7 +250,10 @@ public final class UsageStore {
             return AgentRow(
                 agent: agent,
                 remainingPct: snapshot?.remainingPct,
-                level: isCurrent ? snapshot.map { AlertPolicy.quotaLevel(remaining: $0.remainingPct) } : nil,
+                level: isCurrent && report?.quotaNotice(for: agent) == nil ? snapshot.flatMap {
+                    ($0.resetAt ?? .distantFuture) > now && now.timeIntervalSince($0.updatedAt) < QuotaForecast.maximumReadingAge
+                        ? AlertPolicy.quotaLevel(remaining: $0.remainingPct) : nil
+                } : nil,
                 resetAt: snapshot?.resetAt,
                 weeklyRemainingPct: snapshot?.weeklyRemainingPct,
                 paletteIndex: index,

@@ -291,26 +291,31 @@ public enum SnapshotRunner {
         settings.updateAgents { _ in [deepseek] }
         save("island-deepseek-only-dark", IslandScene(store: store, settings: settings, open: true, light: false), folder: folder, scheme: .dark)
 
-        // Two Codex sign-ins: the current account's windows, then the last reading of the previous one.
+        // Native and Pi accounts can both be current; an older sign-in remains a historical reading.
         let currentAccount = ProviderAccount.identified(provider: "Codex", user: "work@example.com", workspace: "team")!
         let previousAccount = ProviderAccount.identified(provider: "Codex", user: "me@example.com", workspace: "personal")!
-        let accountRows = [currentAccount, previousAccount].flatMap { account in
+        let piAccount = ProviderAccount.identified(provider: "Codex", user: "pi@example.com", workspace: "personal-pi")!
+        let accountRows = [currentAccount, piAccount, previousAccount].flatMap { account in
             [("codex", L10n.windowWeekly), ("codex:spark:primary", "GPT-5.3-Codex-Spark · 5h")].map { key, label in
                 AgentDescriptor(id: account.windowID(key), vendor: "Codex", model: label, source: L10n.sourceCodexAppServer, enabled: true, account: account)
             }
         }
         let accountReadings: [(ProviderAccount, String, Double, Date)] = [
             (currentAccount, "codex", 58, resetNow), (currentAccount, "codex:spark:primary", 0, resetNow),
+            (piAccount, "codex", 85, resetNow), (piAccount, "codex:spark:primary", 0, resetNow),
             (previousAccount, "codex", 100, resetNow.addingTimeInterval(-3 * 3600)),
             (previousAccount, "codex:spark:primary", 36, resetNow.addingTimeInterval(-3 * 3600)),
         ]
         settings.updateAgents { _ in [quotaAgents[0]] + accountRows }
         store.replace(report: UsageReport(generatedAt: resetNow, snapshots: [quotaSnapshots[0]] + accountReadings.map { account, key, remaining, observed in
-                UsageSnapshot(agentId: account.windowID(key), remainingPct: remaining, resetAt: resetNow.addingTimeInterval(key == "codex" ? 4 * 86400 : 3 * 3600),
+                UsageSnapshot(agentId: account.windowID(key), remainingPct: remaining, resetAt: resetNow.addingTimeInterval(key == "codex" ? 4 * 86400 : -30),
                               windowDuration: key == "codex" ? 7 * 86400 : 5 * 3600, updatedAt: observed)
             }, sessions: [], subscriptions: ["Codex": "pro"],
             codexResetCredits: DemoData.codexResetCredits(now: resetNow), accounts: ["Codex": [
-                AccountObservation(account: currentAccount, label: "work@example.com", plan: "pro", observedAt: resetNow),
+                AccountObservation(account: currentAccount, label: "work@example.com", plan: "pro", observedAt: resetNow,
+                                   resetCredits: DemoData.codexResetCredits(now: resetNow)),
+                AccountObservation(account: piAccount, home: "pi", label: "pi@example.com", plan: "plus", observedAt: resetNow,
+                                   resetCredits: .init(availableCount: 0, credits: nil)),
                 AccountObservation(account: previousAccount, label: "me@example.com", plan: "prolite", observedAt: resetNow.addingTimeInterval(-3 * 3600), isCurrent: false),
             ]]))
         save("island-provider-accounts-dark", IslandScene(store: store, settings: settings, open: true, light: false), folder: folder, scheme: .dark)

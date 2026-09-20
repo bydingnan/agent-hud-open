@@ -89,12 +89,16 @@ public final class SettingsStore {
     /// Account rows: the first identified account takes over an unscoped row's position and switch, a further account's
     /// window inherits the switch of the same window on another account, and rows of accounts absent from a provider's
     /// inventory are removed.
+    /// Full retained reports can retire Codex windows; incremental discovery keeps existing preferences.
     public func mergeDiscovered(_ discovered: [AgentDescriptor], activeQuotaPoolIDs: [String: Set<String>]? = nil,
-                                accounts: [String: [AccountObservation]]? = nil) {
+                                accounts: [String: [AccountObservation]]? = nil, replaceQuotaWindows: Bool = false) {
         guard !discovered.isEmpty || activeQuotaPoolIDs != nil || accounts != nil else { return }
         let merged: [AgentDescriptor] = {
             var list = agents.filter { agent in
                 if let account = agent.account, agent.billingPool == nil, let known = accounts?[account.provider] {
+                    if replaceQuotaWindows, account.provider == "Codex", known.contains(where: { $0.account.id == account.id && $0.isCurrent && $0.quotaNotice == nil }) {
+                        return discovered.contains { $0.id == agent.id }
+                    }
                     return known.contains { $0.account.id == account.id }
                 }
                 guard let pool = agent.billingPool, pool.product == .plan,

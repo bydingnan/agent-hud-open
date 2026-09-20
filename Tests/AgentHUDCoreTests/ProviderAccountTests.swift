@@ -50,6 +50,29 @@ final class ProviderAccountTests: XCTestCase {
         XCTAssertNil(switched.codexResetCredits, "earned resets belong to the account that reported them")
     }
 
+    @MainActor
+    func testSuccessfulCodexInventoryRetiresMissingWindowsButKeepsOtherAccounts() async throws {
+        let spark = AgentDescriptor(id: accountA.windowID("codex:spark:primary"), vendor: "Codex", model: "Spark", source: "", enabled: true, account: accountA)
+        let original = UsageReport(generatedAt: now, snapshots: [
+            .init(agentId: spark.id, remainingPct: 100, updatedAt: now),
+            .init(agentId: accountB.windowID("codex"), remainingPct: 0, updatedAt: now)
+        ], sessions: [], discoveredAgents: [spark, descriptor(accountB)], accounts: ["Codex": [
+            .init(account: accountA, observedAt: now), .init(account: accountB, observedAt: now, isCurrent: false)
+        ]])
+        let provider = RetainedUsageProvider(provider: Sequence([original, report(account: accountA, remaining: 100, at: now.addingTimeInterval(60), credits: nil)]))
+        _ = try await provider.fetchUsage(agents: [], historyHours: 24)
+        let updated = try await provider.fetchUsage(agents: [], historyHours: 24)
+        XCTAssertNil(updated.snapshot(for: spark.id))
+        XCTAssertFalse(updated.discoveredAgents.contains { $0.id == spark.id })
+        XCTAssertNotNil(updated.snapshot(for: accountB.windowID("codex")))
+        let suite = "InventoryTests.\(UUID().uuidString)", defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = SettingsStore(defaults: defaults, defaultAgents: [spark, descriptor(accountB)])
+        settings.mergeDiscovered(updated.discoveredAgents, accounts: updated.accounts, replaceQuotaWindows: true)
+        XCTAssertFalse(settings.agents.contains { $0.id == spark.id })
+        XCTAssertTrue(settings.agents.contains { $0.account == accountB })
+    }
+
     func testFailedPollKeepsTheCurrentAccountAndUnseenAccountsRetire() async throws {
         let old = report(account: accountA, remaining: 40, at: now, credits: 1)
         let failed = UsageReport(generatedAt: now.addingTimeInterval(60), snapshots: [], sessions: [], sourceNotices: ["Codex": "offline"])

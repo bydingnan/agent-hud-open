@@ -62,7 +62,7 @@ public struct QuotaAlertTracker: Sendable {
             // Signing back in to an account is a new baseline, not a reset observed while it was away.
             guard report.isCurrent(agent) else { previous[agent.id] = nil; continue }
             guard let snapshot = report.snapshot(for: agent.id),
-                  report.sourceNotices[agent.vendor] == nil,
+                  report.quotaNotice(for: agent) == nil,
                   snapshot.updatedAt <= now,
                   now.timeIntervalSince(snapshot.updatedAt) < QuotaForecast.maximumReadingAge else { continue }
             // A passed deadline is pending confirmation. An observed full idle window can have no deadline.

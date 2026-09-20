@@ -7,16 +7,27 @@ public actor CodexUsageProvider: UsageProvider, LedgerRecording {
     private let clock: @Sendable () -> Date
     /// `ClientHome.key` of the Codex home this provider reads.
     private let home: String
-    private var lastQuota: (at: Date, result: Result<CodexRateLimits, UsageProviderError>)?
+    private let readPiLimits: @Sendable () async throws -> CodexRateLimits?
+    private let piHome: String
+    private var lastRequestAt: Date?
+    private struct Reading {
+        let limits: CodexRateLimits
+        let at: Date
+    }
+    private var readings: [String: Reading] = [:]
+    private var failures: [String: String] = [:]
 
     public init(readLimits: @escaping @Sendable () async throws -> CodexRateLimits,
                 transcripts: CodexTranscriptStore, history: QuotaHistoryStore, home: String = "",
-                clock: @escaping @Sendable () -> Date = { Date() }) {
+                clock: @escaping @Sendable () -> Date = { Date() },
+                readPiLimits: @escaping @Sendable () async throws -> CodexRateLimits? = { nil }, piHome: String = "pi") {
         self.readLimits = readLimits; self.transcripts = transcripts; self.history = history; self.home = home; self.clock = clock
+        self.readPiLimits = readPiLimits; self.piHome = piHome
     }
 
     public static func standard(ledger: UsageLedger) -> CodexUsageProvider {
         let directory = CodexLocator.dataDirectory
+        let pi = PiCodexClient(directory: PiCodexClient.directory)
         return CodexUsageProvider(readLimits: {
             guard let executable = CodexLocator.find() else {
                 throw UsageProviderError(L10n.text("安装并登录后即可读取额度", "Install and sign in to read quota"))
@@ -24,48 +35,73 @@ public actor CodexUsageProvider: UsageProvider, LedgerRecording {
             return try await CodexAppServerClient(executable: executable, dataDirectory: directory).fetch()
         }, transcripts: .standard(directory: directory, ledger: ledger),
            history: QuotaHistoryStore(ledger: ledger, scope: "codex", importing: AppSupport.directory.appendingPathComponent("codex-quota-history.json")),
-           home: ClientHome.key(directory, defaultDirectory: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex", isDirectory: true)))
+           home: ClientHome.key(directory, defaultDirectory: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex", isDirectory: true)),
+           readPiLimits: { try await pi.fetch() },
+           piHome: "pi:" + ClientHome.key(pi.directory, defaultDirectory: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent")))
     }
 
     public nonisolated var watchedDirectories: [URL]? { transcripts.roots }
+    // Pi and other clients can spend the same account without writing Codex rollouts.
+    public nonisolated var seesLocalWork: Bool { false }
 
     public func refreshAccountUsage(historyHours: Int) async {
         let now = clock()
-        if lastQuota == nil || now.timeIntervalSince(lastQuota!.at) >= UsageRefresh.accountRequestSpacing {
-            do {
-                let limits = try await readLimits()
-                lastQuota = (now, .success(limits))
-                await history.append(limits.rows(home: home).map { QuotaSample(agentId: $0.id, timestamp: now, remainingPct: $0.window.remainingPct) }, now: now)
-            }
-            catch {
-                if Task.isCancelled { return }
-                lastQuota = (now, .failure(UsageProviderError(error.localizedDescription)))
-            }
+        guard lastRequestAt.map({ now.timeIntervalSince($0) >= UsageRefresh.accountRequestSpacing }) ?? true else { return }
+        lastRequestAt = now
+        await read(home: home) { try await self.readLimits() }
+        await read(home: piHome, fetch: readPiLimits)
+        // Several clients can read the same account. Its history, windows and alerts have one owner.
+        for (source, reading) in accountReadings where failures[source] == nil {
+            await history.append(reading.limits.rows(home: source).map {
+                QuotaSample(agentId: $0.id, timestamp: reading.at, remainingPct: $0.window.remainingPct)
+            }, now: now)
         }
+    }
+
+    private func read(home: String, fetch: @Sendable () async throws -> CodexRateLimits?) async {
+        do {
+            if let limits = try await fetch() { readings[home] = Reading(limits: limits, at: clock()) }
+            else { readings[home] = nil }
+            failures[home] = nil
+        } catch {
+            guard !Task.isCancelled else { return }
+            let message = error.localizedDescription
+            failures[home] = message
+        }
+    }
+
+    private var accountReadings: [(String, Reading)] {
+        var accounts: [String: (String, Reading)] = [:]
+        for source in [home, piHome] {
+            guard let reading = readings[source] else { continue }
+            let key = reading.limits.providerAccount(home: source).id
+            // Prefer a successful native read, then a successful Pi read over a failed native read.
+            if let old = accounts[key], failures[old.0] == nil || failures[source] != nil { continue }
+            accounts[key] = (source, reading)
+        }
+        return accounts.values.sorted { $0.1.limits.providerAccount(home: $0.0).id < $1.1.limits.providerAccount(home: $1.0).id }
     }
 
     public func fetchUsage(agents: [AgentDescriptor], historyHours: Int) async throws -> UsageReport {
         let now = clock()
         let weekAgo = now.addingTimeInterval(-7 * 86400)
         let indexed = await transcripts.index(since: min(weekAgo, now.addingTimeInterval(-Double(historyHours) * 3600)))
-        let limits: CodexRateLimits?, failure: String?
-        let fetchedAt = lastQuota?.at ?? now
-        switch lastQuota?.result {
-        case .success(let value): (limits, failure) = (value, nil)
-        case .failure(let error): (limits, failure) = (nil, error.message)
-        case nil: (limits, failure) = (nil, nil)
+        let selected = accountReadings
+        let native = readings[home]
+        let windows = selected.flatMap { source, reading in
+            reading.limits.rows(home: source).map { (row: $0, reading: reading) }
         }
-        let windows = limits?.rows(home: home) ?? []
         let models = Set(indexed.sessions.flatMap(\.transcript.models)).sorted()
         let consumers = models.map { AgentDescriptor(id: "codex-model:\($0)", vendor: "Codex", model: $0,
                                                      source: L10n.sourceCodexAppServer, enabled: true) }
-        let snapshots = windows.map { row in
+        let snapshots = windows.map { row, reading in
             UsageSnapshot(agentId: row.id, remainingPct: row.window.remainingPct, weeklyRemainingPct: row.weekly?.remainingPct,
                           resetAt: row.window.resetAt, windowDuration: row.window.duration,
-                          weeklyResetAt: row.weekly?.resetAt, updatedAt: fetchedAt)
+                          weeklyResetAt: row.weekly?.resetAt, updatedAt: reading.at)
         }
         var byAgent: [String: UsageInsights] = [:]
-        for (row, snapshot) in zip(windows, snapshots) {
+        for (entry, snapshot) in zip(windows, snapshots) {
+            let row = entry.row
             let samples = await history.samples(agentId: row.id, since: min(weekAgo, snapshot.cycle?.start ?? weekAgo))
             let burn = UsageAnalytics.burnRate(samples: samples, cycle: snapshot.cycle, now: now)
             let caps = UsageAnalytics.capStats(samples: samples.filter { $0.timestamp >= weekAgo }, now: now)
@@ -89,21 +125,36 @@ public actor CodexUsageProvider: UsageProvider, LedgerRecording {
                                tokensOut: t.outputTokens, client: t.client, transcriptPath: session.path,
                                cacheReadTokens: t.cachedInputTokens, observedAt: now)
         }
-        let notice = failure ?? (limits != nil && windows.isEmpty ? L10n.text("当前账户暂无可用额度信息", "Usage limits are unavailable for this account") : nil)
+        var notices = Dictionary(uniqueKeysWithValues: selected.compactMap { source, reading -> (String, String)? in
+            failures[source].map { (reading.limits.providerAccount(home: source).id, $0) }
+        })
+        for (source, message) in failures where readings[source] == nil {
+            notices[source == piHome ? "Pi" : "Codex login"] = message
+        }
+        let notice = notices.isEmpty ? nil : notices.values.sorted().joined(separator: " · ")
         let consumerIds = Set(consumers.map(\.id) + sessions.map(\.agentId))
-        let quotaIds = Set(windows.map(\.id) + agents.filter { $0.vendor == "Codex" }.map(\.id))
-        let consumerIdsByQuota = Dictionary(uniqueKeysWithValues: quotaIds.map { ($0, consumerIds) })
+        // Pi's distinct account must not claim Codex transcript consumers. Pi owns its own token events.
+        let nativeAccount = native?.limits.providerAccount(home: home).id
+        var consumerIdsByQuota = Dictionary(uniqueKeysWithValues: windows.map {
+            ($0.row.id, $0.row.account?.id == nativeAccount ? consumerIds : Set<String>())
+        })
+        for agent in agents where agent.vendor == "Codex" && agent.account == nil {
+            consumerIdsByQuota[agent.id] = consumerIds
+        }
+        let observations = selected.map { source, reading in
+            AccountObservation(account: reading.limits.providerAccount(home: source), home: source,
+                label: reading.limits.account?.email, plan: reading.limits.plan, observedAt: reading.at,
+                quotaNotice: failures[source], resetCredits: reading.limits.rateLimitResetCredits)
+        }
         return UsageReport(generatedAt: now, snapshots: snapshots, sessions: sessions,
-                           notice: notice, discoveredAgents: windows.map(\.descriptor), consumers: consumers,
+                           notice: notice, discoveredAgents: windows.map { $0.row.descriptor }, consumers: consumers,
                            indexing: indexed.indexing, insightsByAgent: byAgent,
-                           subscriptions: limits?.plan.map { ["Codex": $0] } ?? [:], sourceNotices: notice.map { ["Codex": $0] } ?? [:],
-                           consumerIdsByQuota: consumerIdsByQuota, codexResetCredits: limits?.rateLimitResetCredits,
-                           codexResetCreditsObservedAt: limits?.rateLimitResetCredits == nil ? nil : fetchedAt,
+                           subscriptions: native?.limits.plan.map { ["Codex": $0] } ?? [:],
+                           sourceNotices: selected.isEmpty ? notice.map { ["Codex": $0] } ?? [:] : notices,
+                           consumerIdsByQuota: consumerIdsByQuota, codexResetCredits: selected.count == 1 ? selected.first?.1.limits.rateLimitResetCredits : nil,
+                           codexResetCreditsObservedAt: selected.count == 1 && selected.first?.1.limits.rateLimitResetCredits != nil ? selected.first?.1.at : nil,
                            completions: indexed.sessions.flatMap { $0.transcript.completions ?? [] },
                            turns: indexed.sessions.flatMap { $0.transcript.sessionTurns },
-                           accounts: limits.map { limits in
-                               ["Codex": [AccountObservation(account: limits.providerAccount(home: home), home: home,
-                                                             label: limits.account?.email, plan: limits.plan, observedAt: fetchedAt)]]
-                           })
+                           accounts: lastRequestAt == nil || selected.isEmpty && !failures.isEmpty ? nil : ["Codex": observations])
     }
 }

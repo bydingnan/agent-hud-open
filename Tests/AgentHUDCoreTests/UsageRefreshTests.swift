@@ -176,6 +176,31 @@ final class UsageRefreshTests: XCTestCase, @unchecked Sendable {
                        since.addingTimeInterval(UsageRefresh.accountInterval), "quiet says nothing about an account used elsewhere")
     }
 
+    func testResetDeadlineSurvivesArrivalAndRetriesOnlyAfterAnAttempt() {
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        let reset = start.addingTimeInterval(90)
+        let report = UsageReport(generatedAt: start, snapshots: [
+            .init(agentId: "codex", remainingPct: 0, resetAt: reset, updatedAt: start)
+        ], sessions: [])
+        for offset in [0.0, 90, 91, 600] {
+            XCTAssertEqual(report.accountCheck(since: start, now: start.addingTimeInterval(offset), seesLocalWork: true), reset)
+            XCTAssertEqual(report.accountCheck(since: start, now: start.addingTimeInterval(offset), seesLocalWork: false), reset)
+        }
+        XCTAssertEqual(report.accountCheck(since: reset, now: reset, seesLocalWork: true), reset.addingTimeInterval(300),
+                       "an attempted read consumes the deadline, even if the backend still returns the old window")
+    }
+
+    func testResetPreemptsActiveWorkAndAnOlderExpiredWindow() {
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        let reset = start.addingTimeInterval(45)
+        let report = UsageReport(generatedAt: start, snapshots: [
+            .init(agentId: "old", remainingPct: 100, resetAt: start.addingTimeInterval(-600), updatedAt: start),
+            .init(agentId: "codex", remainingPct: 0, resetAt: reset, updatedAt: start)
+        ], sessions: [], turns: [.init(provider: "codex", sessionID: "s", turnID: "t", state: .running,
+            startedAtMs: 1_800_000_000_000, observedAtMs: 1_800_000_000_000)])
+        XCTAssertEqual(report.accountCheck(since: start, now: start, seesLocalWork: true), reset)
+    }
+
     func testWatchedDirectoryReportsEachChangeOnce() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

@@ -75,10 +75,20 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                 )
                 menu.addItem(header)
             }
-            let accountCount = Set(group.rows.compactMap(\.agent.account?.id)).count
-            for row in group.rows {
-                menu.addItem(rowItem(row, showVendor: groups.count == 1 && group.rows.count == 1,
-                                     accountName: accountCount > 1 ? row.account?.displayName : nil))
+            for section in store.accountSections(group.rows) {
+                if let account = section.account {
+                    let header = NSMenuItem(title: account.displayName, action: nil, keyEquivalent: "")
+                    header.isEnabled = false
+                    header.view = MenuRowView(
+                        title: [account.displayName, account.planLabel].compactMap { $0 }.joined(separator: " · "),
+                        value: account.statusLabel(now: store.now), image: nil, font: .menuFont(ofSize: 11),
+                        titleColor: .secondaryLabelColor, minimumWidth: Self.menuWidth)
+                    header.toolTip = account.quotaNotice
+                    menu.addItem(header)
+                }
+                for row in section.rows {
+                    menu.addItem(rowItem(row, showVendor: groups.count == 1 && group.rows.count == 1 && section.account == nil))
+                }
             }
         }
         for (index, billing) in store.enabledBilling.enumerated() {
@@ -117,15 +127,15 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
 
-    private func rowItem(_ row: AgentRow, showVendor: Bool, accountName: String? = nil) -> NSMenuItem {
+    private func rowItem(_ row: AgentRow, showVendor: Bool) -> NSMenuItem {
         let level = row.level ?? .ok
         let light = SystemAppearance.isLight
         let color = NSColor(StatusPalette.color(for: level, light: light))
-        let label = (accountName.map { $0 + " · " } ?? "") + L10n.modelLabel(row.agent.model)
+        let label = L10n.modelLabel(row.agent.model)
         let name = showVendor ? "\(row.agent.displayVendor) · \(L10n.shortModelLabel(row.agent.model))" : label
         let value: String
         if let used = row.usedPct {
-            value = "\(TokenFormat.percent(used)) · \(Countdown.resetLabelCompact(row.resetAt, now: store.now))"
+            value = "\(TokenFormat.percent(used)) · \(row.resetLabel(now: store.now, compact: true))"
         } else {
             value = row.missingQuotaLabel
         }
@@ -135,7 +145,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         item.view = MenuRowView(
             title: name, value: value,
             image: showVendor ? AgentArtwork.image(for: row.agent.vendor) : StatusIconRenderer.dot(color: row.level == nil ? .tertiaryLabelColor : color),
-            font: showVendor ? Self.agentMenuFont : .menuFont(ofSize: 13), valueColor: valueColor, minimumWidth: Self.menuWidth
+            font: showVendor ? Self.agentMenuFont : .menuFont(ofSize: 13),
+            titleColor: row.isCurrentAccount ? .labelColor : .secondaryLabelColor, valueColor: valueColor, minimumWidth: Self.menuWidth
         )
         item.toolTip = store.quotaForecastHint(for: row.id)
         item.view?.toolTip = item.toolTip

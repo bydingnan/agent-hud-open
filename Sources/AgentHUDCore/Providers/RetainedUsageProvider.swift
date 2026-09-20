@@ -71,18 +71,24 @@ extension UsageReport {
         let retiredPools = previous.discoveredAgents.filter { !isActive($0) }
         let retiredPoolIDs = Set(retiredPools.compactMap { $0.billingPool?.id })
         let cutoff = generatedAt.addingTimeInterval(-QuotaHistoryStore.retention)
+        let currentIDs = Set(snapshots.map(\.agentId))
+        // A successful Codex response is the complete window inventory for that account.
+        // Omitted buckets are retired; a failed read or an account switched away keeps its last readings.
+        let confirmedCodex = Set((self.accounts?["Codex"] ?? []).filter {
+            $0.isCurrent && $0.quotaNotice == nil && sourceNotices["Codex"] == nil
+        }.map(\.account.id))
         let accounts = mergedAccounts(from: previous, retiredPoolIDs: retiredPoolIDs, cutoff: cutoff)
         let knownAccountIDs = Set(accounts?.values.flatMap { $0.map(\.account.id) } ?? [])
         // Rows of an account unseen for the retention period retire with its readings and settings.
         // Rows without an account belong to a provider version that could not identify accounts; they are dropped.
         let retiredRows = previous.discoveredAgents.filter { agent in
+            if let account = agent.account, confirmedCodex.contains(account.id), !currentIDs.contains(agent.id) { return true }
             if let account = agent.account, agent.billingPool == nil { return accounts != nil && !knownAccountIDs.contains(account.id) }
             return agent.account == nil && agent.billingPool == nil && accounts?[agent.vendor]?.isEmpty == false
         }
         let retired = retiredPools + retiredRows
         let retiredWindowIDs = Set(retired.map(\.id))
         func isRetained(_ agent: AgentDescriptor) -> Bool { isActive(agent) && !retiredWindowIDs.contains(agent.id) }
-        let currentIDs = Set(snapshots.map(\.agentId))
         let billingIDs = Set(billing.map(\.id))
         let retainedBilling = billing.map { value -> APIBilling in
             guard value.updatedAt == nil, let old = previous.billing.first(where: { $0.id == value.id }) else { return value }

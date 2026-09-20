@@ -94,9 +94,9 @@ struct HoverPanelView: View {
                     .padding(.vertical, IslandRowLayout.headingVerticalPadding)
                     let sections = store.accountSections(group.rows)
                     ForEach(sections) { section in
-                        if sections.count > 1 || !section.isCurrent, let account = section.account {
+                        if let account = section.account {
                             AccountSectionHeader(account: account, now: store.now,
-                                                 notice: store.report?.sourceNotices[account.account.provider])
+                                                 notice: account.quotaNotice ?? store.report?.sourceNotices[account.account.provider])
                         }
                         ForEach(section.rows) { row in
                             ModelUsageRow(row: row, now: store.now, showReset: store.settings.settings.showResetCountdown,
@@ -105,7 +105,7 @@ struct HoverPanelView: View {
                                 .opacity(section.isCurrent ? 1 : 0.55)
                         }
                         // Earned resets belong to the signed-in Codex account.
-                        if section.isCurrent, section.rows.contains(where: { $0.agent.vendor == "Codex" }), let resets = store.report?.codexResetCredits {
+                        if section.isCurrent, section.rows.contains(where: { $0.agent.vendor == "Codex" }), let resets = store.report?.resetCredits(for: section.id) {
                             CodexResetCreditsView(resets: resets, showExpiry: store.settings.settings.showResetCountdown)
                         }
                     }
@@ -234,7 +234,7 @@ struct AccountSectionHeader: View {
                     .foregroundStyle(theme.tertiary)
                     .lineLimit(1)
             }
-            if let notice, !account.isCurrent {
+            if let notice {
                 Text(notice)
                     .foregroundStyle(theme.statusText(.warning))
                     .lineLimit(2)
@@ -349,7 +349,7 @@ struct ModelUsageRow: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .frame(width: IslandRowLayout.nameWidth, alignment: .leading)
-            ProgressTrack(fraction: (row.usedPct ?? 0) / 100, fill: isLoading || !row.isCurrentAccount ? theme.secondary : color,
+            ProgressTrack(fraction: (row.usedPct ?? 0) / 100, fill: isLoading || row.level == nil ? theme.secondary : color,
                           track: theme.track, isLoading: isLoading)
                 .frame(height: 4)
             Text(row.usedPct.map(TokenFormat.percent) ?? "—")
@@ -359,7 +359,7 @@ struct ModelUsageRow: View {
             if showReset {
                 Text(row.usedPct == nil
                      ? (isLoading ? "—" : row.missingQuotaLabel)
-                     : Countdown.resetLabel(row.resetAt, now: now))
+                     : row.resetLabel(now: now))
                     .font(.tabular(12))
                     .foregroundStyle(theme.secondary)
                     .lineLimit(1)

@@ -50,7 +50,7 @@ The three dimensions (`TokenDimensions`) are additive and never overlap. Charts,
 - Changing accounts is neither a reset nor an exhaustion: an account that becomes current again starts a new alert baseline.
 - The first identified account takes over an unidentified row's position and display switch; a window that appears on a further account inherits the switch of the same window on another account. Quota history recorded before accounts were identified belongs to no account and feeds no burn rate.
 - A login the provider does not identify is one account per client home directory, never merged with another home. A provider that must forget its accounts, for example after reading consent is withdrawn, retires their readings, rows and display settings at once.
-- Codex reset credits belong to the current Codex account. Billing-pool rows (Kimi, GLM, OpenCode Go) keep their pool ids as account ids.
+- Codex reset credits belong to the account that reported them; native and Pi logins can make several accounts current at once. Billing-pool rows (Kimi, GLM, OpenCode Go) keep their pool ids as account ids.
 
 ### Collection cadence
 
@@ -63,7 +63,8 @@ Reads never run in parallel: the usage store runs one pass of source reads or on
 | Every client's local logs while the first index is being built | Every 2 s |
 | Account readings: Claude Code engine `get_usage`, Codex `account/rateLimits/read`, DeepSeek balance, Antigravity, Cursor, Grok and GitHub Copilot quota, Cursor account usage events, and Kimi, GLM and OpenCode Go quota per billing pool | Per client: every minute while one of its turns runs, every 3 minutes while a session of its is live between turns, once more for work that finished since its last reading, and when one of its windows resets. Also when the panel, the menu bar menu or the statistics window opens, and at once when GitHub Copilot quota reading is switched on or off |
 
-- A client nobody is using is not asked: its windows move only while its own work runs. A window whose reset has passed, a reading that names no window, and a client whose usage is the account's from every device it signs in on (Cursor) keep the 5-minute interval.
+- A client nobody is using is not asked: its windows move only while its own work runs. A window whose reset has passed, a reading that names no window, and a client whose usage is the account's from every device it signs in on (Cursor and Codex, including Pi logins) keep the 5-minute interval.
+- A known reset takes priority over the normal cadence and stays due until an account request has run at or after it, subject to the 60-second request spacing. An old window returned after that attempt retries on the normal cadence.
 - Account steps run one provider after another, back to back for at most one second before local logs get their turn, so a slow request delays a poll by that request alone.
 - A pass reads only the clients that signalled; the others keep their last result. Every local source is read again every 5 minutes, which catches a change a directory watch missed. Claude Code and Codex polls examine only the logs the watch reported changed, and list every log again every 5 minutes or after dropped events.
 - A provider never repeats an account request within 60 s, whoever asks, and a failure waits as long as a success; it is reported as a source notice while the other sources keep working.
@@ -71,7 +72,7 @@ Reads never run in parallel: the usage store runs one pass of source reads or on
 ### Reading retention
 
 - The last successful reading is kept with its observation time; a failed refresh keeps it and exposes the failure, and a restart restores it before the first poll.
-- When a window's reset time has passed, the row keeps the last reading and its time. A reset is confirmed only by a new reading whose reset time moved forward or that shows the window full again; until then alert evaluation treats the deadline as pending.
+- When a window's reset time has passed, the row keeps the last reading and its time. A reset is confirmed only by a new reading whose reset time moved forward or that shows the window full again; until then alert evaluation treats the deadline as pending and the row displays “Pending update”. Historical accounts show no live countdown. A successful Codex response replaces that account's complete window inventory, removing omitted windows; failures retain the old inventory.
 - Kimi, GLM and OpenCode Go rows are retired — readings, cached rows and display settings — once a completed credential scan finds their credentials expired, removed or rejected; a temporary network failure retires nothing.
 - Quota histories keep 30 days.
 - A running session leaves the running indicator 120 s after its last source observation and stays in history without an invented end time.

@@ -62,21 +62,28 @@ public struct AccountObservation: Hashable, Codable, Sendable, Identifiable {
     public let observedAt: Date
     /// The client is currently signed in to this account. Other accounts show their last reading only.
     public let isCurrent: Bool
+    /// A failed quota read keeps the last observation, but cannot confirm quota events.
+    public let quotaNotice: String?
+    /// Codex credits belong to this account, even when several clients are signed in.
+    public let resetCredits: CodexResetCredits?
 
     public init(account: ProviderAccount, home: String = "", label: String? = nil, plan: String? = nil,
-                observedAt: Date, isCurrent: Bool = true) {
+                observedAt: Date, isCurrent: Bool = true, quotaNotice: String? = nil, resetCredits: CodexResetCredits? = nil) {
         self.account = account
         self.home = home
         self.label = label.flatMap { $0.isEmpty ? nil : $0 }
         self.plan = plan.flatMap { $0.isEmpty ? nil : $0 }
         self.observedAt = observedAt
         self.isCurrent = isCurrent
+        self.quotaNotice = quotaNotice
+        self.resetCredits = resetCredits
     }
 
     public var id: String { account.id + "@" + home }
 
     public func with(isCurrent: Bool) -> AccountObservation {
-        AccountObservation(account: account, home: home, label: label, plan: plan, observedAt: observedAt, isCurrent: isCurrent)
+        AccountObservation(account: account, home: home, label: label, plan: plan, observedAt: observedAt,
+                           isCurrent: isCurrent, quotaNotice: quotaNotice, resetCredits: resetCredits)
     }
 
     /// The account's email or name, else a short form of its id.
@@ -91,7 +98,7 @@ public struct AccountObservation: Hashable, Codable, Sendable, Identifiable {
     }
 
     public func statusLabel(now: Date) -> String {
-        guard !isCurrent else { return L10n.text("当前账户", "Current account") }
+        if isCurrent, quotaNotice == nil { return L10n.text("当前账户", "Current account") }
         let ago = Countdown.formatRough(max(0, now.timeIntervalSince(observedAt)))
         return L10n.text("上次读取 \(ago) 前", "Last read \(ago) ago")
     }
@@ -107,6 +114,17 @@ public enum ClientHome {
 }
 
 public extension UsageReport {
+    func quotaNotice(for agent: AgentDescriptor) -> String? {
+        if let id = agent.account?.id, let account = observation(accountID: id) { return account.quotaNotice ?? sourceNotices[agent.vendor] }
+        return sourceNotices[agent.vendor]
+    }
+
+    /// Older reports carry one unscoped credit balance. It is safe only with a single current account.
+    func resetCredits(for accountID: String) -> CodexResetCredits? {
+        if let account = observation(accountID: accountID), let credits = account.resetCredits { return credits }
+        let current = Set((accounts?["Codex"] ?? []).filter(\.isCurrent).map(\.account.id))
+        return current.count <= 1 && (current.isEmpty || current.contains(accountID)) ? codexResetCredits : nil
+    }
     var accountObservations: [AccountObservation] { (accounts ?? [:]).values.flatMap { $0 } }
 
     /// The newest observation of an account, preferring homes where it is current.

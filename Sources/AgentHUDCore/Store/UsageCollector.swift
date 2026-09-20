@@ -264,7 +264,7 @@ final class UsageCollector {
     private func pause(after now: Date) async -> TimeInterval {
         var times: [Date] = []
         if !accountSteps.isEmpty { times.append(now.addingTimeInterval(UsageRefresh.accountStepBudget)) }
-        else { times += await accountDue(at: now).values.filter { $0 > now } }
+        else { times += await accountDue(at: now).values }
         if let fallbackReadAt { times.append(fallbackReadAt.addingTimeInterval(UsageRefresh.accountInterval)) }
         if needsFetch || !signalled.isEmpty { times.append((fetchedAt ?? now).addingTimeInterval(UsageRefresh.readSpacing)) }
         if store?.isIndexing == true { times.append((fetchedAt ?? now).addingTimeInterval(UsageRefresh.indexingInterval)) }
@@ -289,7 +289,7 @@ final class UsageCollector {
             mergeRequested = false
             let report = await hooks.merge?(fetched) ?? fetched
             guard store.isAccessAllowed, !Task.isCancelled else { needsFetch = true; return }
-            settings.mergeDiscovered(report.discoveredAgents, activeQuotaPoolIDs: report.activeQuotaPoolIDs, accounts: report.accounts)
+            settings.mergeDiscovered(report.discoveredAgents, activeQuotaPoolIDs: report.activeQuotaPoolIDs, accounts: report.accounts, replaceQuotaWindows: true)
             generation += 1
             local = (fetched, generation)
             store.collected(report)
