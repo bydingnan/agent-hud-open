@@ -2,6 +2,13 @@
 
 Releases of Agent HUD Open. A version is a git tag `vX.Y.Z` on `main`; `CFBundleShortVersionString` in `scripts/build-app.sh` carries the same number. Each entry lists what changed for people using the application and, under **Host API**, what changed for applications that embed `AgentHUDCore` and `AgentHUDDesktop`. Dates are tag dates.
 
+## 0.4.18 — 2026-09-21
+
+- Answering the last request leaves the island as it was, instead of sliding the usage panel under a pointer that was aiming at a button. A request answered as a row inside the panel still leaves the panel where it was.
+- A request card clears the notch again. Its top inset was taken from the usage panel, which is wide enough that its first row sits beside a notch; a card is narrower and sits squarely under one, so the number comes from the screen's own silhouette. A screenshot cannot show this — macOS does not draw the notch into one — so it looked correct in every capture.
+- Opening a shorter request, or answering one, no longer closes the island under the pointer. The card shrinks to its content as before, but the window keeps a transparent surface under the pointer until it leaves, so the pointer never ends up below the card it is still using.
+- One request looks like a queue of one: same width, same header, same card. The width no longer changes as requests arrive and are answered.
+
 ## 0.4.17 — 2026-09-20
 
 - A client that stops to ask whether a tool may run can be answered from the HUD. The request arrives on the island and stays there until it is settled, where every other event expires after a few seconds; hovering opens it, with the file or command it wants, the folder it runs in and, for an edit, the lines it would change. Deny and allow once are always offered, and a third answer appears when the client itself suggested a rule, which the HUD echoes back untouched rather than composing one of its own. Several requests stack into a queue, oldest open, any line of it openable, and answering one hands over to whichever has waited longest.

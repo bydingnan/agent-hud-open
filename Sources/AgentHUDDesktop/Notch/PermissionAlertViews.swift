@@ -74,11 +74,11 @@ struct PermissionAlertDetailView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if queue.count > 1 { header }
+            header
             VStack(spacing: 2) {
                 ForEach(queue) { item in
                     if item.id == request.id {
-                        PermissionOpenRow(request: item, alone: queue.count == 1, onDecide: onDecide)
+                        PermissionOpenRow(request: item, onDecide: onDecide)
                     } else {
                         PermissionClosedRow(request: item, onSelect: { onSelect(item.id) })
                     }
@@ -102,8 +102,6 @@ struct PermissionAlertDetailView: View {
 /// The request being decided: everything the other lines leave out, and the answers.
 private struct PermissionOpenRow: View {
     let request: PermissionRequest
-    /// The only one waiting needs no card of its own — the island is already its card.
-    var alone = false
     let onDecide: (PermissionDecision) -> Void
 
     var body: some View {
@@ -127,8 +125,8 @@ private struct PermissionOpenRow: View {
             }
             PermissionButtons(request: request, onDecide: onDecide)
         }
-        .padding(alone ? 0 : 10)
-        .background(alone ? Color.clear : PermissionColor.surface, in: RoundedRectangle(cornerRadius: 10))
+        .padding(10)
+        .background(PermissionColor.surface, in: RoundedRectangle(cornerRadius: 10))
     }
 }
 

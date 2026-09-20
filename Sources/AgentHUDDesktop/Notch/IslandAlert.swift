@@ -42,19 +42,18 @@ enum IslandAlert: Identifiable {
     }
 
     /// How wide the expanded card is. A queue of requests reads across — a project, what kind of call, on what and
-    /// how long it has waited — so it takes the width; one request is a line and does not. News stays narrow.
-    @MainActor func detailWidth(queued: Int = 1) -> CGFloat {
-        guard isPersistent else { return IslandController.alertDetailWidth }
-        return queued > 1 ? 470 : 400
-    }
+    /// how long it has waited — and one request is the same card with one row in it, so the width does not move
+    /// under the user as requests arrive and are answered. News stays narrow.
+    @MainActor var detailWidth: CGFloat { isPersistent ? 470 : IslandController.alertDetailWidth }
 
     /// How far the expanded card starts below the island's own silhouette. News is one line under a headline and can
     /// afford the room.
     var detailTopInset: CGFloat { 16 }
 
     /// The frame a request card wears: the usage panel's own, because the two open in the same place, one after the
-    /// other, and a queue of requests is a panel of rows like any other. News keeps the silhouette-relative inset
-    /// above, which is measured from a shape whose height changes with the screen.
+    /// other, and a queue of requests is a panel of rows like any other. Its top is a floor, not a measurement —
+    /// the island's own silhouette wins when it is taller, since the card is narrower than the panel and sits under
+    /// the notch rather than beside it. News keeps the silhouette-relative inset above.
     var detailInsets: EdgeInsets? {
         isPersistent ? EdgeInsets(top: 32, leading: 18, bottom: 14, trailing: 18) : nil
     }

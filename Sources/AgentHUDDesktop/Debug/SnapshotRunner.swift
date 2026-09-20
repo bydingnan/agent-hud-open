@@ -573,8 +573,10 @@ struct IslandScene: View {
         if showsAlertDetails, let alert {
             let hosting = NSHostingView(rootView: IslandAlertDetailView(alert: alert, onOpen: {}, onDecide: { _ in },
                                                                          waitingRequests: waitingRequests)
-                .padding(alert.detailInsets ?? EdgeInsets(top: 38 + alert.detailTopInset, leading: 24, bottom: 22, trailing: 24))
-                .frame(width: alert.detailWidth(queued: max(1, waitingRequests.count))).fixedSize(horizontal: false, vertical: true))
+                            .padding(alert.detailInsets.map {
+                    EdgeInsets(top: max($0.top, 38), leading: $0.leading, bottom: $0.bottom, trailing: $0.trailing)
+                } ?? EdgeInsets(top: 38 + alert.detailTopInset, leading: 24, bottom: 22, trailing: 24))
+                .frame(width: alert.detailWidth).fixedSize(horizontal: false, vertical: true))
             return hosting.fittingSize.height
         }
         let hosting = NSHostingView(rootView: HoverPanelView(store: store, onOpenStats: {}, alert: alert)
@@ -585,7 +587,7 @@ struct IslandScene: View {
     var body: some View {
         let cameraWidth: CGFloat = alert == nil ? 380 : 216
         let closedHeight: CGFloat = alert == nil ? 44 : 38
-        let islandSize = open ? CGSize(width: showsAlertDetails ? (alert?.detailWidth(queued: max(1, waitingRequests.count)) ?? IslandController.alertDetailWidth) : IslandController.expandedWidth, height: panelHeight)
+        let islandSize = open ? CGSize(width: showsAlertDetails ? (alert?.detailWidth ?? IslandController.alertDetailWidth) : IslandController.expandedWidth, height: panelHeight)
             : alert != nil ? CGSize(width: cameraWidth + 2 * (IslandController.alertWingWidth + IslandController.alertSidePadding), height: closedHeight)
             : CGSize(width: cameraWidth, height: closedHeight)
         let radius: CGFloat = open ? IslandController.expandedRadius : 14

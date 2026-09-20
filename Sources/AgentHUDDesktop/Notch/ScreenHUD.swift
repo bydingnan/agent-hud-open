@@ -11,6 +11,8 @@ final class ScreenHUD {
     /// Height of the open panel; follows the content reported by `IslandRootView`.
     private var panelHeight: CGFloat = IslandController.defaultPanelHeight
     private var alertDetailHeight: CGFloat = 300
+    /// The tallest the open card has been while the pointer has stayed on it; zero once it leaves.
+    private var alertHoverFloor: CGFloat = 0
     private var expandedSize: CGSize { CGSize(width: IslandController.expandedWidth, height: panelHeight) }
 
     /// The display this HUD lives on, looked up again each time: `NSScreen` instances are replaced when
@@ -156,8 +158,7 @@ final class ScreenHUD {
         if let next = outcome.next {
             present(next, inUsagePanel: surface)
         } else if alerts.current == nil {
-            if !pointerInside { machine = HoverMachine() }
-            apply(animated: true)
+            closeAfterLastAlert(wasInUsagePanel: surface ?? false)
         }
     }
 
@@ -178,9 +179,26 @@ final class ScreenHUD {
         if let next = alerts.dismiss() {
             present(next, inUsagePanel: surface)
         } else {
-            if !pointerInside { machine = HoverMachine() }
-            apply(animated: true)
+            closeAfterLastAlert(wasInUsagePanel: surface ?? false)
         }
+    }
+
+    /// What the island does once the last card is gone. A card the user was reading in place of the panel takes the
+    /// island back to where it was before it arrived: the pointer is on a button that said Deny, not on one asking
+    /// for the usage panel, and sliding the panel under it would answer a question nobody put. A card that was a row
+    /// inside the panel leaves the panel exactly where it was.
+    private func closeAfterLastAlert(wasInUsagePanel: Bool) {
+        if ScreenHUD.closesAfterLastAlert(wasInUsagePanel: wasInUsagePanel, pointerInside: pointerInside) {
+            machine = HoverMachine()
+            timer?.invalidate()
+            timer = nil
+        }
+        apply(animated: true)
+    }
+
+    /// Whether the island collapses once the last card is answered.
+    static func closesAfterLastAlert(wasInUsagePanel: Bool, pointerInside: Bool) -> Bool {
+        !wasInUsagePanel || !pointerInside
     }
 
     private func openAlert() {
@@ -232,6 +250,20 @@ final class ScreenHUD {
         guard clamped > 0, abs(clamped - panelHeight) >= 1 else { return }
         panelHeight = clamped
         if machine.isOpen { apply(animated: true) }
+    }
+
+    /// A card grows to its content freely and shrinks only as far as the pointer allows.
+    ///
+    /// Opening a shorter request, or answering one and losing its row, makes the card shorter than the pointer that
+    /// asked for it: the pointer ends up below the card it is still using, which reads as having left the HUD, and
+    /// the island closes under the user's hand. The card keeps its height until the pointer is no longer standing
+    /// in the part that would be taken away.
+    /// The window's height while a card is open: the card's own, or the tallest the card has been for as long as
+    /// the pointer has stayed on it. The difference is transparent — the black shape is drawn at the card's size —
+    /// so a shorter request opening under the pointer leaves a surface beneath it rather than a black band, and
+    /// the window returns to the card's height the moment the pointer leaves.
+    static func heldWindowHeight(card: CGFloat, floor: CGFloat, pointerInside: Bool) -> CGFloat {
+        pointerInside ? max(card, floor) : card
     }
 
     /// This HUD's own display, or nothing once it has been unplugged.
@@ -312,15 +344,26 @@ final class ScreenHUD {
                                  height: max(38, geometry.rect.height))
         let size = open
             ? (showsAlertDetails
-                ? CGSize(width: activeAlert?.detailWidth(queued: PermissionRequests.shared.pending.count)
-                    ?? IslandController.alertDetailWidth, height: alertDetailHeight)
+                ? CGSize(width: activeAlert?.detailWidth ?? IslandController.alertDetailWidth,
+                         height: alertDetailHeight)
                 : expandedSize)
             : compactSize
         // Core frame drives the glow/shadow; the window frame adds the flared top corners.
         let islandFrame = expanded ? geometry.expandedFrame(size: size) : geometry.rect
         alertFrame = (activeAlert != nil && !open) ? islandFrame : nil
         let flare = open ? NotchGeometry.expandedTopRadius : NotchGeometry.collapsedTopRadius
-        let windowFrame = expanded ? islandFrame.insetBy(dx: -flare, dy: 0) : geometry.islandFrame
+        var windowFrame = expanded ? islandFrame.insetBy(dx: -flare, dy: 0) : geometry.islandFrame
+        // What the black shape fills, before the window is stretched to keep a surface under the pointer.
+        let presentation = windowFrame.size
+        if showsAlertDetails {
+            alertHoverFloor = pointerInside ? max(alertHoverFloor, windowFrame.height) : 0
+            let held = ScreenHUD.heldWindowHeight(card: windowFrame.height, floor: alertHoverFloor,
+                                                  pointerInside: pointerInside)
+            windowFrame.origin.y -= held - windowFrame.height
+            windowFrame.size.height = held
+        } else {
+            alertHoverFloor = 0
+        }
         let radius = open ? IslandController.expandedRadius : max(geometry.cornerRadius, activeAlert == nil ? 0 : 14)
         let current = settings.settings
         // This screen's own glow, or the default when it has not been given one.
@@ -395,7 +438,7 @@ final class ScreenHUD {
         island.onPointerChange = geometry.mode == .logos
             ? nil
             : { [weak self] inside in self?.pointer(inside: inside) }
-        root.presentationSize = windowFrame.size
+        root.presentationSize = presentation
         root.onContentHeight = { [weak self] height in self?.updatePanelHeight(height) }
         island.setRootView(root)
     }
