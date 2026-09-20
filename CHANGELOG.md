@@ -2,6 +2,11 @@
 
 Releases of Agent HUD Open. A version is a git tag `vX.Y.Z` on `main`; `CFBundleShortVersionString` in `scripts/build-app.sh` carries the same number. Each entry lists what changed for people using the application and, under **Host API**, what changed for applications that embed `AgentHUDCore` and `AgentHUDDesktop`. Dates are tag dates.
 
+## Unreleased
+
+- ZenMux account usage: 5 h and 7 d quota windows, daily token history and reference USD costs from the official management API when `ZENMUX_MANAGEMENT_API_KEY` or `ZENMUX_MGMT_API_KEY` is set (or the same names in `~/.config/api-tokens.env`); no local sessions or turns. Settings lists ZenMux with Management Key guidance; the personal one-tap preset and fresh installs include it in the default watched vendors.
+- Host API: `ZenMuxCredentials`, `ZenMuxUsageProvider` and `PreferredVendors.personal` include `ZenMux`.
+
 ## 0.4.17 — 2026-09-20
 
 - A client that stops to ask whether a tool may run can be answered from the HUD. The request arrives on the island and stays there until it is settled, where every other event expires after a few seconds; hovering opens it, with the file or command it wants, the folder it runs in and, for an edit, the lines it would change. Deny and allow once are always offered, and a third answer appears when the client itself suggested a rule, which the HUD echoes back untouched rather than composing one of its own. Several requests stack into a queue, oldest open, any line of it openable, and answering one hands over to whichever has waited longest.

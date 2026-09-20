@@ -15,6 +15,7 @@ A provider is the `AgentHUDCore` component that turns one client's local records
 | OpenCode (+ Go) | Database, message store, credentials, config | OpenCode Go usage | Billing pool | Per-request cost from the log | No / No |
 | Kimi | Wire logs, OAuth slots, device id | Kimi coding usages | Billing pool | — | Yes / Yes |
 | GLM | None | GLM monitor quota | Billing pool | — | n/a |
+| ZenMux | None | ZenMux management subscription | — | Daily usage and reference USD costs | n/a |
 | Pi | Session logs, observer turn files, credentials, model config | Kimi, GLM and Go pools | Billing pool | Per-request cost from the log | Yes / Yes, with the observer |
 | GitHub Copilot CLI | Session events, OpenTelemetry export; GitHub CLI sign-in after consent | GitHub `copilot_internal/user` | GitHub `/user` `id` · — | — | Yes / `agentStop` hook |
 | OpenClaw | Agent databases, transcripts | — | — | — | Yes / Yes |
@@ -72,6 +73,12 @@ Account ids hash the listed user and workspace values; a quota row is `account:<
 - **Credentials & env** — `KIMI_CODE_API_KEY` (CN unless `KIMI_CODE_BASE_URL` is the official global base); native OAuth slots `credentials/kimi-code.json` (CN) and `kimi-code-env-<hash>.json` (global) with an unexpired `access_token`, disabled by a custom `KIMI_CODE_BASE_URL` or OAuth host; Pi's `KIMI_API_KEY` and `kimi-coding` OAuth login are read too. Tokens are never refreshed or written.
 - **Endpoints** — `GET /coding/v1/usages` on `api.kimi.com` (CN) or `api.kimi.ai` (global) with `device_id` as `X-Msh-Device-Id`: `usage` is the weekly window, `limits[]` are windows of `window.duration` × `timeUnit`, `membership.level` is the plan. `GET /coding/v1/me`: `user_id`, `domain` (null → 0) and `region` hash into the pool scope with evidence `account`, so a key and a token of one account share a pool; a failed lookup keeps the credential-scoped pool with an identity-unconfirmed notice.
 - **Counting & dedup** — Modern logs: `usage.record` with `usageScope == turn` (`inputOther` + `inputCacheCreation`, `output`, `inputCacheRead`), `step.end` summaries ignored, model from the latest `llm.request`. Legacy `StatusUpdate` `token_usage` is cumulative per `message_id`, so the larger value replaces the earlier one.
+
+## ZenMux
+- **Reads** — None; account-wide quota, token usage and costs come from the management API only.
+- **Credentials & env** — `ZENMUX_MANAGEMENT_API_KEY` or `ZENMUX_MGMT_API_KEY` (environment wins); else `~/.config/api-tokens.env` with the same names. `ZENMUX_API_KEY` (inference) is never used for quota. Nothing is refreshed or written.
+- **Endpoints** — `GET https://zenmux.ai/api/v1/management/subscription/detail` → rows `zenmux:5h` and `zenmux:7d` from `quota_5_hour` and `quota_7_day`, `plan.tier` as the plan, and `quota_monthly.max_flows` as a notice when present (cap only, no live used amount). `GET https://zenmux.ai/api/v1/management/usage?type=usage&query_dimension=BIZ_MTH&query_time=YYYYMM` → daily token buckets, one request per calendar month overlapping the history window. `GET https://zenmux.ai/api/v1/management/cost?type=cost&query_dimension=BIZ_MTH&query_time=YYYYMM` → daily reference USD costs summed from `costByModel`.
+- **Counting & dedup** — 5 h and 7 d windows use `usage_percentage` as the used fraction; remaining = `(1 − usage_percentage) × 100`. Monthly quota is a cap notice only. Usage history: `tokensByTokenType` with `tokenType` `prompt` → In, `completion` → Out; `tokens` is a decimal string. Cost history sums `billAmount` per day as reference USD; null amounts leave that day incomplete. Not applicable for turns or dedup.
 
 ## GLM
 - **Reads** — None; tokens come from the OpenCode, Pi or Claude logs that used the service, under their original provider id.
@@ -148,6 +155,7 @@ Files in the data directory ([architecture](architecture.md#storage)); none cont
 | Codex, DeepSeek | `Sources/AgentHUDCore/Providers/Codex/`, `DeepSeek/` | `CodexProviderTests`, `DeepSeekProviderTests` |
 | Antigravity, Cursor, Grok | `Sources/AgentHUDCore/Providers/Antigravity/`, `Cursor/`, `Grok/`; shared HTTP, SQLite and hooks in `Additional/` | `AdditionalProviderTests`, `CompletionHooksTests` |
 | OpenCode, Kimi, GLM, Pi | `Sources/AgentHUDCore/Providers/OpenAgents/` | `OpenAgentProviderTests`, `KimiQuotaIdentityTests`, `PiSessionObserverTests` |
+| ZenMux | `Sources/AgentHUDCore/Providers/ZenMux/` | `ZenMuxProviderTests` |
 | GitHub Copilot CLI, OpenClaw, Hermes Agent, ZCode, CodeBuddy, WorkBuddy | `Sources/AgentHUDCore/Providers/Copilot/`, `OpenClaw/`, `Hermes/`, `ZCode/`, `TencentBuddy/`; per-client layouts through `Additional/LocalSessionLayout.swift` | `CopilotProviderTests`, `OpenClawProviderTests`, `HermesProviderTests`, `ZCodeProviderTests`, `TencentBuddyProviderTests` |
 | Cross-provider | `Sources/AgentHUDCore/Providers/CombinedUsageProvider.swift`, `RetainedUsageProvider.swift`, `Sources/AgentHUDCore/Models/BillingPool.swift`, `ProviderAccount.swift`; log stores and parsing helpers in `Providers/Shared/` | `LedgerFileStoreTests`, `ProviderAccountTests`, `CombinedProviderTests`, `RetainedUsageProviderTests`, `UsageRefreshTests`, `LiveStatusTests`, `SessionSourceTests`, `QuotaHistoryStoreTests`, `UsageAnalyticsTests` |
 
