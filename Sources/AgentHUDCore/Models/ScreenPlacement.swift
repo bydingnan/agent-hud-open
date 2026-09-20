@@ -31,8 +31,9 @@ public enum HUDEdge: String, Codable, Sendable, CaseIterable {
 public struct ScreenPlacement: Hashable, Codable, Sendable {
     /// Side of one mark in points. A share of the menu bar reads badly as a control, and the bar is not the
     /// same height on every Mac — near 38pt on a notched one against 24 elsewhere — so a multiple of it gave
-    /// wildly different marks for the same setting.
-    public static let logoSizeRange: ClosedRange<Double> = 18...36
+    /// wildly different marks for the same setting. The top of the range fills a 24pt menu bar; past that the
+    /// queue hangs below the bar and over the windows.
+    public static let logoSizeRange: ClosedRange<Double> = 12...24
     /// Gap between logos, as a share of the logo's height. A gap wider than about half a mark reads as
     /// separate marks rather than one queue.
     public static let gapScaleRange: ClosedRange<Double> = 0.1...0.6
@@ -48,7 +49,7 @@ public struct ScreenPlacement: Hashable, Codable, Sendable {
         mode: HUDMode = .logos,
         edge: HUDEdge = .top,
         offset: Double = 0.5,
-        logoSize: Double = 24,
+        logoSize: Double = 20,
         gapScale: Double = 0.4
     ) {
         self.mode = mode
