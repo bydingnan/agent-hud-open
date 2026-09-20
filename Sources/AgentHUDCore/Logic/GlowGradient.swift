@@ -52,15 +52,15 @@ public struct GlowAppearance: Hashable, Sendable {
         levels: [StatusLevel],
         paused: Bool,
         anyAgentActive: Bool,
-        settings: Settings,
+        glow: GlowSettings,
         light: Bool = false
     ) -> GlowAppearance {
         if paused { return .idle() }
         if levels.isEmpty { return .idle() }
         // Always in motion: working breathes fast, resting breathes slowly.
-        let period = anyAgentActive ? settings.breathSeconds : settings.idleBreathSeconds
-        let peak = min(1, max(0, settings.glowBrightness))
-        let trough = peak * (1 - min(1, max(0, settings.breathAmplitude)))
+        let period = anyAgentActive ? glow.breathSeconds : glow.idleBreathSeconds
+        let peak = min(1, max(0, glow.brightness))
+        let trough = peak * (1 - min(1, max(0, glow.breathAmplitude)))
         return GlowAppearance(
             stops: GlowGradient.stops(levels: levels, light: light),
             peakOpacity: peak,

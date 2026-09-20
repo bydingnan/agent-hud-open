@@ -18,7 +18,8 @@ struct GlowPreview: View {
     @State private var imageCache = GlowImageCache()
     @State private var frameCache = GlowFrameCache()
     let appearance: GlowAppearance
-    let settings: AgentHUDCore.Settings
+    /// The glow being previewed: the selected screen's, not necessarily the default one.
+    let settings: GlowSettings
     let islandSize: CGSize
     let islandRadius: CGFloat
     /// Scale applied to range/blur so small previews keep the proportions of the real notch.
@@ -31,12 +32,12 @@ struct GlowPreview: View {
     var drawsIsland = true
 
     var body: some View {
-        let glow = settings.glowGeometry(islandWidth: islandSize.width, islandHeight: islandSize.height,
-                                         islandRadius: islandRadius, scale: scale)
-        let pattern = settings.glowPattern(scale: scale)
+        let glow = settings.geometry(islandWidth: islandSize.width, islandHeight: islandSize.height,
+                                     islandRadius: islandRadius, scale: scale)
+        let pattern = settings.pattern(scale: scale)
         let key = GlowFrameRenderer.Key(glow: glow, islandRadius: islandRadius, stops: appearance.stops,
                                         scale: displayScale, pattern: pattern,
-                                        islandSize: islandSize, outwardOnly: settings.glowOutwardOnly)
+                                        islandSize: islandSize, outwardOnly: settings.outwardOnly)
         // Grid styles and every soft effect but breathing draw frame by frame; soft breathing pulses the bitmap.
         let framed = pattern.usesGrid || pattern.effect != .breathe
         let animates = framed && !appearance.hidden && !reduceMotion && frozenTime == nil
@@ -52,7 +53,7 @@ struct GlowPreview: View {
                                                             breathAmplitude: settings.breathAmplitude)
             }
             return imageCache.render(glow: glow, islandSize: islandSize, islandRadius: islandRadius,
-                                     outwardOnly: settings.glowOutwardOnly, stops: appearance.stops, scale: displayScale,
+                                     outwardOnly: settings.outwardOnly, stops: appearance.stops, scale: displayScale,
                                      pattern: pattern)
         }()
         // The timeline only exists to pulse a soft glow's opacity. It must stop whenever nothing is pulsing —

@@ -269,13 +269,15 @@ final class ScreenHUD {
         let windowFrame = expanded ? islandFrame.insetBy(dx: -flare, dy: 0) : geometry.islandFrame
         let radius = open ? IslandController.expandedRadius : max(geometry.cornerRadius, activeAlert == nil ? 0 : 14)
         let current = settings.settings
+        // This screen's own glow, or the default when it has not been given one.
+        let glowSettings = current.glow(on: key)
         // The glow style is the HUD's backdrop in both modes, but the shape it radiates from differs. The
         // notch is a small silhouette, so the field reads as a rim around it. A logo queue wants a curtain
         // exactly as wide as the marks: the shape is a flat lip at the screen's top edge, run wider than the
         // queue so every cell's nearest point is straight above it and the field falls vertically. The glow
         // panel then clips that field back to the queue's own column, cutting off the ends that would dip.
         let backdrop = geometry.mode == .logos && !expanded
-        let overhang = current.glowRange + current.glowBlur * 3 + NotchGeometry.fallbackWidth
+        let overhang = glowSettings.range + glowSettings.blur * 3 + NotchGeometry.fallbackWidth
         // The lip is a flat line on the screen's top edge, run wider than the queue: every cell's nearest
         // point is then straight above it, so the field falls vertically instead of curling in at the ends,
         // and the marks sit inside the field rather than below where it starts.
@@ -284,10 +286,10 @@ final class ScreenHUD {
                      width: geometry.rect.width + overhang * 2, height: 2)
             : islandFrame
         let glowRadius = backdrop ? 0 : radius
-        let glowGeometry = current
-            .glowGeometry(islandWidth: glowIsland.width, islandHeight: glowIsland.height, islandRadius: glowRadius)
+        let glowGeometry = glowSettings
+            .geometry(islandWidth: glowIsland.width, islandHeight: glowIsland.height, islandRadius: glowRadius)
             .fitted(within: geometry.screenFrame.height)
-        let appearance = store.glowAppearance(light: systemIsLight)
+        let appearance = store.glowAppearance(light: systemIsLight, on: key)
 
         if !animated || targetWindowFrame != windowFrame {
             shrinkTask?.cancel()
@@ -315,12 +317,12 @@ final class ScreenHUD {
             island: glowIsland,
             islandRadius: glowRadius,
             glow: glowGeometry,
-            outwardOnly: current.glowOutwardOnly,
+            outwardOnly: glowSettings.outwardOnly,
             appearance: appearance,
             animated: animated,
             alert: activeAlert,
             quotaVendors: store.rows.filter { $0.level != nil }.map { $0.agent.vendor },
-            pattern: current.glowPattern()
+            pattern: glowSettings.pattern()
         )
         // The strip's place on screen is fixed; the window around it is not, so the offset between them is
         // measured rather than assumed to be the window's own top edge — which moves when the panel opens.

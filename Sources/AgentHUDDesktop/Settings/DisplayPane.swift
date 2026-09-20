@@ -23,7 +23,7 @@ struct DisplayPane: View {
         VStack(alignment: .leading, spacing: 28) {
             ScreensPane(settings: settings, theme: theme, selected: $screen)
             GlowPane(settings: settings, store: store, theme: theme, placement: placement,
-                     metrics: ScreenMetrics(screen: selection))
+                     metrics: ScreenMetrics(screen: selection), screen: screen)
             IslandPane(settings: settings, theme: theme)
             SettingsSection(title: L10n.text("菜单栏", "Menu bar"), theme: theme) {
                 SettingsToggleRow(

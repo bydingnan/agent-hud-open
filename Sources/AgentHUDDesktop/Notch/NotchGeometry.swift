@@ -64,8 +64,9 @@ struct NotchGeometry: Equatable {
     private static func stripRect(queue: CGSize, frame: CGRect, menuBar: CGFloat,
                                   placement: ScreenPlacement) -> CGRect {
         // The run is the marks themselves: the backdrop is clipped to this rect, and anything added here
-        // would show up as backdrop reaching past the last mark.
-        let long = placement.edge.isHorizontal ? queue.width : queue.height
+        // would show up as backdrop reaching past the last mark. Whole points, because the spacing is a
+        // fraction of the logo and a window on a half point puts every mark on a blurred pixel boundary.
+        let long = (placement.edge.isHorizontal ? queue.width : queue.height).rounded()
         let thick = max(menuBar, placement.edge.isHorizontal ? queue.height : queue.width)
         switch placement.edge {
         case .top, .bottom:

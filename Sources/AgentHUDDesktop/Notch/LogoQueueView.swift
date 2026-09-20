@@ -47,9 +47,9 @@ struct LogoQueueConfig: Equatable {
 }
 
 /// The collapsed HUD on a screen in logo mode: every watched agent's own mark. Only the ones with work
-/// running bob; the rest hold still and sit back a little, so motion means exactly one thing and a glance
-/// finds the busy agent without reading anything. The marks keep their own artwork; status colour is
-/// carried by the glow behind them, not by the logos.
+/// running bob, so motion means exactly one thing and a glance finds the busy agent without reading
+/// anything. The marks keep their own artwork at full strength; status colour is carried by the glow behind
+/// them, not by the logos.
 ///
 /// The marks are plain layers holding baked bitmaps, animated by Core Animation. Driving the bob from
 /// SwiftUI instead re-evaluates every mark on the main thread each frame, which on a full queue costs more
@@ -77,10 +77,10 @@ final class LogoQueueLayerView: NSView {
     /// How far a mark travels, as a share of its side, and the stagger that turns a row of bobs into a wave.
     private static let travel: CGFloat = 0.14
     private static let stagger = 0.13
-    /// What a resting mark fades to. Enough to recede behind the working ones, not enough to look disabled.
-    private static let restingOpacity: Float = 0.65
 
     private var marks: [CALayer] = []
+    /// How far the baked outline overflows a mark, in points, so the layout leaves room for exactly that.
+    private var bleed: CGFloat = 1
     private var applied: (config: LogoQueueConfig, light: Bool, scale: CGFloat, animates: Bool, previews: Bool)?
 
     override init(frame frameRect: NSRect) {
@@ -122,7 +122,10 @@ final class LogoQueueLayerView: NSView {
     private func build(config: LogoQueueConfig, light: Bool, scale: CGFloat) {
         marks.forEach { $0.removeFromSuperlayer() }
         let side = Int((config.logo * scale).rounded())
-        let outline = Int(max(1, (config.logo * 0.03 * scale).rounded()))
+        // One device pixel at any size: a hairline reads as the mark's own edge, anything thicker as a
+        // border drawn around it.
+        let outline = 1
+        bleed = CGFloat(outline) / max(1, scale)
         // The queue sits on the wallpaper: the dark artwork variant is the one that reads there.
         marks = config.items.map { item in
             let mark = CALayer()
@@ -136,9 +139,8 @@ final class LogoQueueLayerView: NSView {
     }
 
     private func position(config: LogoQueueConfig) {
-        // The baked outline overflows the mark on every edge, so each layer is grown by it and the extra
-        // is centred away; the spacing the user set still applies to the marks themselves.
-        let bleed = max(1, config.logo * 0.03)
+        // The baked outline overflows the mark on every edge, so each layer is grown by exactly that and the
+        // extra is centred away; the spacing the user set still applies to the marks themselves.
         let step = config.logo + config.gap
         // The view is given the window's width, which is wider than the run; the queue sits in the middle
         // of it, as the notch does.
@@ -168,7 +170,6 @@ final class LogoQueueLayerView: NSView {
         for (index, mark) in marks.enumerated() {
             mark.removeAnimation(forKey: "bob")
             let working = previewsMotion || (index < config.items.count && config.items[index].isWorking)
-            mark.opacity = working ? 1 : Self.restingOpacity
             guard animates, working else { continue }
             let period = max(0.25, config.workingSeconds)
             let animation = CABasicAnimation(keyPath: vertical ? "transform.translation.y" : "transform.translation.x")

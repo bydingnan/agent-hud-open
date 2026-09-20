@@ -288,12 +288,21 @@ public final class UsageStore {
     /// The most consumed window of a signed-in account, shown in the menu bar.
     public var maxUsedPct: Double? { rows.filter(\.isCurrentAccount).compactMap(\.usedPct).max() }
 
+    /// Newest first, by the last event each source reported: a prompt, a reply, a tool result or an approval request.
+    /// A running session nothing has been heard from for half an hour sits below one that just answered.
     public var sessions: [LiveSession] {
-        let sessions = report?.sessions ?? []
-        return sessions.sorted {
-            let left = isSessionLive($0), right = isSessionLive($1)
-            if left != right { return left }
-            return ($0.endedAt ?? $0.startedAt) > ($1.endedAt ?? $1.startedAt)
+        let events = lastTurnEvents
+        return (report?.sessions ?? []).sorted {
+            let left = $0.lastEvent(turnAt: events[$0.id]), right = $1.lastEvent(turnAt: events[$1.id])
+            return left == right ? $0.id < $1.id : left > right
+        }
+    }
+
+    /// The newest turn event per session, read once instead of once per session.
+    private var lastTurnEvents: [String: Date] {
+        (report?.turns ?? []).reduce(into: [:]) { events, turn in
+            let at = RecordCoding.date(turn.observedAtMs)
+            if at > events[turn.sessionID] ?? .distantPast { events[turn.sessionID] = at }
         }
     }
 
@@ -362,12 +371,13 @@ public final class UsageStore {
 
     public var updatedAt: Date? { report?.generatedAt }
 
-    public func glowAppearance(light: Bool) -> GlowAppearance {
+    /// - screen: which display's glow to resolve; nothing asks for the default one.
+    public func glowAppearance(light: Bool, on screen: String? = nil) -> GlowAppearance {
         let appearance = GlowAppearance.resolve(
             levels: levels,
             paused: isPaused || !isAccessAllowed,
             anyAgentActive: hasLiveSession,
-            settings: settings.settings,
+            glow: settings.settings.glow(on: screen),
             light: light
         )
         guard glowHidden else { return appearance }

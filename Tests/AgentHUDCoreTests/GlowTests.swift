@@ -24,7 +24,7 @@ final class GlowGradientTests: XCTestCase {
 
 final class GlowAppearanceTests: XCTestCase {
     func testActiveAgentsBreatheWithDefaults() {
-        let a = GlowAppearance.resolve(levels: [.ok, .warning], paused: false, anyAgentActive: true, settings: Settings())
+        let a = GlowAppearance.resolve(levels: [.ok, .warning], paused: false, anyAgentActive: true, glow: GlowSettings())
         XCTAssertFalse(a.hidden)
         XCTAssertTrue(a.breathing)
         XCTAssertEqual(a.peakOpacity, 0.9, accuracy: 0.001)
@@ -34,7 +34,7 @@ final class GlowAppearanceTests: XCTestCase {
     }
 
     func testPausedIsGreyAndStill() {
-        let a = GlowAppearance.resolve(levels: [.ok], paused: true, anyAgentActive: true, settings: Settings())
+        let a = GlowAppearance.resolve(levels: [.ok], paused: true, anyAgentActive: true, glow: GlowSettings())
         XCTAssertEqual(a.stops, GlowGradient.idleStops)
         XCTAssertFalse(a.breathing)
         XCTAssertEqual(a.peakOpacity, GlowAppearance.idleOpacity)
@@ -43,8 +43,8 @@ final class GlowAppearanceTests: XCTestCase {
 
     func testIdleKeepsColoursAndOnlySlowsDown() {
         let settings = Settings()
-        let idle = GlowAppearance.resolve(levels: [.ok, .critical], paused: false, anyAgentActive: false, settings: settings)
-        let working = GlowAppearance.resolve(levels: [.ok, .critical], paused: false, anyAgentActive: true, settings: settings)
+        let idle = GlowAppearance.resolve(levels: [.ok, .critical], paused: false, anyAgentActive: false, glow: settings.glow)
+        let working = GlowAppearance.resolve(levels: [.ok, .critical], paused: false, anyAgentActive: true, glow: settings.glow)
         XCTAssertFalse(idle.hidden)
         XCTAssertTrue(idle.breathing, "resting still reads as alive; only the pace changes")
         XCTAssertEqual(idle.breathSeconds, settings.idleBreathSeconds)
@@ -55,7 +55,7 @@ final class GlowAppearanceTests: XCTestCase {
     }
 
     func testNoDataIsGreyUntilTheFirstQuotaArrives() {
-        let a = GlowAppearance.resolve(levels: [], paused: false, anyAgentActive: true, settings: Settings())
+        let a = GlowAppearance.resolve(levels: [], paused: false, anyAgentActive: true, glow: GlowSettings())
         XCTAssertEqual(a.stops, GlowGradient.idleStops)
         XCTAssertFalse(a.hidden)
     }
@@ -64,7 +64,7 @@ final class GlowAppearanceTests: XCTestCase {
         let json = #"{"idleBehavior":"hide","breatheOnlyWhenActive":false,"glowRange":4}"#
         let decoded = try JSONDecoder().decode(Settings.self, from: Data(json.utf8))
         XCTAssertEqual(decoded.glowRange, 4)
-        let a = GlowAppearance.resolve(levels: [.ok], paused: false, anyAgentActive: false, settings: decoded)
+        let a = GlowAppearance.resolve(levels: [.ok], paused: false, anyAgentActive: false, glow: decoded.glow)
         XCTAssertFalse(a.hidden, "settings saved with the old idle options no longer hide or grey the glow")
     }
 }
@@ -105,7 +105,7 @@ final class GlowGradientColorTests: XCTestCase {
 final class GlowMatrixTests: XCTestCase {
     let settings = Settings().with { $0.glowStyle = .dots }
     let radius = 22.0
-    var glow: GlowGeometry { settings.glowGeometry(islandWidth: 380, islandHeight: 44, islandRadius: radius) }
+    var glow: GlowGeometry { settings.glow.geometry(islandWidth: 380, islandHeight: 44, islandRadius: radius) }
     var matrix: GlowMatrix { GlowMatrix.compute(glow: glow, islandRadius: radius, pitch: settings.glowGridPitch, spread: settings.glowGridSpread) }
 
     func testGridGeometryReachesTheFaintestDot() {
@@ -114,7 +114,7 @@ final class GlowMatrixTests: XCTestCase {
         XCTAssertEqual(glow.sideInset, reach.rounded(.up))
         XCTAssertEqual(glow.blur, 0)
         XCTAssertEqual(glow.topOffset, 0, "grid styles have no blur margin above the screen edge")
-        let blurred = Settings().glowGeometry(islandWidth: 380, islandHeight: 44, islandRadius: radius)
+        let blurred = Settings().glow.geometry(islandWidth: 380, islandHeight: 44, islandRadius: radius)
         XCTAssertEqual(blurred, GlowGeometry.compute(islandWidth: 380, islandHeight: 44, islandRadius: radius, range: 14, blur: 8))
     }
 
@@ -347,11 +347,11 @@ final class GlowStyleSettingsTests: XCTestCase {
         XCTAssertEqual(decoded.glowGridDensity, Settings.glowGridDensityRange.upperBound)
         let encoded = try JSONEncoder().encode(decoded.with { $0.glowStyle = .ascii; $0.glowGridPitch = 6; $0.glowGridSpread = 3; $0.glowGridDensity = 1.3; $0.glowEffect = .boot })
         let reloaded = try JSONDecoder().decode(Settings.self, from: encoded)
-        XCTAssertEqual(reloaded.glowPattern(), GlowPattern(style: .ascii, pitch: 6, spread: 3, density: 1.3, effect: .boot))
-        XCTAssertEqual(reloaded.glowGeometry(islandWidth: 200, islandHeight: 32, islandRadius: 12),
-                       reloaded.with { $0.glowGridDensity = 0.6 }.glowGeometry(islandWidth: 200, islandHeight: 32, islandRadius: 12),
+        XCTAssertEqual(reloaded.glow.pattern(), GlowPattern(style: .ascii, pitch: 6, spread: 3, density: 1.3, effect: .boot))
+        XCTAssertEqual(reloaded.glow.geometry(islandWidth: 200, islandHeight: 32, islandRadius: 12),
+                       reloaded.with { $0.glowGridDensity = 0.6 }.glow.geometry(islandWidth: 200, islandHeight: 32, islandRadius: 12),
                        "density fills cells without changing the grid or the glow's reach")
-        XCTAssertEqual(reloaded.glowPattern(scale: 0.5).pitch, 3)
+        XCTAssertEqual(reloaded.glow.pattern(scale: 0.5).pitch, 3)
     }
 
     func testUnknownValuesFallBackInsteadOfFailing() throws {

@@ -9,6 +9,28 @@ struct GlowPane: View {
     var placement: ScreenPlacement = .default(hasNotch: true)
     /// That screen's real measurements, so the preview is the machine's own shape rather than a stand-in.
     var metrics: ScreenMetrics = .fallback
+    /// The display being edited. Every control here writes that screen's own glow.
+    var screen: String = ""
+
+    private var glow: GlowSettings { settings.settings.glow(on: screen) }
+
+    /// Edits one field of the selected screen's glow, leaving the rest of it as stored.
+    private func binding<Value>(_ field: WritableKeyPath<GlowSettings, Value>) -> Binding<Value> {
+        Binding(
+            get: { glow[keyPath: field] },
+            set: { value in
+                var next = glow
+                next[keyPath: field] = value
+                settings.update { $0.screenGlow[screen] = next }
+            }
+        )
+    }
+
+    /// The same, read and written as a percentage.
+    private func percent(_ field: WritableKeyPath<GlowSettings, Double>) -> Binding<Double> {
+        let base = binding(field)
+        return Binding(get: { base.wrappedValue * 100 }, set: { base.wrappedValue = $0 / 100 })
+    }
 
     private var title: String {
         placement.mode == .logos
@@ -17,17 +39,18 @@ struct GlowPane: View {
     }
 
     var body: some View {
-        let current = settings.settings
-        let grid = current.glowStyle != .blur
+        let current = glow
+        let grid = current.style != .blur
         SettingsSection(title: title, theme: theme) {
             SettingsPreview {
                 Color.clear.frame(height: 112)
                     .overlay(alignment: .top) {
                         if placement.mode == .logos {
-                            LogoQueuePreview(settings: settings, store: store, placement: placement, metrics: metrics)
+                            LogoQueuePreview(settings: settings, store: store, placement: placement,
+                                             metrics: metrics, screen: screen)
                         } else {
                             GlowPreview(
-                                appearance: store.glowAppearance(light: false), settings: current,
+                                appearance: store.glowAppearance(light: false, on: screen), settings: current,
                                 islandSize: metrics.islandSize, islandRadius: metrics.islandRadius,
                                 previewsMotion: true
                             )
@@ -37,48 +60,48 @@ struct GlowPane: View {
             SettingRow(label: L10n.text("光晕样式", "Glow style")) {
                 SelectionMenu(title: L10n.text("光晕样式", "Glow style"),
                               options: GlowStyle.allCases.map { SegmentOption(value: $0, label: $0.label) },
-                              selection: settings.binding(\.glowStyle), theme: theme, width: 160)
+                              selection: binding(\.style), theme: theme, width: 160)
             }
             SettingsDivider(theme: theme)
             SettingRow(label: L10n.text("动效", "Effect"),
                        subtitle: L10n.text("一直在动：工作时按工作周期，空闲时慢下来。", "Always in motion: the working period while an agent runs, slower when idle.")) {
                 SelectionMenu(title: L10n.text("动效", "Effect"),
                               options: GlowEffect.allCases.map { SegmentOption(value: $0, label: $0.label) },
-                              selection: settings.binding(\.glowEffect), theme: theme)
+                              selection: binding(\.effect), theme: theme)
             }
             SettingsDivider(theme: theme)
             if grid {
-                SliderRow(label: L10n.text("点距", "Grid pitch"), value: settings.binding(\.glowGridPitch), range: AgentHUDCore.Settings.glowGridPitchRange, step: 1, format: { "\(Int($0)) pt" }, theme: theme)
+                SliderRow(label: L10n.text("点距", "Grid pitch"), value: binding(\.gridPitch), range: GlowSettings.gridPitchRange, step: 1, format: { "\(Int($0)) pt" }, theme: theme)
                 SettingsDivider(theme: theme)
-                SliderRow(label: L10n.text("密度", "Density"), value: settings.binding(\.glowGridDensity), range: AgentHUDCore.Settings.glowGridDensityRange, step: 0.05, format: { "\(Int(($0 * 100).rounded()))%" }, theme: theme)
+                SliderRow(label: L10n.text("密度", "Density"), value: binding(\.gridDensity), range: GlowSettings.gridDensityRange, step: 0.05, format: { "\(Int(($0 * 100).rounded()))%" }, theme: theme)
                 SettingsDivider(theme: theme)
-                SliderRow(label: L10n.text("扩散", "Spread"), value: settings.binding(\.glowGridSpread), range: AgentHUDCore.Settings.glowGridSpreadRange, step: 0.1, format: { String(format: L10n.text("%.1f 格", "%.1f cells"), $0) }, theme: theme)
+                SliderRow(label: L10n.text("扩散", "Spread"), value: binding(\.gridSpread), range: GlowSettings.gridSpreadRange, step: 0.1, format: { String(format: L10n.text("%.1f 格", "%.1f cells"), $0) }, theme: theme)
                 SettingsDivider(theme: theme)
             }
-            SliderRow(label: L10n.text("光晕亮度", "Brightness"), value: percentBinding(\.glowBrightness), range: 20...100, step: 5, format: { "\(Int($0))%" }, theme: theme)
+            SliderRow(label: L10n.text("光晕亮度", "Brightness"), value: percent(\.brightness), range: 20...100, step: 5, format: { "\(Int($0))%" }, theme: theme)
             if !grid {
                 SettingsDivider(theme: theme)
-                SliderRow(label: L10n.text("光晕范围", "Glow range"), value: settings.binding(\.glowRange), range: AgentHUDCore.Settings.glowSizeRange, step: 1, format: { "\(Int($0)) px" }, theme: theme)
+                SliderRow(label: L10n.text("光晕范围", "Glow range"), value: binding(\.range), range: GlowSettings.sizeRange, step: 1, format: { "\(Int($0)) px" }, theme: theme)
                 SettingsDivider(theme: theme)
-                SliderRow(label: L10n.text("羽化", "Feather"), value: settings.binding(\.glowBlur), range: AgentHUDCore.Settings.glowSizeRange, step: 1, format: { "\(Int($0)) px" }, theme: theme)
+                SliderRow(label: L10n.text("羽化", "Feather"), value: binding(\.blur), range: GlowSettings.sizeRange, step: 1, format: { "\(Int($0)) px" }, theme: theme)
                 SettingsDivider(theme: theme)
                 SettingsToggleRow(
                     label: L10n.text("仅向外扩散", "Outward only"),
                     subtitle: L10n.text("贴近灵动岛的边缘更浓，向外逐渐变淡。", "Keep the rim defined and fade gently outward."),
-                    isOn: settings.binding(\.glowOutwardOnly)
+                    isOn: binding(\.outwardOnly)
                 )
             }
             let seconds: (Double) -> String = { String(format: L10n.text("%.1f 秒", "%.1f s"), $0) }
             // The period drives whichever effect is selected, not just breathing; only the depth is breathe's own.
             SettingsDivider(theme: theme)
-            SliderRow(label: L10n.text("工作时周期", "Working period"), value: settings.binding(\.breathSeconds), range: 1...12, step: 0.5, format: seconds, theme: theme)
+            SliderRow(label: L10n.text("工作时周期", "Working period"), value: binding(\.breathSeconds), range: 1...12, step: 0.5, format: seconds, theme: theme)
             SettingsDivider(theme: theme)
-            SliderRow(label: L10n.text("空闲时周期", "Idle period"), value: settings.binding(\.idleBreathSeconds), range: 1...24, step: 0.5, format: seconds, theme: theme)
-            if current.glowEffect == .breathe {
+            SliderRow(label: L10n.text("空闲时周期", "Idle period"), value: binding(\.idleBreathSeconds), range: 1...24, step: 0.5, format: seconds, theme: theme)
+            if current.effect == .breathe {
                 SettingsDivider(theme: theme)
-                SliderRow(label: L10n.text("呼吸幅度", "Breath depth"), value: percentBinding(\.breathAmplitude), range: 0...100, step: 5, format: { "\(Int($0))%" }, theme: theme)
+                SliderRow(label: L10n.text("呼吸幅度", "Breath depth"), value: percent(\.breathAmplitude), range: 0...100, step: 5, format: { "\(Int($0))%" }, theme: theme)
             }
-            Text(caption(grid: grid, effect: current.glowEffect))
+            Text(caption(grid: grid, effect: current.effect))
                 .font(.ui(11)).foregroundStyle(theme.secondary)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -160,6 +183,7 @@ struct LogoQueuePreview: View {
     let store: UsageStore
     let placement: ScreenPlacement
     let metrics: ScreenMetrics
+    var screen: String = ""
     /// Overrides what the queue shows. Only the snapshot runner uses it, to lay out every bundled mark.
     var marks: [LogoQueueItem]?
 
@@ -178,7 +202,8 @@ struct LogoQueuePreview: View {
             let stop = margin / width
             ZStack(alignment: .top) {
                 GlowPreview(
-                    appearance: store.glowAppearance(light: false), settings: settings.settings,
+                    appearance: store.glowAppearance(light: false, on: screen),
+                    settings: settings.settings.glow(on: screen),
                     islandSize: CGSize(width: width + 400, height: 2), islandRadius: 0, previewsMotion: true
                 )
                 .frame(width: width, alignment: .center)

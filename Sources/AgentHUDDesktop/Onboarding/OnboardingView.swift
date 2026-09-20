@@ -24,7 +24,7 @@ struct OnboardingView: View {
                 LinearGradient(colors: [Color(hex: 0x5b6b8c), Color(hex: 0x7c8aa6)], startPoint: .top, endPoint: .bottom)
                 GlowPreview(
                     appearance: store.glowAppearance(light: false),
-                    settings: settings.settings,
+                    settings: settings.settings.glow,
                     islandSize: CGSize(width: 190, height: 26),
                     islandRadius: 13,
                     scale: 0.9

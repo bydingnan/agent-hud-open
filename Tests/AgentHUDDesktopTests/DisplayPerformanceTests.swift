@@ -8,10 +8,10 @@ final class DisplayPerformanceTests: XCTestCase {
         let cache = GlowImageCache()
         var settings = Settings()
         func render() throws -> GlowImage {
-            let glow = settings.glowGeometry(islandWidth: 240, islandHeight: 30, islandRadius: 13)
+            let glow = settings.glow.geometry(islandWidth: 240, islandHeight: 30, islandRadius: 13)
             return try XCTUnwrap(cache.render(glow: glow, islandSize: CGSize(width: 240, height: 30),
                 islandRadius: 13, outwardOnly: settings.glowOutwardOnly, stops: GlowGradient.idleStops, scale: 2,
-                pattern: settings.glowPattern()))
+                pattern: settings.glow.pattern()))
         }
         let initial = try render()
         settings.glowBrightness = 0.5
@@ -73,9 +73,9 @@ final class DisplayPerformanceTests: XCTestCase {
     private func gridRenderer(style: GlowStyle, effect: GlowEffect, density: Double = 1,
                               levels: [StatusLevel] = [.ok, .critical]) -> GlowFrameRenderer {
         let settings = Settings().with { $0.glowStyle = style; $0.glowEffect = effect; $0.glowGridDensity = density }
-        let glow = settings.glowGeometry(islandWidth: 240, islandHeight: 30, islandRadius: 13)
+        let glow = settings.glow.geometry(islandWidth: 240, islandHeight: 30, islandRadius: 13)
         return GlowFrameRenderer(.init(glow: glow, islandRadius: 13, stops: GlowGradient.stops(levels: levels),
-                                       scale: 2, pattern: settings.glowPattern(),
+                                       scale: 2, pattern: settings.glow.pattern(),
                                        islandSize: CGSize(width: 240, height: 30), outwardOnly: settings.glowOutwardOnly))
     }
 
@@ -84,10 +84,10 @@ final class DisplayPerformanceTests: XCTestCase {
         let island = CGSize(width: 240, height: 30)
         for style in GlowStyle.allCases where style != .blur {
             let settings = Settings().with { $0.glowStyle = style }
-            let glow = settings.glowGeometry(islandWidth: island.width, islandHeight: island.height, islandRadius: 13)
+            let glow = settings.glow.geometry(islandWidth: island.width, islandHeight: island.height, islandRadius: 13)
             let rendered = try XCTUnwrap(GlowFrameRenderer.resting(.init(glow: glow, islandRadius: 13,
                                                                          stops: GlowGradient.stops(levels: [.ok, .critical]), scale: 2,
-                                                                         pattern: settings.glowPattern())))
+                                                                         pattern: settings.glow.pattern())))
             XCTAssertEqual(rendered.size, CGSize(width: glow.width, height: glow.height))
             let centerX = Int(glow.width), centerY = Int(island.height)
             XCTAssertEqual(try alpha(in: rendered.image, x: centerX, y: centerY), 0, "\(style): nothing is drawn over the island")
@@ -130,7 +130,7 @@ final class DisplayPerformanceTests: XCTestCase {
     func testSoftRestingFrameIsTheStaticGlow() throws {
         let settings = Settings()
         let island = CGSize(width: 240, height: 30)
-        let glow = settings.glowGeometry(islandWidth: island.width, islandHeight: island.height, islandRadius: 13)
+        let glow = settings.glow.geometry(islandWidth: island.width, islandHeight: island.height, islandRadius: 13)
         let stops = GlowGradient.stops(levels: [.ok, .critical])
         let still = try XCTUnwrap(GlowRenderer.render(glow: glow, islandSize: island, islandRadius: 13, outwardOnly: true, stops: stops, scale: 2))
         for effect in GlowEffect.allCases {
@@ -165,8 +165,8 @@ final class DisplayPerformanceTests: XCTestCase {
     }
 
     func testMotionPlaysWhetherOrNotAnAgentRuns() {
-        let running = GlowAppearance.resolve(levels: [.ok], paused: false, anyAgentActive: true, settings: Settings())
-        let idle = GlowAppearance.resolve(levels: [.ok], paused: false, anyAgentActive: false, settings: Settings())
+        let running = GlowAppearance.resolve(levels: [.ok], paused: false, anyAgentActive: true, glow: GlowSettings())
+        let idle = GlowAppearance.resolve(levels: [.ok], paused: false, anyAgentActive: false, glow: GlowSettings())
         let dots = GlowPattern(style: .dots)
         XCTAssertTrue(GlowWindowController.playsMotion(pattern: dots, appearance: running, reduceMotion: false))
         XCTAssertTrue(GlowWindowController.playsMotion(pattern: dots, appearance: idle, reduceMotion: false),

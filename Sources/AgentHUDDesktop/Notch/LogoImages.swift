@@ -13,7 +13,7 @@ enum LogoImages {
         var vendor: String
         /// Side of the mark in device pixels, excluding the outline.
         var side: Int
-        /// Outline thickness in device pixels.
+        /// Outline thickness in device pixels. A hairline: one pixel reads as an edge, more as a border.
         var outline: Int
         /// Which artwork variant to bake, for the vendors that ship one per background. It does not choose
         /// the ink: a single-colour mark is always drawn light, because what sits behind the queue is the
@@ -48,16 +48,14 @@ enum LogoImages {
         ) else { return nil }
         let rect = CGRect(x: outline, y: outline, width: side, height: side)
 
-        if outline > 0 {
-            // Eight directions: four would leave the diagonals bare at this thickness.
-            context.setFillColor(NSColor.black.withAlphaComponent(0.55).cgColor)
-            for angle in stride(from: 0.0, to: 2 * .pi, by: .pi / 4) {
-                let offset = CGPoint(x: cos(angle) * outline, y: sin(angle) * outline)
-                context.saveGState()
-                context.clip(to: rect.offsetBy(dx: offset.x, dy: offset.y), mask: mark)
-                context.fill(rect.offsetBy(dx: offset.x, dy: offset.y))
-                context.restoreGState()
-            }
+        // The ring is built opaque in its own bitmap and composited once. Drawing the eight offsets straight
+        // into this context would let them accumulate where they overlap, which is most of the ring, and the
+        // outline would come out near black however low each pass was set.
+        if outline > 0, let ring = ring(mark: mark, rect: rect, thickness: outline, canvas: canvas) {
+            context.saveGState()
+            context.setAlpha(Self.outlineOpacity)
+            context.draw(ring, in: CGRect(x: 0, y: 0, width: CGFloat(canvas), height: CGFloat(canvas)))
+            context.restoreGState()
         }
 
         if AgentArtwork.isTemplate(key.vendor) {
@@ -71,6 +69,45 @@ enum LogoImages {
         } else {
             context.draw(mark, in: rect)
         }
+        return context.makeImage()
+    }
+
+    /// How dark the finished outline is. Enough to separate a white mark from a pale wallpaper, not enough
+    /// to read as a border drawn around it.
+    private static let outlineOpacity: CGFloat = 0.5
+    /// Passes over the ring. Smearing an anti-aliased silhouette leaves a soft edge however thin the offset
+    /// is; drawing it again drives the half-covered pixels to opaque, which is what makes the line crisp
+    /// rather than a haze around the mark.
+    private static let outlinePasses = 3
+
+    /// The eight neighbouring pixels. Offsets taken around a circle instead put the diagonals at 0.707 of a
+    /// pixel, which lands off the grid and is resampled into a grey fringe — the thing that makes a hairline
+    /// look thick and soft however thin it is asked to be.
+    private static let neighbours: [(x: CGFloat, y: CGFloat)] = [
+        (-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1),
+    ]
+
+    /// The mark's silhouette spread one pixel in every direction, with the mark itself knocked back out of
+    /// it. Without that the ring survives under the mark's own half-transparent edge and shows through it,
+    /// which reads as a thick muddy border rather than an edge.
+    private static func ring(mark: CGImage, rect: CGRect, thickness: CGFloat, canvas: Int) -> CGImage? {
+        guard let context = CGContext(
+            data: nil, width: canvas, height: canvas, bitsPerComponent: 8, bytesPerRow: canvas * 4,
+            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return nil }
+        context.interpolationQuality = .none
+        context.setFillColor(NSColor.black.cgColor)
+        for _ in 0..<outlinePasses {
+            for offset in neighbours {
+                let shifted = rect.offsetBy(dx: offset.x * thickness, dy: offset.y * thickness)
+                context.saveGState()
+                context.clip(to: shifted, mask: mark)
+                context.fill(shifted)
+                context.restoreGState()
+            }
+        }
+        context.setBlendMode(.destinationOut)
+        context.draw(mark, in: rect)
         return context.makeImage()
     }
 

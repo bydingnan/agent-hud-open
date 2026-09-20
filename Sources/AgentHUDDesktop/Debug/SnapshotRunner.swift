@@ -593,7 +593,7 @@ struct IslandScene: View {
 
             GlowPreview(
                 appearance: store.glowAppearance(light: light),
-                settings: settings.settings,
+                settings: settings.settings.glow,
                 islandSize: islandSize,
                 islandRadius: radius
             )

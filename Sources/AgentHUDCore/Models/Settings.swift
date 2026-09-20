@@ -40,37 +40,43 @@ public enum GlowEffect: String, Codable, Sendable, CaseIterable {
 
 /// User-tunable settings. Every field has a default so older stored JSON still decodes.
 public struct Settings: Hashable, Codable, Sendable {
-    /// A collapsed island or a logo queue's backdrop can afford this much; a panel tall enough to fill the
-    /// screen cannot, and shrinks its glow to fit through `GlowGeometry.fitted(within:)`.
-    public static let glowSizeRange: ClosedRange<Double> = 0...36
-    public static let breathSecondsRange: ClosedRange<Double> = 1...24
-    // The grid's reach is set by the logo queue rather than the notch: a backdrop carrying marks several
-    // times the notch's height needs a spread to match, where a rim around the notch never did.
-    public static let glowGridPitchRange: ClosedRange<Double> = 4...24
-    public static let glowGridSpreadRange: ClosedRange<Double> = 1...5
-    public static let glowGridDensityRange: ClosedRange<Double> = 0.6...2
+    public static let glowSizeRange = GlowSettings.sizeRange
+    public static let breathSecondsRange = GlowSettings.breathSecondsRange
+    public static let glowGridPitchRange = GlowSettings.gridPitchRange
+    public static let glowGridSpreadRange = GlowSettings.gridSpreadRange
+    public static let glowGridDensityRange = GlowSettings.gridDensityRange
 
-    /// Breath period while an agent is working.
-    public var breathSeconds: Double = 3
-    /// Breath period while every agent is idle. The glow never stops breathing; it only slows down,
-    /// so a resting HUD still reads as alive.
-    public var idleBreathSeconds: Double = 7
-    /// 0…1. Glow opacity oscillates between `1 - amplitude` and 1 (times brightness).
-    public var breathAmplitude: Double = 0.6
-    public var glowRange: Double = 14
-    public var glowBlur: Double = 8
-    /// Keep the island's rim dense and fade outward with distance.
-    public var glowOutwardOnly: Bool = true
-    /// 0.2…1
-    public var glowBrightness: Double = 0.9
-    public var glowStyle: GlowStyle = .blur
-    /// Grid spacing in points for the dot and ASCII styles. A third of the notch height, as in the design.
-    public var glowGridPitch: Double = 10
-    /// How far the grid glow reaches: its decay length in grid cells.
-    public var glowGridSpread: Double = 2.4
-    /// How much of its cell each dot or character fills; above 1 marks grow into their neighbours. The grid stays put.
-    public var glowGridDensity: Double = 1
-    public var glowEffect: GlowEffect = .breathe
+    /// The glow every screen falls back to. A display with its own is in `screenGlow`.
+    public var glow = GlowSettings()
+    /// Per-display glow, keyed the same way as `screens`. A HUD belongs to a screen, so what it is made of
+    /// belongs to that screen too: the notch's rim and an external display's backdrop want different things.
+    public var screenGlow: [String: GlowSettings] = [:]
+
+    /// The glow for one display, or the default when it has none of its own.
+    public func glow(on screen: String?) -> GlowSettings {
+        screen.flatMap { screenGlow[$0] } ?? glow
+    }
+
+    // Flat accessors onto the default glow, so anything that means "the glow" rather than "this screen's
+    // glow" — previews, onboarding, stored JSON — keeps reading and writing one place.
+    public var breathSeconds: Double {
+        get { glow.breathSeconds } set { glow.breathSeconds = newValue }
+    }
+    public var idleBreathSeconds: Double {
+        get { glow.idleBreathSeconds } set { glow.idleBreathSeconds = newValue }
+    }
+    public var breathAmplitude: Double {
+        get { glow.breathAmplitude } set { glow.breathAmplitude = newValue }
+    }
+    public var glowRange: Double { get { glow.range } set { glow.range = newValue } }
+    public var glowBlur: Double { get { glow.blur } set { glow.blur = newValue } }
+    public var glowOutwardOnly: Bool { get { glow.outwardOnly } set { glow.outwardOnly = newValue } }
+    public var glowBrightness: Double { get { glow.brightness } set { glow.brightness = newValue } }
+    public var glowStyle: GlowStyle { get { glow.style } set { glow.style = newValue } }
+    public var glowGridPitch: Double { get { glow.gridPitch } set { glow.gridPitch = newValue } }
+    public var glowGridSpread: Double { get { glow.gridSpread } set { glow.gridSpread = newValue } }
+    public var glowGridDensity: Double { get { glow.gridDensity } set { glow.gridDensity = newValue } }
+    public var glowEffect: GlowEffect { get { glow.effect } set { glow.effect = newValue } }
     /// Hovering alone opens the panel. With this on it takes Option as well, so a HUD parked over the menu
     /// bar or a window's title bar does not open every time the pointer crosses it.
     public var requiresOptionToOpen: Bool = false
@@ -101,7 +107,7 @@ public struct Settings: Hashable, Codable, Sendable {
         case requiresOptionToOpen, hoverDelayMs, collapseDelayMs, showResetCountdown
         case showIslandQuota, showIslandTokens, showIslandSessions
         case disabledLiveStatusSources, readCopilotQuota
-        case launchAtLogin, showMenuBarIcon, appearance, language, screens
+        case launchAtLogin, showMenuBarIcon, appearance, language, screens, screenGlow
     }
 
     public init(from decoder: Decoder) throws {
@@ -134,6 +140,7 @@ public struct Settings: Hashable, Codable, Sendable {
         appearance = try c.decodeIfPresent(AppearanceMode.self, forKey: .appearance) ?? d.appearance
         language = try c.decodeIfPresent(AppLanguage.self, forKey: .language) ?? d.language
         screens = (try? c.decodeIfPresent([String: ScreenPlacement].self, forKey: .screens)) ?? d.screens
+        screenGlow = (try? c.decodeIfPresent([String: GlowSettings].self, forKey: .screenGlow)) ?? d.screenGlow
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -164,6 +171,7 @@ public struct Settings: Hashable, Codable, Sendable {
         try c.encode(appearance, forKey: .appearance)
         try c.encode(language, forKey: .language)
         try c.encode(screens, forKey: .screens)
+        try c.encode(screenGlow, forKey: .screenGlow)
     }
 
     private static func clampGlowSize(_ value: Double) -> Double {

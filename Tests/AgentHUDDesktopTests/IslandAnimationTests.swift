@@ -15,6 +15,11 @@ final class IslandAnimationTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: domain) }
         let settings = SettingsStore(defaults: defaults, defaultAgents: DemoData.agents)
         settings.update { $0.collapseDelayMs = 5000; $0.showIslandQuota = true; $0.showIslandTokens = false }
+        // This measures the island against its glow, which is the notch's shape. A screen left on its own
+        // default would run the logo queue instead, which draws no silhouette to measure.
+        for screen in NSScreen.screens {
+            settings.update { $0.screens[ScreenIdentity.key(for: screen)] = ScreenPlacement(mode: .notch) }
+        }
         let store = UsageStore(provider: DemoUsageProvider(), settings: settings)
         store.replace(report: DemoUsageProvider.report(agents: settings.agents, historyHours: UsageStore.historyHours, now: Date()))
         let controller = IslandController(store: store, settings: settings)

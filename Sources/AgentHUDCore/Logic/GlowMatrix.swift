@@ -23,25 +23,6 @@ public struct GlowPattern: Hashable, Sendable {
 
 }
 
-public extension Settings {
-    /// Grid options with the pitch scaled like range and feather for small previews.
-    func glowPattern(scale: Double = 1) -> GlowPattern {
-        GlowPattern(style: glowStyle, pitch: glowGridPitch * scale, spread: glowGridSpread, density: glowGridDensity, effect: glowEffect)
-    }
-
-    /// The glow rect around an island. The blurred style uses range and feather; the grid styles size the rect
-    /// to the farthest dot, with no blur margin above the screen edge.
-    func glowGeometry(islandWidth: Double, islandHeight: Double, islandRadius: Double, scale: Double = 1) -> GlowGeometry {
-        guard glowStyle != .blur else {
-            return GlowGeometry.compute(islandWidth: islandWidth, islandHeight: islandHeight, islandRadius: islandRadius,
-                                        range: glowRange * scale, blur: glowBlur * scale)
-        }
-        let reach = GlowMatrix.reach(pitch: glowGridPitch * scale, spread: glowGridSpread)
-        return GlowGeometry.compute(islandWidth: islandWidth, islandHeight: islandHeight, islandRadius: islandRadius,
-                                    range: reach.rounded(.up), blur: 0)
-    }
-}
-
 /// The glow sampled on a square grid, following the ASCII HUD bar design: every cell's resting intensity is
 /// e^(−distance / (spread · pitch)), measured from the island's outline. Pure geometry; the desktop renderer
 /// decides how each cell is drawn. Coordinates are points from the glow rect's top-left corner.
