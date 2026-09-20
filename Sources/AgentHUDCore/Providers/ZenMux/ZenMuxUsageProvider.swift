@@ -106,11 +106,12 @@ public actor ZenMuxUsageProvider: UsageProvider {
         }
         let consumer = AgentDescriptor(id: "zenmux", vendor: "ZenMux", model: "API",
                                        source: L10n.text("ZenMux 账户用量", "ZenMux account usage"), enabled: true)
-        let notices = [quotaValue?.notice, failureMessage(quota), failureMessage(usage), failureMessage(costs)]
+        let notices = [failureMessage(quota), failureMessage(usage), failureMessage(costs)]
             .compactMap { $0 }
         let notice = notices.isEmpty ? nil : notices.joined(separator: " · ")
         let billing = APIBilling(vendor: "ZenMux", balances: [], isAvailable: nil,
-                                 updatedAt: costs == nil ? nil : observedAt, costs: costValue, notice: failureMessage(costs))
+                                 updatedAt: costs != nil && failureMessage(costs) == nil ? observedAt : nil,
+                                 costs: costValue, notice: failureMessage(costs))
         return UsageReport(
             generatedAt: now,
             snapshots: snapshots,

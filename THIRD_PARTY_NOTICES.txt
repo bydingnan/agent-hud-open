@@ -1,5 +1,7 @@
 Agent HUD — Third-party notices
 
+ZenMux Management API documentation (reference only): https://docs.zenmux.ai/
+
 Kimi Code
 Source: https://github.com/MoonshotAI/kimi-code/tree/0b67511291a0dbf6781d4bce63cab3f228ea6fe1
 Regional endpoint, profile, OAuth storage naming and wire protocol references.

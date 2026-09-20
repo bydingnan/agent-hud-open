@@ -199,14 +199,17 @@ final class SettingsStoreTests: XCTestCase {
         return defaults
     }
 
-    func testPreferredVendorsAndDefaultsMatchPersonalSources() {
+    func testPreferredVendorsAndDefaultsUseOnlyProviderEmittedPlaceholderIDs() {
         XCTAssertEqual(PreferredVendors.personal, [
             "Kimi", "GLM", "Cursor", "OpenCode", "OpenCode Go", "Codex", "ZenMux", "Grok",
         ])
-        let preferredDefaults = DefaultAgents.list.filter { PreferredVendors.personal.contains($0.vendor) }
-        XCTAssertEqual(Set(preferredDefaults.map(\.vendor)), PreferredVendors.personal)
-        XCTAssertTrue(preferredDefaults.allSatisfy(\.enabled))
-        XCTAssertTrue(preferredDefaults.allSatisfy { !$0.connected })
+        XCTAssertEqual(
+            Set(DefaultAgents.list.filter(\.enabled).map(\.vendor)),
+            ["Codex", "ZenMux"]
+        )
+        XCTAssertTrue(DefaultAgents.list.allSatisfy { !$0.connected })
+        XCTAssertTrue(Set(["cursor", "glm", "grok", "kimi", "opencode", "opencode-go"])
+            .isDisjoint(with: DefaultAgents.list.map(\.id)))
         XCTAssertTrue(DefaultAgents.list.filter { !PreferredVendors.personal.contains($0.vendor) }.allSatisfy { !$0.enabled })
     }
 
@@ -267,7 +270,7 @@ final class SettingsStoreTests: XCTestCase {
         let store = SettingsStore(defaults: makeDefaults())
         XCTAssertEqual(store.settings, Settings())
         XCTAssertEqual(store.agents, DefaultAgents.list)
-        XCTAssertEqual(Set(store.enabledAgents.map(\.vendor)), PreferredVendors.personal)
+        XCTAssertEqual(Set(store.enabledAgents.map(\.vendor)), ["Codex", "ZenMux"])
         XCTAssertFalse(store.hasCompletedOnboarding)
     }
 
@@ -328,14 +331,15 @@ final class UsageStoreTests: XCTestCase {
         return UsageStore(provider: DemoUsageProvider(), settings: SettingsStore(defaults: defaults, defaultAgents: DemoData.agents))
     }
 
-    func testAgentsWithoutDataStayOutOfGlow() async {
+    func testPendingAgentsRemainRowsButStayOutOfGlow() async {
         let suite = "AgentHUDTests.\(UUID().uuidString)"
         let store = UsageStore(provider: DemoUsageProvider(), settings: SettingsStore(defaults: UserDefaults(suiteName: suite)!))
+        XCTAssertEqual(store.rows.map(\.id), ["codex", "zenmux"])
         XCTAssertEqual(store.levels, [])
         XCTAssertTrue(store.isLoading)
         await store.refresh()
         XCTAssertFalse(store.isLoading)
-        XCTAssertEqual(store.rows.map(\.id), ["codex"])
+        XCTAssertEqual(store.rows.map(\.id), ["codex", "zenmux"])
         XCTAssertEqual(store.levels.count, 1, "demo data covers the default codex row")
     }
 

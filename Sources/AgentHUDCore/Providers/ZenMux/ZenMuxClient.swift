@@ -100,11 +100,6 @@ struct ZenMuxClient: Sendable {
                    label: L10n.text("5 小时", "5h"), duration: 5 * 3600)
         try window(key: "quota_7_day", id: "zenmux:7d",
                    label: L10n.text("7 天", "7d"), duration: 7 * 86400)
-        if let maxFlows = data["quota_monthly"]["max_flows"].numberValue {
-            quota.notice = L10n.text(
-                "月度上限 \(Int(maxFlows)) Flows（无实时已用量）",
-                "Monthly cap \(Int(maxFlows)) Flows (no live used amount)")
-        }
         guard !quota.windows.isEmpty else { throw ProviderFailure.format }
         return quota
     }

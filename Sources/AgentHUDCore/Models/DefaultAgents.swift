@@ -4,12 +4,6 @@ import Foundation
 public enum DefaultAgents {
     public static let list: [AgentDescriptor] = [
         AgentDescriptor(id: "codex", vendor: "Codex", model: "Desktop / CLI", source: L10n.sourceCodexAppServer, enabled: true, connected: false),
-        AgentDescriptor(id: "cursor", vendor: "Cursor", model: "Agent", source: L10n.sourceNotConnected, enabled: true, connected: false),
-        AgentDescriptor(id: "glm", vendor: "GLM", model: "Coding", source: L10n.sourceNotConnected, enabled: true, connected: false),
-        AgentDescriptor(id: "grok", vendor: "Grok", model: "Code", source: L10n.sourceNotConnected, enabled: true, connected: false),
-        AgentDescriptor(id: "kimi", vendor: "Kimi", model: "K2", source: L10n.sourceNotConnected, enabled: true, connected: false),
-        AgentDescriptor(id: "opencode", vendor: "OpenCode", model: "CLI", source: L10n.sourceNotConnected, enabled: true, connected: false),
-        AgentDescriptor(id: "opencode-go", vendor: "OpenCode Go", model: "Coding Plan", source: L10n.sourceNotConnected, enabled: true, connected: false),
         AgentDescriptor(id: "zenmux", vendor: "ZenMux", model: "API", source: L10n.sourceNotConnected, enabled: true, connected: false),
         AgentDescriptor(id: "antigravity", vendor: "Antigravity", model: "Agent", source: L10n.sourceNotConnected, enabled: false, connected: false),
         AgentDescriptor(id: "chatgpt", vendor: "ChatGPT", model: "ChatGPT", source: L10n.sourceBrowserAuth, enabled: false, connected: false),

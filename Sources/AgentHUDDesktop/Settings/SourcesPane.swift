@@ -21,7 +21,7 @@ struct SourcesPane: View {
         let groups = AgentSettingsGroup.make(sources: detected, agents: settings.agents, report: store.report)
         VStack(alignment: .leading, spacing: 24) {
             VStack(alignment: .leading, spacing: 10) {
-                Button(L10n.text("只用我的七家", "Use my seven sources only")) {
+                Button(L10n.text("只用我的常用来源", "Use my usual sources only")) {
                     settings.enableOnlyVendors(PreferredVendors.personal)
                 }
                 .buttonStyle(.bordered)
