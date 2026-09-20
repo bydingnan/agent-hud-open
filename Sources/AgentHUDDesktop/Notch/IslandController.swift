@@ -91,6 +91,8 @@ final class IslandController {
             huds[key] = hud
         }
         order = keys
+        // Every glow shares one budget, so attaching a display costs frames rather than CPU.
+        GlowAnimator.activeGlows = huds.count
         apply(animated: false)
     }
 

@@ -19,9 +19,18 @@ final class GlowAnimator {
                        Self.framesPerSecond * Float(GlowMotion.breathePeriod / max(0.5, breathSeconds)))
         return 1 / CFTimeInterval(min(Self.framesPerSecond, rate)) - 0.002
     }
-    /// Frames are spaced at least this many times their own drawing time, so a large glow such as the one around
-    /// an expanded panel lowers its frame rate instead of spending more than about a tenth of a core.
-    private static let frameCostSpacing: CFTimeInterval = 10
+    /// Frames are spaced at least this many times their own drawing time, so a large glow such as the one
+    /// around an expanded panel lowers its frame rate instead of spending more than its share of a core.
+    private static let frameCostSpacing: CFTimeInterval = 12
+
+    /// How many glows are running. The budget is the HUD's, not each screen's: spacing every glow at a tenth
+    /// of a core would cost a third of one on three displays. They divide the same tenth instead, so a second
+    /// display costs frames rather than CPU.
+    static var activeGlows = 1 {
+        didSet { activeGlows = max(1, activeGlows) }
+    }
+
+    private var costSpacing: CFTimeInterval { Self.frameCostSpacing * CFTimeInterval(Self.activeGlows) }
 
     private let host: NSView
     private let layer: CALayer
@@ -100,7 +109,7 @@ final class GlowAnimator {
         guard let renderer else { return }
         let now = CACurrentMediaTime()
         let rested = fadeTo == 0 && now - fadeStart >= Self.fadeDuration
-        guard rested || now - lastFrame >= max(frameInterval, frameCost * Self.frameCostSpacing) else { return }
+        guard rested || now - lastFrame >= max(frameInterval, frameCost * costSpacing) else { return }
         lastFrame = now
         let frame = renderer.render(time: now - startTime, blend: blend(at: now),
                                     breathSeconds: breathSeconds, breathAmplitude: breathAmplitude)
