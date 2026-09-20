@@ -79,14 +79,10 @@ final class GlowWindowController {
     }
 
     static func panelFrame(for geometry: NotchGeometry) -> CGRect {
-        // A logo queue's backdrop falls under the marks and a little past them, then fades. The panel is that
-        // column: the lip the field radiates from runs wider still, so what is cut away is the part that
-        // would otherwise curl in at the ends.
-        guard geometry.mode != .logos else {
-            let margin = logoEdgeMargin(for: geometry)
-            return CGRect(x: geometry.rect.minX - margin, y: geometry.screenFrame.minY,
-                          width: geometry.rect.width + margin * 2, height: geometry.screenFrame.height)
-        }
+        // A logo queue's panel spans the screen, because the island it holds does not stay the width of the
+        // marks: an event widens it by a wing on each side, and the open panel is wider still. What keeps
+        // the backdrop to the marks' own column is the fade below, which applies only while it is a backdrop.
+        guard geometry.mode != .logos else { return geometry.screenFrame }
         return CGRect(
             x: geometry.centerX - panelWidth / 2,
             y: geometry.screenFrame.minY,
@@ -95,15 +91,18 @@ final class GlowWindowController {
         )
     }
 
-    /// Softens the backdrop's ends over `margin` points, or removes the fade entirely.
-    private func updateEdgeFade(_ margin: CGFloat?, in bounds: CGRect) {
-        guard let margin, bounds.width > margin * 2 else {
+    /// Keeps a backdrop to `column`, dying away over `margin` on each side. Passing no column removes the
+    /// mask: an island that has grown — for an event, or because the panel opened — wants its whole rim,
+    /// not the slice of it that fits the marks' column.
+    private func updateEdgeFade(column: CGRect?, margin: CGFloat, panel: CGRect) {
+        guard let column, panel.width > 0 else {
             if host.layer?.mask != nil { host.layer?.mask = nil }
             return
         }
+        let bounds = CGRect(origin: .zero, size: panel.size)
+        func stop(_ x: CGFloat) -> NSNumber { NSNumber(value: Double(min(1, max(0, (x - panel.minX) / panel.width)))) }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        let stop = NSNumber(value: Double(margin / bounds.width))
         edgeFade.frame = bounds
         edgeFade.startPoint = CGPoint(x: 0, y: 0.5)
         edgeFade.endPoint = CGPoint(x: 1, y: 0.5)
@@ -111,7 +110,8 @@ final class GlowWindowController {
             CGColor(gray: 0, alpha: 0), CGColor(gray: 0, alpha: 1),
             CGColor(gray: 0, alpha: 1), CGColor(gray: 0, alpha: 0),
         ]
-        edgeFade.locations = [0, stop, NSNumber(value: 1 - stop.doubleValue), 1]
+        edgeFade.locations = [stop(column.minX - margin), stop(column.minX),
+                              stop(column.maxX), stop(column.maxX + margin)]
         if host.layer?.mask !== edgeFade { host.layer?.mask = edgeFade }
         CATransaction.commit()
     }
@@ -127,13 +127,14 @@ final class GlowWindowController {
         animated: Bool,
         alert: IslandAlert? = nil,
         quotaVendors: [String] = [],
-        pattern: GlowPattern = GlowPattern()
+        pattern: GlowPattern = GlowPattern(),
+        /// The marks' own column, when the glow is a logo queue's backdrop rather than a rim around a shape.
+        backdrop: CGRect? = nil
     ) {
         let frame = Self.panelFrame(for: geometry)
         if panel.frame != frame { panel.setFrame(frame, display: false) }
         // The host has not been resized to the new panel frame yet; the fade is measured against it directly.
-        updateEdgeFade(geometry.mode == .logos ? Self.logoEdgeMargin(for: geometry) : nil,
-                       in: CGRect(origin: .zero, size: frame.size))
+        updateEdgeFade(column: backdrop, margin: Self.logoEdgeMargin(for: geometry), panel: frame)
         glowLayer.contentsScale = geometry.backingScale
         shadowLayer.contentsScale = geometry.backingScale
 

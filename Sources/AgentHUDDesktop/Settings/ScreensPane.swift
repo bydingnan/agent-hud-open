@@ -68,6 +68,13 @@ struct ScreensPane: View {
                 SliderRow(label: L10n.text("Logo 间距", "Logo spacing"), value: binding(\.gapScale),
                           range: ScreenPlacement.gapScaleRange, step: 0.05,
                           format: { points($0 * size) }, theme: theme)
+                SettingsDivider(theme: theme)
+                SettingsToggleRow(
+                    label: L10n.text("显示 Logo", "Show logos"),
+                    subtitle: L10n.text("关掉只留背景；背景仍占着这些 Logo 的位置和宽度。",
+                                        "Off leaves the backdrop alone, still where the logos would have been."),
+                    isOn: binding(\.showsLogos)
+                )
             }
         }
         .onAppear { refresh() }

@@ -44,19 +44,24 @@ public struct ScreenPlacement: Hashable, Codable, Sendable {
     public var offset: Double
     public var logoSize: Double
     public var gapScale: Double
+    /// Draw the marks. Turning them off leaves the backdrop alone — it still spans what the marks would
+    /// have occupied, so the field keeps its place and its width; only the logos stop being drawn.
+    public var showsLogos: Bool
 
     public init(
         mode: HUDMode = .logos,
         edge: HUDEdge = .top,
         offset: Double = 0.5,
         logoSize: Double = 20,
-        gapScale: Double = 0.4
+        gapScale: Double = 0.4,
+        showsLogos: Bool = true
     ) {
         self.mode = mode
         self.edge = edge
         self.offset = Self.clamp(offset, to: 0...1)
         self.logoSize = Self.clamp(logoSize, to: Self.logoSizeRange)
         self.gapScale = Self.clamp(gapScale, to: Self.gapScaleRange)
+        self.showsLogos = showsLogos
     }
 
     /// A display's starting point: a notched screen keeps its island, anything else shows the queue.
@@ -69,7 +74,7 @@ public struct ScreenPlacement: Hashable, Codable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case mode, edge, offset, logoSize, gapScale
+        case mode, edge, offset, logoSize, gapScale, showsLogos
     }
 
     public init(from decoder: Decoder) throws {
@@ -80,7 +85,8 @@ public struct ScreenPlacement: Hashable, Codable, Sendable {
             edge: (try? c.decodeIfPresent(HUDEdge.self, forKey: .edge)) ?? d.edge,
             offset: try c.decodeIfPresent(Double.self, forKey: .offset) ?? d.offset,
             logoSize: try c.decodeIfPresent(Double.self, forKey: .logoSize) ?? d.logoSize,
-            gapScale: try c.decodeIfPresent(Double.self, forKey: .gapScale) ?? d.gapScale
+            gapScale: try c.decodeIfPresent(Double.self, forKey: .gapScale) ?? d.gapScale,
+            showsLogos: try c.decodeIfPresent(Bool.self, forKey: .showsLogos) ?? d.showsLogos
         )
     }
 }

@@ -221,7 +221,9 @@ final class ScreenHUD {
     }
 
     private var logoQueue: LogoQueueConfig? {
-        guard geometry.mode == .logos else { return nil }
+        // The geometry still measures the queue when the marks are hidden, so the backdrop keeps the place
+        // and the width it had; only the drawing stops.
+        guard geometry.mode == .logos, placement.showsLogos else { return nil }
         let config = LogoQueueConfig(items: queueItems, placement: placement, settings: settings.settings)
         return config.items.isEmpty ? nil : config
     }
@@ -322,7 +324,8 @@ final class ScreenHUD {
             animated: animated,
             alert: activeAlert,
             quotaVendors: store.rows.filter { $0.level != nil }.map { $0.agent.vendor },
-            pattern: glowSettings.pattern()
+            pattern: glowSettings.pattern(),
+            backdrop: backdrop ? geometry.rect : nil
         )
         // The strip's place on screen is fixed; the window around it is not, so the offset between them is
         // measured rather than assumed to be the window's own top edge — which moves when the panel opens.
