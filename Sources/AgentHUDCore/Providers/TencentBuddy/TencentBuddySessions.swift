@@ -71,7 +71,11 @@ enum TencentBuddySessions {
     }
 
     static func model(_ json: ProviderJSON) -> String? {
-        [json["providerData"]["model"], json["providerData"]["requestModelId"], json["message"]["model"]].lazy.compactMap(nonEmpty).first
+        // Written out rather than as a lazy sequence over the three values: Swift 6.4 fails SIL ownership
+        // verification on a borrowed JSONValue inside one, and brings the optimizer down with it.
+        nonEmpty(json["providerData"]["model"])
+            ?? nonEmpty(json["providerData"]["requestModelId"])
+            ?? nonEmpty(json["message"]["model"])
     }
 
     /// The final completed assistant message of the latest turn, searched in at most the last 1 MiB of a transcript.
