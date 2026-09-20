@@ -229,7 +229,8 @@ final class GlowFrameRenderer {
             let glyph: Int
             switch style {
             case .blocks:
-                let level = Self.level(value, count: Self.blockRamp.count + 1, shift: motion.levelShift(cell))
+                let level = Self.level(value, count: Self.blockRamp.count + 1, shift: motion.levelShift(cell),
+                                       dither: Self.dither(cell))
                 if level == Self.blockRamp.count {
                     context.setAlpha(alpha)
                     context.setFillColor(color(for: cell, motion))
@@ -242,7 +243,8 @@ final class GlowFrameRenderer {
                 glyph = on ? 1 : 0
                 if !on { alpha *= 0.35 }
             default:
-                glyph = Self.level(value, count: Self.asciiRamp.count, shift: motion.levelShift(cell))
+                glyph = Self.level(value, count: Self.asciiRamp.count, shift: motion.levelShift(cell),
+                                   dither: Self.dither(cell))
             }
             context.setAlpha(alpha)
             context.setFillColor(color(for: cell, motion))
@@ -303,8 +305,19 @@ final class GlowFrameRenderer {
     }
 
     /// A density level in 0..<count, shifted by jitter and clamped.
-    static func level(_ value: Double, count: Int, shift: Int) -> Int {
-        min(count - 1, max(0, min(count - 1, Int(value * Double(count))) + shift))
+    ///
+    /// - dither: ±0.5 of a step, from the cell's place in the Bayer matrix. The glow's strength depends only
+    ///   on distance from the island, so without it every cell in a row picks the same character and the
+    ///   field comes out in stripes of one glyph. Dithering lands neighbouring cells on either side of the
+    ///   step they share, which keeps the average density and breaks up the stripe.
+    static func level(_ value: Double, count: Int, shift: Int, dither: Double = 0) -> Int {
+        let step = Int((value * Double(count) + dither).rounded(.down))
+        return min(count - 1, max(0, min(count - 1, step) + shift))
+    }
+
+    /// The cell's dither offset, ±half a step.
+    private static func dither(_ cell: GlowMatrix.Cell) -> Double {
+        GlowMotion.ditherThreshold(column: cell.column, row: cell.row) - 0.5
     }
 
     private struct Motion {
