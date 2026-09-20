@@ -77,13 +77,6 @@ public struct LiveSession: Hashable, Codable, Sendable, Identifiable {
             observedAt: try c.decodeIfPresent(Date.self, forKey: .observedAt))
     }
 
-    /// When this session last did something, given the newest turn event its source reported for it. A source that
-    /// reports no turns leaves the session's own end, or — while it runs — the reading that last saw it running.
-    public func lastEvent(turnAt: Date?) -> Date {
-        guard let turnAt else { return endedAt ?? observedAt }
-        return max(turnAt, endedAt ?? startedAt)
-    }
-
     public func duration(now: Date) -> TimeInterval {
         max(0, (endedAt ?? now).timeIntervalSince(startedAt))
     }
