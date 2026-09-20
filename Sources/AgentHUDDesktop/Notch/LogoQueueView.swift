@@ -9,15 +9,24 @@ struct LogoQueueItem: Identifiable, Equatable {
     let isWorking: Bool
     var id: String { vendor }
 
-    /// Collapses agents onto their vendors, keeping the order they were watched in.
+    /// Collapses agents onto the mark they are drawn with, keeping the order they were watched in. Two
+    /// Claude windows are one Claude; so are Codex and ChatGPT, which share OpenAI's artwork — a second
+    /// identical mark would take a place in the row and tell a glance nothing. Either of them running bobs
+    /// the mark they share.
+    @MainActor
     static func queue(rows: [(vendor: String, isWorking: Bool)]) -> [LogoQueueItem] {
         var order: [String] = []
+        var vendors: [String: String] = [:]
         var working: [String: Bool] = [:]
         for row in rows {
-            if working[row.vendor] == nil { order.append(row.vendor) }
-            working[row.vendor] = (working[row.vendor] ?? false) || row.isWorking
+            let key = AgentArtwork.markKey(row.vendor)
+            if vendors[key] == nil {
+                order.append(key)
+                vendors[key] = row.vendor
+            }
+            working[key] = (working[key] ?? false) || row.isWorking
         }
-        return order.map { LogoQueueItem(vendor: $0, isWorking: working[$0] ?? false) }
+        return order.map { LogoQueueItem(vendor: vendors[$0] ?? $0, isWorking: working[$0] ?? false) }
     }
 }
 

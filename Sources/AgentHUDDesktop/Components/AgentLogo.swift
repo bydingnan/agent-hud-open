@@ -75,6 +75,11 @@ enum AgentArtwork {
         fileNames.keys.filter { $0 != "OpenCode-dark" }.sorted()
     }
 
+    /// The mark a vendor is drawn with, as a key: vendors that share one piece of artwork share this one.
+    /// The logo queue collapses on it rather than on the vendor name, because two identical marks in a row
+    /// are two the eye cannot tell apart, and telling agents apart at a glance is what the queue is for.
+    static func markKey(_ vendor: String) -> String { canonical(vendor) }
+
     /// Codex and ChatGPT share the bundled OpenAI artwork, while keeping distinct names; OpenCode has one
     /// file per background.
     private static func canonical(_ vendor: String, light: Bool = false) -> String {
