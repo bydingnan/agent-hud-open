@@ -83,26 +83,37 @@ enum OpenAgentCredentials {
                          now: Date = Date()) -> [OpenAgentCredential] {
         let paths = OpenAgentPaths(home: home, environment: env)
         var found: [OpenAgentCredential] = []
+        // Settings → Agents keys (Keychain) win for that product over env / client files.
+        found.append(contentsOf: OpenAgentSettingsKeys.savedCredentials().filter { $0.isUsable(at: now) })
+        let savedServices = Set(found.map(\.service))
+        let settingsOwnsKimi = savedServices.contains(.kimi) || savedServices.contains(.kimiGlobal)
+        let settingsOwnsGLM = savedServices.contains(.glmGlobal) || savedServices.contains(.glmChina)
         func add(_ service: OpenAgentCredential.Service?, _ key: String?, _ client: String, expiresAt: Date? = nil) {
             guard let service, let key, !key.isEmpty else { return }
+            if savedServices.contains(service) { return }
+            if settingsOwnsKimi, service == .kimi || service == .kimiGlobal { return }
+            if settingsOwnsGLM, service == .glmGlobal || service == .glmChina { return }
             let value = credential(service, token: key, client: client, expiresAt: expiresAt)
             if value.isUsable(at: now) { found.append(value) }
         }
         add(env["KIMI_CODE_BASE_URL"].map { service(provider: "", baseURL: $0) } ?? .kimi, env["KIMI_CODE_API_KEY"], "Kimi")
+        add(.kimi, env["KIMI_API_KEY"], "Pi")
         add(.go, env["OPENCODE_GO_API_KEY"], "OpenCode")
         add(.glmGlobal, env["ZAI_API_KEY"], "Pi")
         add(.glmChina, env["ZAI_CODING_CN_API_KEY"], "Pi")
-        add(.kimi, env["KIMI_API_KEY"], "Pi")
+        for name in ["BIGMODEL_API_KEY", "ZHIPU_API_KEY", "ZHIPUAI_API_KEY", "GLM_API_KEY"] { add(.glmChina, env[name], "GLM") }
         let region = env["Z_AI_REGION"] ?? "global"
         let scope = env["Z_AI_USAGE_SCOPE"] ?? "personal"
-        if ["global", "bigmodel-cn"].contains(region), ["personal", "team"].contains(scope), let key = env["Z_AI_API_KEY"], !key.isEmpty {
-            if scope == "personal" { add(region == "global" ? .glmGlobal : .glmChina, key, "GLM") }
+        let glmFromZAI: OpenAgentCredential.Service = region == "bigmodel-cn" ? .glmChina : .glmGlobal
+        if !settingsOwnsGLM,
+           ["global", "bigmodel-cn"].contains(region), ["personal", "team"].contains(scope),
+           let key = env["Z_AI_API_KEY"], !key.isEmpty {
+            if scope == "personal" { add(glmFromZAI, key, "GLM") }
             else if let org = env["Z_AI_ORGANIZATION"], !org.isEmpty, let project = env["Z_AI_PROJECT"], !project.isEmpty {
-                found.append(credential(region == "global" ? .glmGlobal : .glmChina, token: key, client: "GLM",
+                found.append(credential(glmFromZAI, token: key, client: "GLM",
                     organization: org, project: project, headers: ["Bigmodel-Organization": org, "Bigmodel-Project": project]))
             }
         }
-        for name in ["BIGMODEL_API_KEY", "ZHIPU_API_KEY", "ZHIPUAI_API_KEY", "GLM_API_KEY"] { add(.glmChina, env[name], "GLM") }
         add(service(provider: "", baseURL: env["ANTHROPIC_BASE_URL"]), env["ANTHROPIC_AUTH_TOKEN"] ?? env["ANTHROPIC_API_KEY"], "Claude")
         let claude = read(home.appendingPathComponent(".claude/settings.json"))["env"]
         add(service(provider: "", baseURL: claude["ANTHROPIC_BASE_URL"].stringValue),
@@ -141,7 +152,7 @@ enum OpenAgentCredentials {
         let oauthHost = env["KIMI_CODE_OAUTH_HOST"] ?? env["KIMI_OAUTH_HOST"]
         let customOAuth = oauthHost != nil && oauthHost != "https://auth.kimi.com" && oauthHost != "https://auth.kimi.ai"
         if !customBase && !customOAuth {
-            for service in [OpenAgentCredential.Service.kimi, .kimiGlobal] {
+            for service in [OpenAgentCredential.Service.kimi, .kimiGlobal] where !settingsOwnsKimi {
                 if let allowedBase, allowedBase != service { continue }
                 if let oauthHost, (oauthHost == "https://auth.kimi.ai") != (service == .kimiGlobal) { continue }
                 let auth = read(paths.kimi.appendingPathComponent("credentials/" + kimiStorageName(service) + ".json"))

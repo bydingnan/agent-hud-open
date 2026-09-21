@@ -36,6 +36,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             _ = self.store.rows
             _ = self.store.pausedUntil
             _ = self.store.isAccessAllowed
+            _ = self.settings.agents
             _ = self.settings.settings.showMenuBarIcon
             _ = self.settings.settings.language
         }, onChange: { [weak self] in

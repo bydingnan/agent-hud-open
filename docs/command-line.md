@@ -13,7 +13,7 @@ Launch options, read-only probes and adapter commands of the standalone applicat
 | `--show-settings` | Open the settings window after start. |
 | `--show-stats` | Open the statistics window after start. |
 | `--open-panel` | Start with the notch panel expanded. |
-| `--show-onboarding` | Show the first-launch window even when onboarding is complete. |
+| `--show-onboarding` | Open the first-launch source list (disabled by default; normal launches never show it). |
 | `--reset-defaults` | Remove the application's stored preferences before starting. |
 | `--snapshot <dir>` | Render every screen at 2× to PNG files in `<dir>` from sample data, then quit. `AGENTHUD_SNAPSHOT_PREFIX=<name>` limits rendering to snapshots whose name starts with the prefix, for example `settings-`. |
 

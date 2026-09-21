@@ -373,6 +373,10 @@ public enum SnapshotRunner {
             .init(id: "pi", name: "Pi", detail: "", state: .installed),
             .init(id: "kimi", name: "Kimi", detail: "", state: .ready(plan: "Allegretto")),
             .init(id: "glm", name: "GLM", detail: "", state: .notDetected),
+            .init(id: "zenmux", name: "ZenMux",
+                    detail: L10n.text("设置 ZENMUX_MANAGEMENT_API_KEY（或 ZENMUX_MGMT_API_KEY）后即可读取用量",
+                                      "Set ZENMUX_MANAGEMENT_API_KEY (or ZENMUX_MGMT_API_KEY) to read usage"),
+                    state: .installed),
         ]
         store.replace(report: UsageReport(generatedAt: Date(), snapshots: [], sessions: [],
             subscriptions: ["kimi-plan": "Allegretto"], billing: [DemoData.deepSeekBilling(now: Date())], services: [

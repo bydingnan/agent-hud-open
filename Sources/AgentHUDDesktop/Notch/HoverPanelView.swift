@@ -10,6 +10,14 @@ struct PanelHeightKey: PreferenceKey {
     }
 }
 
+/// Height of the scrollable body inside the island, used to compute the ideal panel size.
+private struct PanelScrollContentHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
 /// Shared columns for quota rows, account resets and API balances in the island.
 enum IslandRowLayout {
     static let inset: CGFloat = 6
@@ -32,44 +40,56 @@ struct HoverPanelView: View {
     var waitingRequests: [PermissionRequest] = []
 
     private let theme = Theme.island
+    @State private var idealHeight: CGFloat = IslandController.defaultPanelHeight
+    /// Footer row + bottom padding reserved outside the scroll view.
+    private static let footerChromeHeight: CGFloat = 28 + 14 + 6
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if let error = store.lastError {
-                Text(L10n.text("刷新失败：", "Refresh failed: ") + error)
-                    .font(.ui(11)).foregroundStyle(theme.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            if let alert {
-                IslandAlertInlineView(alert: alert, onOpen: onOpenAlert, onDecide: onDecideAlert,
-                                      waitingRequests: waitingRequests).id(alert.id)
-                    .padding(.bottom, 4)
-            }
-            if store.settings.settings.showIslandQuota, !store.rows.isEmpty {
-                quotaBlock
-            }
-            if store.settings.settings.showIslandQuota {
-                ForEach(store.enabledBilling) { billing in
-                    APIBillingCard(billing: billing, store: store, theme: theme, compact: true)
-                        .padding(.top, 8)
-                        .topDivider(theme.divider)
+        VStack(spacing: 0) {
+            ScrollView(.vertical, showsIndicators: true) {
+                VStack(alignment: .leading, spacing: 10) {
+                    if let error = store.lastError {
+                        Text(L10n.text("刷新失败：", "Refresh failed: ") + error)
+                            .font(.ui(11)).foregroundStyle(theme.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if let alert {
+                        IslandAlertInlineView(alert: alert, onOpen: onOpenAlert, onDecide: onDecideAlert,
+                                              waitingRequests: waitingRequests).id(alert.id)
+                            .padding(.bottom, 4)
+                    }
+                    if store.settings.settings.showIslandQuota, !store.rows.isEmpty {
+                        quotaBlock
+                    }
+                    if store.settings.settings.showIslandQuota {
+                        ForEach(store.enabledBilling) { billing in
+                            APIBillingCard(billing: billing, store: store, theme: theme, compact: true)
+                                .padding(.top, 8)
+                                .topDivider(theme.divider)
+                        }
+                    }
+                    if store.settings.settings.showIslandTokens, store.isLoading || store.isIndexing || !store.consumers.isEmpty {
+                        TokenConsumptionChart(store: store, theme: theme, context: .island)
+                            .padding(.top, 8)
+                            .topDivider(theme.divider)
+                    }
+                    if store.settings.settings.showIslandSessions {
+                        sessionLine
+                    }
                 }
-            }
-            if store.settings.settings.showIslandTokens, store.isLoading || store.isIndexing || !store.consumers.isEmpty {
-                TokenConsumptionChart(store: store, theme: theme, context: .island)
-                    .padding(.top, 8)
-                    .topDivider(theme.divider)
-            }
-            if store.settings.settings.showIslandSessions {
-                sessionLine
+                .padding(EdgeInsets(top: 32, leading: 18, bottom: 8, trailing: 18))
+                .background(GeometryReader { proxy in
+                    Color.clear.preference(key: PanelScrollContentHeightKey.self, value: proxy.size.height)
+                })
             }
             footer
+                .padding(EdgeInsets(top: 0, leading: 18, bottom: 14, trailing: 18))
         }
-        .padding(EdgeInsets(top: 32, leading: 18, bottom: 14, trailing: 18))
         .foregroundStyle(theme.text)
-        .background(GeometryReader { proxy in
-            Color.clear.preference(key: PanelHeightKey.self, value: proxy.size.height)
-        })
+        .onPreferenceChange(PanelScrollContentHeightKey.self) { scrollHeight in
+            idealHeight = scrollHeight + Self.footerChromeHeight
+        }
+        .background(Color.clear.preference(key: PanelHeightKey.self, value: idealHeight))
     }
 
     private var quotaBlock: some View {

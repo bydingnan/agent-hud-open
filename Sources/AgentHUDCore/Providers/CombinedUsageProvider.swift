@@ -34,9 +34,11 @@ public struct CombinedUsageProvider: UsageProvider {
 
     public static func standard(ledger: UsageLedger = .open()) -> CombinedUsageProvider {
         removeLegacyCaches(in: AppSupport.directory)
+        // ZenMux is account-only; keep it early so the 1s account-step budget reaches it.
         return CombinedUsageProvider([
             Source("Claude", ClaudeCodeProvider.standard(ledger: ledger)),
             Source("Codex", CodexUsageProvider.standard(ledger: ledger)),
+            Source("ZenMux", ZenMuxUsageProvider.standard(ledger: ledger)),
             Source("DeepSeek", DeepSeekUsageProvider.standard(ledger: ledger)),
         ] + AdditionalSource.allCases.map { Source($0.vendor, AdditionalUsageProvider.standard($0, ledger: ledger)) }
           + [Source("Open agents", OpenAgentUsageProvider.standard(ledger: ledger))], ledger: ledger)

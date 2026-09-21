@@ -20,6 +20,11 @@ enum WindowFactory {
     }
 }
 
+/// Lets `DesktopApplication` restore Dock / accessory policy when the last hosted window closes.
+enum HostedWindowActivation {
+    @MainActor static var restorePolicy: (() -> Void)?
+}
+
 /// Hosts one SwiftUI root view in a factory window. Subclasses pass the view to `setContent` after initialisation, so
 /// it can call back into the controller.
 class HostedWindowController: NSWindowController, NSWindowDelegate {
@@ -55,11 +60,21 @@ class HostedWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func show() {
+        // Become a normal app only while a hosted window is open, then order front once.
+        // Do not re-activate on every click — that steals focus from SecureField paste / typing.
         NSApp.setActivationPolicy(.regular)
+        guard let window else { return }
+        if window.isMiniaturized { window.deminiaturize(nil) }
+        // A closed window (isReleasedWhenClosed = false) must be shown again; already-open
+        // windows just come to the front on the active Space.
+        if !window.isVisible {
+            window.center()
+            showWindow(nil)
+        }
+        window.collectionBehavior.insert(.moveToActiveSpace)
+        window.makeKeyAndOrderFront(nil)
+        window.orderFrontRegardless()
         NSApp.activate(ignoringOtherApps: true)
-        if let window, !window.isVisible { window.center() }
-        showWindow(nil)
-        window?.makeKeyAndOrderFront(nil)
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -70,7 +85,7 @@ class HostedWindowController: NSWindowController, NSWindowDelegate {
                 && ($0.isVisible || $0.isMiniaturized)
         }
         if !hasOtherOpenWindow {
-            NSApp.setActivationPolicy(.accessory)
+            HostedWindowActivation.restorePolicy?()
         }
     }
 }

@@ -116,14 +116,21 @@ struct AgentLogo: View {
                 .scaledToFit()
                 .frame(width: size, height: size)
                 .accessibilityHidden(true)
-        } else if let initial = vendor.first {
+        } else if let mark = Self.letterMark(for: vendor) {
             // No bundled mark: a lettered one, the way the phone already does it. Drawing nothing would leave the
             // row looking like it belongs to whoever is above it.
-            Text(String(initial).uppercased())
+            Text(mark)
                 .font(.system(size: size * 0.6, weight: .semibold))
                 .frame(width: size, height: size)
                 .background(Color.secondary.opacity(0.25), in: RoundedRectangle(cornerRadius: size * 0.3))
                 .accessibilityHidden(true)
+        }
+    }
+
+    private static func letterMark(for vendor: String) -> String? {
+        switch vendor {
+        case "ZenMux": return "ZM"
+        default: return vendor.first.map { String($0).uppercased() }
         }
     }
 }

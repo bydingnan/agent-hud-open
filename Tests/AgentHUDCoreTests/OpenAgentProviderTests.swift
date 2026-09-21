@@ -37,6 +37,17 @@ final class OpenAgentProviderTests: XCTestCase {
         try Data(value.utf8).write(to: file)
     }
 
+    func testSettingsSavedOpenCodeGoKeyIsDiscoveredWithoutEnv() {
+        OpenAgentSettingsKeys.save(.openCodeGo, "settings-go-key")
+        defer { OpenAgentSettingsKeys.save(.openCodeGo, nil) }
+        let found = OpenAgentCredentials.discover(home: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString),
+                                                  environment: ["OPENCODE_GO_API_KEY": "env-go-key"])
+        let go = found.filter { $0.service == .go }
+        XCTAssertEqual(go.count, 1)
+        XCTAssertEqual(go.first?.token, "settings-go-key")
+        XCTAssertTrue(go.first?.clients.contains("OpenCode") == true)
+    }
+
     func testSharedCredentialMergesClientsButKeepsRegionProductAndScopeSeparate() throws {
         let kimi = credential(), open = credential(client: "OpenCode"), pi = credential(client: "Pi")
         let merged = OpenAgentCredentials.merge([kimi, open, pi])
@@ -86,6 +97,7 @@ final class OpenAgentProviderTests: XCTestCase {
         let result = try OpenAgentQuotaClient.parse(root, credential: credential(), now: now)
         XCTAssertEqual(result.windows.map(\.remaining), [80, 75])
         XCTAssertEqual(result.windows.map(\.duration), [604800, 18000])
+        XCTAssertEqual(result.windows.map(\.label), ["7 天", "5 小时"])
         XCTAssertNotEqual(result.windows[0].id, result.windows[1].id)
         XCTAssertEqual(try OpenAgentQuotaClient.parse(json(#"{"usage":{"limit":"2000","remaining":"1600"}}"#), credential: credential(), now: now).windows.count, 1)
         XCTAssertThrowsError(try OpenAgentQuotaClient.parse(json(#"{"usage":{"limit":"0","used":"1"}}"#), credential: credential(), now: now))
@@ -104,7 +116,8 @@ final class OpenAgentProviderTests: XCTestCase {
         let cn = try OpenAgentQuotaClient.parse(json(raw), credential: credential(.glmChina), now: now)
         let global = try OpenAgentQuotaClient.parse(json(raw), credential: credential(.glmGlobal), now: now)
         XCTAssertEqual(cn.windows.map(\.remaining), [75, 95])
-        XCTAssertTrue(cn.windows[1].label.contains("MCP"))
+        XCTAssertEqual(cn.windows[0].label, "5 小时")
+        XCTAssertEqual(cn.windows[1].label, "MCP")
         XCTAssertNil(cn.windows[0].reset)
         XCTAssertNil(cn.windows[1].duration)
         XCTAssertNotEqual(cn.windows[0].id, global.windows[0].id)

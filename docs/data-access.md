@@ -16,6 +16,7 @@ Agent HUD Open reads agent activity and usage metadata on your Mac. It has no Ag
 | Grok CLI | Local session records and credential file | Official Grok CLI billing endpoint |
 | OpenCode, Kimi, GLM, Pi | Local JSON/SQLite session records and supported provider configuration; automatically prepared Pi lifecycle observer | Official Kimi, GLM, OpenCode Go, and Pi ChatGPT quota endpoints where configured |
 | GitHub Copilot CLI | Local session events and OpenTelemetry export files | GitHub Copilot quota endpoint with the GitHub CLI sign-in, only after consent in Settings |
+| ZenMux | None | Official ZenMux management subscription, usage and cost endpoints with a configured Management API key |
 | OpenClaw, Hermes Agent, ZCode, CodeBuddy, WorkBuddy | Local session databases and transcripts | None |
 
 Per-client fields, endpoints and stored data: [providers](providers.md). Token counts, percentages, alert levels, request intervals and reading retention: [usage semantics](usage-semantics.md).
@@ -30,6 +31,7 @@ Per-client fields, endpoints and stored data: [providers](providers.md). Token c
 - Custom endpoints are not assumed to share official billing accounts, and executable key resolvers are never run.
 - Kimi account identity is confirmed through the official profile endpoint, separately for each deployment; only hashed credential-to-account associations are cached, and accounts are never merged from matching quota values, reset times or unverified token claims.
 - DeepSeek process inspection reads executable identity and start time only, not profile contents or browser credentials.
+- Settings → Agents can save a ZenMux Management API key or OpenCode Go / Kimi / GLM coding-plan keys in the Keychain (`app.agenthud.open.zenmux.management-key`, `app.agenthud.open.openagent.api-key`). Those win for that product; otherwise the client's own `auth.json` / OAuth files and the usual environment variables are used. Saved keys are not copied into preferences, the usage ledger or reports. ZenMux's inference key `ZENMUX_API_KEY` is ignored.
 
 ## Local storage
 
