@@ -2,15 +2,17 @@ import Foundation
 import SwiftUI
 import AgentHUDCore
 
-/// One presentation queue for quota events, completed turns and tool calls waiting to be approved.
+/// One presentation queue for quota events, added usage resets, completed turns and tool calls waiting to be approved.
 enum IslandAlert: Identifiable {
     case quota(QuotaAlert)
+    case resetCredits(ResetCreditGrant)
     case completion(SessionCompletion)
     case permission(PermissionRequest)
 
     var id: String {
         switch self {
         case .quota(let event): return event.id.uuidString
+        case .resetCredits(let event): return event.id.uuidString
         case .completion(let event): return event.id
         case .permission(let request): return request.id
         }
@@ -18,6 +20,7 @@ enum IslandAlert: Identifiable {
     var vendor: String {
         switch self {
         case .quota(let event): return event.agent.vendor
+        case .resetCredits(let event): return event.account.account.provider
         case .completion(let event): return event.vendor
         case .permission(let request): return request.vendor
         }
@@ -26,7 +29,7 @@ enum IslandAlert: Identifiable {
         switch self {
         case .quota(let event): return event.kind == .exhaustion
         case .permission: return true
-        case .completion: return false
+        case .resetCredits, .completion: return false
         }
     }
     /// A request is a question, not news: it stays until its client has its answer, and nothing else takes its place
@@ -58,7 +61,7 @@ enum IslandAlert: Identifiable {
         isPersistent ? EdgeInsets(top: 32, leading: 18, bottom: 14, trailing: 18) : nil
     }
 
-    /// Completed turns and resets share the calm accent; a window running out uses the warm one.
+    /// Completed turns, resets and added usage resets share the calm accent; a window running out uses the warm one.
     var accent: RGBA { isWarning ? Self.warningAccent : Self.calmAccent }
     static let calmAccent = RGBA(hex: 0x6cd8ac)
     /// The card being decided, lifted off the island's own black so a pile of requests reads as cards.

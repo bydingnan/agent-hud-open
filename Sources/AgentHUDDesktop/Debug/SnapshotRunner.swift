@@ -28,6 +28,10 @@ public enum SnapshotRunner {
             save("alert-\(kind.rawValue)-detail", IslandScene(store: store, settings: settings, open: true, light: false, alert: alert, showsAlertDetails: true), folder: folder, scheme: .dark)
             save("alert-\(kind.rawValue)-inline", IslandScene(store: store, settings: settings, open: true, light: false, alert: alert), folder: folder, scheme: .dark)
         }
+        let grant = IslandAlert.resetCredits(.preview())
+        save("alert-resetCredits-compact", IslandScene(store: store, settings: settings, open: false, light: false, alert: grant), folder: folder, scheme: .dark)
+        save("alert-resetCredits-detail", IslandScene(store: store, settings: settings, open: true, light: false, alert: grant, showsAlertDetails: true), folder: folder, scheme: .dark)
+        save("alert-resetCredits-inline", IslandScene(store: store, settings: settings, open: true, light: false, alert: grant), folder: folder, scheme: .dark)
 
         for vendor in ["Claude", "Codex", "DeepSeek"] {
             let now = Date()

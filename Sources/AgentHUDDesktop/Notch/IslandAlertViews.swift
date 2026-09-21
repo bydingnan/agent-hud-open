@@ -15,6 +15,8 @@ struct IslandAlertCompactView: View {
                                        waiting: max(1, waitingRequests.count))
         case .quota(let event):
             QuotaAlertCompactView(alert: event, cameraWidth: cameraWidth, height: height, onOpen: onOpen)
+        case .resetCredits(let event):
+            ResetCreditAlertCompactView(grant: event, cameraWidth: cameraWidth, height: height, onOpen: onOpen)
         case .completion(let event):
             Button(action: onOpen) {
                 HStack(spacing: 0) {
@@ -51,6 +53,7 @@ struct IslandAlertDetailView: View {
             PermissionAlertDetailView(request: request, onDecide: onDecide,
                                       all: waitingRequests, onSelect: onSelectRequest)
         case .quota(let event): QuotaAlertDetailView(alert: event, onOpen: onOpen)
+        case .resetCredits(let event): ResetCreditAlertDetailView(grant: event, onOpen: onOpen)
         case .completion(let event):
             VStack(alignment: .leading, spacing: 18) {
                 HStack(spacing: 10) {
@@ -93,6 +96,7 @@ struct IslandAlertInlineView: View {
         case .permission(let request): PermissionAlertInlineView(request: request, onDecide: onDecide,
                                                                  waiting: max(1, waitingRequests.count))
         case .quota(let event): QuotaAlertInlineView(alert: event, onOpen: onOpen)
+        case .resetCredits(let event): ResetCreditAlertInlineView(grant: event, onOpen: onOpen)
         case .completion(let event):
             Button(action: onOpen) {
                 HStack(spacing: 10) {
