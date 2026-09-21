@@ -8,29 +8,41 @@ final class QuotaCycleTests: XCTestCase {
         let five = try XCTUnwrap(QuotaCycle(resetAt: now.addingTimeInterval(2 * 3600), duration: 5 * 3600))
         XCTAssertEqual(five.start, now.addingTimeInterval(-3 * 3600))
         XCTAssertEqual(five.sampleInterval, 15 * 60)
+        XCTAssertEqual(five.paceInterval, 3600)
         let weekly = try XCTUnwrap(QuotaCycle(resetAt: now.addingTimeInterval(2 * 86400), duration: 7 * 86400))
         XCTAssertEqual(weekly.start, now.addingTimeInterval(-5 * 86400))
         XCTAssertEqual(weekly.sampleInterval, 3600)
+        XCTAssertEqual(weekly.paceInterval, 86400)
+        XCTAssertEqual(QuotaCycle(resetAt: now, duration: 30 * 86400)?.paceInterval, 7 * 86400)
         XCTAssertNil(QuotaCycle(resetAt: nil, duration: 5 * 3600))
         XCTAssertNil(QuotaCycle(resetAt: now, duration: nil))
         XCTAssertNil(QuotaCycle(resetAt: now, duration: 0))
     }
 
-    func testFiveHourForecastRetainsConsumptionBeforeAnIdleLastHalfHour() throws {
+    func testFiveHourPaceCoversTheLastHourIncludingAnIdleHalf() throws {
         let cycle = QuotaCycle(resetAt: now.addingTimeInterval(2 * 3600), duration: 5 * 3600)
-        let samples = [sample(hoursAgo: 3, remaining: 100), sample(hoursAgo: 2, remaining: 80),
-                       sample(hoursAgo: 1, remaining: 60), sample(hoursAgo: 0.5, remaining: 60), sample(hoursAgo: 0, remaining: 60)]
+        let samples = [sample(hoursAgo: 3, remaining: 100), sample(hoursAgo: 2, remaining: 90),
+                       sample(hoursAgo: 1, remaining: 80), sample(hoursAgo: 0.5, remaining: 60), sample(hoursAgo: 0, remaining: 60)]
         let rate = try XCTUnwrap(UsageAnalytics.burnRate(samples: samples, cycle: cycle, now: now))
-        XCTAssertEqual(rate.pctPerHour, 40.0 / 3, accuracy: 1e-9)
-        XCTAssertEqual(try XCTUnwrap(rate.timeToExhaust(remainingPct: 60)), 4.5 * 3600, accuracy: 1e-6)
+        XCTAssertEqual(rate.pctPerHour, 20, accuracy: 1e-9, "the quiet first two hours do not dilute the last one")
+        XCTAssertEqual(try XCTUnwrap(rate.timeToExhaust(remainingPct: 60)), 3 * 3600, accuracy: 1e-6)
     }
 
-    func testWeeklyForecastUsesDaysOfHistory() throws {
+    func testWeeklyPaceCoversTheLastDay() throws {
         let cycle = QuotaCycle(resetAt: now.addingTimeInterval(2 * 86400), duration: 7 * 86400)
         let samples = [sample(hoursAgo: 120, remaining: 100), sample(hoursAgo: 72, remaining: 80),
                        sample(hoursAgo: 24, remaining: 70), sample(hoursAgo: 1, remaining: 60), sample(hoursAgo: 0, remaining: 58)]
         let rate = try XCTUnwrap(UsageAnalytics.burnRate(samples: samples, cycle: cycle, now: now))
-        XCTAssertEqual(rate.pctPerHour, 42.0 / 120, accuracy: 1e-9)
+        XCTAssertEqual(rate.pctPerHour, 12.0 / 24, accuracy: 1e-9)
+    }
+
+    func testReadingWobbleNeitherBreaksTheSeriesNorTurnsTheRateNegative() throws {
+        let cycle = QuotaCycle(resetAt: now.addingTimeInterval(2 * 86400), duration: 7 * 86400)
+        let wobbling = [sample(hoursAgo: 2, remaining: 72), sample(hoursAgo: 1, remaining: 70),
+                        sample(hoursAgo: 0.5, remaining: 71), sample(hoursAgo: 0, remaining: 70)]
+        XCTAssertEqual(try XCTUnwrap(UsageAnalytics.burnRate(samples: wobbling, cycle: cycle, now: now)).pctPerHour, 1, accuracy: 1e-9)
+        let idle = [sample(hoursAgo: 2, remaining: 69), sample(hoursAgo: 0, remaining: 70)]
+        XCTAssertEqual(try XCTUnwrap(UsageAnalytics.burnRate(samples: idle, cycle: cycle, now: now)).pctPerHour, 0)
     }
 
     func testPreviousCycleAndFutureReadingsAreExcluded() throws {

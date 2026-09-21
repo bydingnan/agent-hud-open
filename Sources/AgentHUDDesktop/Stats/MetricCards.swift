@@ -50,7 +50,7 @@ private struct AgentQuotaTile: View {
             .frame(height: 22)
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(L10n.text("本周期速率", "Burn rate"))
+                    Text(L10n.text("近期速率", "Burn rate"))
                         .font(.ui(10)).foregroundStyle(theme.secondary)
                     if let rate = insights?.burnRatePctPerHour {
                         (Text(String(format: "%.1f", rate)).font(.tabular(18, .semibold))

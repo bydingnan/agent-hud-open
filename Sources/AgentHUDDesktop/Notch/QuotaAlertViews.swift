@@ -186,7 +186,7 @@ private struct QuotaAlertCopy {
         }
         if alert.snapshot.remainingPct <= 0 { return L10n.text("当前窗口额度已耗尽，等待重置。", "This window is empty. Waiting for reset.") }
         if alert.timeToExhaust != nil {
-            return L10n.text("按本周期的平均消耗速率，预计将在重置前耗尽。", "At this cycle's average rate, this window may run out before it resets.")
+            return L10n.text("按最近的消耗速率，预计将在重置前耗尽。", "At the recent burn rate, this window may run out before it resets.")
         }
         return L10n.text("已用额度达到危险阈值，请留意后续任务。", "Usage has reached the critical threshold.")
     }
