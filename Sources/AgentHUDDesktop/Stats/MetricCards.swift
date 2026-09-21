@@ -11,7 +11,7 @@ struct MetricCards: View {
             ForEach(store.rowGroups, id: \.vendor) { group in
                 AgentQuotaTile(store: store, vendor: group.vendor, rows: group.rows, theme: theme)
             }
-            ForEach(store.report?.billing ?? []) { billing in
+            ForEach(store.enabledBilling.filter { !$0.balances.isEmpty }) { billing in
                 APIBillingSummary(billing: billing, store: store, theme: theme)
             }
         }

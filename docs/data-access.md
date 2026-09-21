@@ -31,7 +31,7 @@ Per-client fields, endpoints and stored data: [providers](providers.md). Token c
 - Custom endpoints are not assumed to share official billing accounts, and executable key resolvers are never run.
 - Kimi account identity is confirmed through the official profile endpoint, separately for each deployment; only hashed credential-to-account associations are cached, and accounts are never merged from matching quota values, reset times or unverified token claims.
 - DeepSeek process inspection reads executable identity and start time only, not profile contents or browser credentials.
-- ZenMux reads a Management API key from `ZENMUX_MANAGEMENT_API_KEY`, `ZENMUX_MGMT_API_KEY` or `~/.config/api-tokens.env`; the inference key `ZENMUX_API_KEY` is ignored.
+- Settings → Agents can save a ZenMux Management API key or OpenCode Go / Kimi / GLM coding-plan keys in the Keychain (`app.agenthud.open.zenmux.management-key`, `app.agenthud.open.openagent.api-key`). Those win for that product; otherwise the client's own `auth.json` / OAuth files and the usual environment variables are used. Saved keys are not copied into preferences, the usage ledger or reports. ZenMux's inference key `ZENMUX_API_KEY` is ignored.
 
 ## Local storage
 

@@ -116,10 +116,11 @@ public actor ZenMuxUsageProvider: UsageProvider {
             AgentDescriptor(id: $0.id, vendor: "ZenMux", model: $0.label,
                             source: L10n.text("ZenMux 账户用量", "ZenMux account usage"), enabled: true)
         }
-        let consumer = AgentDescriptor(id: "zenmux", vendor: "ZenMux", model: "API",
+        let consumer = AgentDescriptor(id: "zenmux", vendor: "ZenMux", model: L10n.text("订阅", "Plan"),
                                        source: L10n.text("ZenMux 账户用量", "ZenMux account usage"), enabled: true)
         let notices = [failureMessage(quota), failureMessage(usage), failureMessage(costs)].compactMap { $0 }
         let notice = notices.isEmpty ? nil : notices.joined(separator: " · ")
+        // Costs feed stats charts; empty balances keep ZenMux on quota rows (5h / 7d), not a wallet card.
         let billing = APIBilling(
             vendor: "ZenMux", balances: [], isAvailable: nil,
             updatedAt: costs != nil && failureMessage(costs) == nil ? observedAt : nil,

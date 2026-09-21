@@ -79,6 +79,10 @@ public final class DesktopApplication {
             LoginItem.set(self.settings.settings.launchAtLogin)
         })
         observeChanges({ [weak self] in
+            self?.settings.settings.showInDock
+        }, onChange: { [weak self] in self?.applyDockVisibility() })
+        applyDockVisibility()
+        observeChanges({ [weak self] in
             _ = self?.store.report
             _ = self?.settings.agents
             _ = self?.settings.settings.disabledLiveStatusSources
@@ -136,5 +140,9 @@ public final class DesktopApplication {
         case .dark: NSApp.appearance = NSAppearance(named: .darkAqua)
         case .light: NSApp.appearance = NSAppearance(named: .aqua)
         }
+    }
+
+    private func applyDockVisibility() {
+        NSApp.setActivationPolicy(settings.settings.showInDock ? .regular : .accessory)
     }
 }

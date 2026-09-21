@@ -95,6 +95,8 @@ public struct Settings: Hashable, Codable, Sendable {
     public var readCopilotQuota: Bool = false
     public var launchAtLogin: Bool = true
     public var showMenuBarIcon: Bool = true
+    /// When on, the app appears in the Dock (activation policy `.regular`); off keeps the menu-bar-only accessory.
+    public var showInDock: Bool = false
     public var appearance: AppearanceMode = .system
     public var language: AppLanguage = .system
     /// Per-screen HUD placement, keyed by the display's stable UUID. A screen missing from the map takes
@@ -115,7 +117,7 @@ public struct Settings: Hashable, Codable, Sendable {
         case requiresOptionToOpen, hoverDelayMs, collapseDelayMs, showResetCountdown
         case showIslandQuota, showIslandTokens, showIslandSessions
         case disabledLiveStatusSources, readCopilotQuota
-        case launchAtLogin, showMenuBarIcon, appearance, language, screens, screenGlow
+        case launchAtLogin, showMenuBarIcon, showInDock, appearance, language, screens, screenGlow
     }
 
     public init(from decoder: Decoder) throws {
@@ -150,6 +152,7 @@ public struct Settings: Hashable, Codable, Sendable {
         readCopilotQuota = try c.decodeIfPresent(Bool.self, forKey: .readCopilotQuota) ?? d.readCopilotQuota
         launchAtLogin = try c.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? d.launchAtLogin
         showMenuBarIcon = try c.decodeIfPresent(Bool.self, forKey: .showMenuBarIcon) ?? d.showMenuBarIcon
+        showInDock = try c.decodeIfPresent(Bool.self, forKey: .showInDock) ?? d.showInDock
         appearance = try c.decodeIfPresent(AppearanceMode.self, forKey: .appearance) ?? d.appearance
         language = try c.decodeIfPresent(AppLanguage.self, forKey: .language) ?? d.language
         screens = (try? c.decodeIfPresent([String: ScreenPlacement].self, forKey: .screens)) ?? d.screens
@@ -182,6 +185,7 @@ public struct Settings: Hashable, Codable, Sendable {
         try c.encode(readCopilotQuota, forKey: .readCopilotQuota)
         try c.encode(launchAtLogin, forKey: .launchAtLogin)
         try c.encode(showMenuBarIcon, forKey: .showMenuBarIcon)
+        try c.encode(showInDock, forKey: .showInDock)
         try c.encode(appearance, forKey: .appearance)
         try c.encode(language, forKey: .language)
         try c.encode(screens, forKey: .screens)

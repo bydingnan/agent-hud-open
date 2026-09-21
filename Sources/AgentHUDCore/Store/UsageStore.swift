@@ -273,10 +273,12 @@ public final class UsageStore {
     }
 
     /// Account cards shown in the island and menu follow the agent switches.
+    /// Cost-only vendors (subscription quota + usage costs, no wallet) stay on quota rows.
     public var enabledBilling: [APIBilling] {
         let vendors = Set(enabledAgents.map(\.vendor))
         return (report?.billing ?? []).filter { billing in
-            billing.billingPool.map { pool in enabledAgents.contains { $0.billingPool?.id == pool.id } } ?? vendors.contains(billing.vendor)
+            guard !billing.balances.isEmpty || billing.costs.isEmpty else { return false }
+            return billing.billingPool.map { pool in enabledAgents.contains { $0.billingPool?.id == pool.id } } ?? vendors.contains(billing.vendor)
         }
     }
 

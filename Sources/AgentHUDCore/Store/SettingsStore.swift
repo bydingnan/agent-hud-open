@@ -33,12 +33,12 @@ public final class SettingsStore {
         }
         if let data = defaults.data(forKey: Keys.agents), let stored = try? decoder.decode([AgentDescriptor].self, from: data), !stored.isEmpty {
             // Only observed subscriptions belong in the agent catalog.
-            agents = stored.map { agent in
+            agents = Self.withKeyEntryPlaceholders(stored.map { agent in
                 guard agent.id == "chatgpt", agent.vendor == "ChatGPT", agent.model == "Plus",
                       agent.source == L10n.sourceBrowserAuth else { return agent }
                 return AgentDescriptor(id: agent.id, vendor: agent.vendor, model: "ChatGPT", source: agent.source,
                     enabled: agent.enabled, connected: agent.connected, billingPool: agent.billingPool)
-            }.groupedAgentOrder
+            })
         } else {
             agents = defaultAgents.groupedAgentOrder
         }
@@ -46,6 +46,48 @@ public final class SettingsStore {
     }
 
     public var enabledAgents: [AgentDescriptor] { agents.filter(\.enabled) }
+
+    /// Whether any row for this settings/glow group is shown on the HUD.
+    public func isVendorDisplayed(_ vendor: String) -> Bool {
+        let rows = agents.filter { Self.matchesDisplayVendor($0, vendor) }
+        return !rows.isEmpty && rows.contains(where: \.enabled)
+    }
+
+    /// Turns every window in a vendor group on or off. Empty key-entry groups get a placeholder so the choice persists.
+    public func setVendorDisplayed(_ vendor: String, enabled: Bool) {
+        updateAgents { list in
+            var list = list
+            let indices = list.indices.filter { Self.matchesDisplayVendor(list[$0], vendor) }
+            if indices.isEmpty {
+                guard enabled, let placeholder = DefaultAgents.keyEntryPlaceholder(for: vendor)
+                    ?? (vendor == "ZenMux"
+                        ? AgentDescriptor(id: "zenmux", vendor: "ZenMux", model: L10n.text("订阅", "Plan"),
+                                          source: L10n.sourceNotConnected, enabled: true, connected: false)
+                        : nil) else { return list }
+                list.insert(placeholder.with(enabled: true), at: 0)
+                return list
+            }
+            for index in indices {
+                list[index] = list[index].with(enabled: enabled)
+            }
+            return list
+        }
+    }
+
+    /// OpenCode Go quota windows share the OpenCode settings/glow group.
+    public static func matchesDisplayVendor(_ agent: AgentDescriptor, _ vendor: String) -> Bool {
+        agent.displayVendor == vendor
+    }
+
+    /// Ensures OpenCode / Kimi / GLM placeholders exist so Settings can show a display switch before windows arrive.
+    public static func withKeyEntryPlaceholders(_ agents: [AgentDescriptor]) -> [AgentDescriptor] {
+        var list = agents
+        for placeholder in DefaultAgents.keyEntryPlaceholders {
+            let covered = list.contains { matchesDisplayVendor($0, placeholder.vendor) }
+            if !covered { list.append(placeholder) }
+        }
+        return list.groupedAgentOrder
+    }
 
     public func update(_ change: (inout Settings) -> Void) {
         let next = settings.with(change)
@@ -78,7 +120,7 @@ public final class SettingsStore {
     /// Applies a vendor preset without removing discovered rows or replacing any other preference.
     public func enableOnlyVendors(_ vendors: Set<String>) {
         updateAgents { list in
-            list.map { $0.with(enabled: vendors.contains($0.vendor)) }
+            list.map { $0.with(enabled: vendors.contains($0.displayVendor)) }
         }
     }
 
@@ -137,6 +179,25 @@ public final class SettingsStore {
                 }
                 list.insert(contentsOf: replacements, at: index)
             }
+            // Replace the ZenMux API placeholder when 5h / 7d subscription windows arrive.
+            if discovered.contains(where: { $0.vendor == "ZenMux" && $0.id.hasPrefix("zenmux:") }),
+               let index = list.firstIndex(where: { $0.id == "zenmux" }) {
+                let placeholder = list.remove(at: index)
+                let replacements = discovered.filter { found in found.vendor == "ZenMux" && !list.contains(where: { $0.id == found.id }) }.map {
+                    $0.with(enabled: placeholder.enabled)
+                }
+                list.insert(contentsOf: replacements, at: index)
+            }
+            // Replace OpenCode / Kimi / GLM plan placeholders when real windows arrive.
+            for placeholder in DefaultAgents.keyEntryPlaceholders {
+                let arrivals = discovered.filter { found in
+                    found.billingPool?.product == .plan && found.displayVendor == placeholder.vendor
+                        && !list.contains(where: { row in row.id == found.id })
+                }
+                guard !arrivals.isEmpty, let index = list.firstIndex(where: { $0.id == placeholder.id }) else { continue }
+                let existing = list.remove(at: index)
+                list.insert(contentsOf: arrivals.map { $0.with(enabled: existing.enabled) }, at: index)
+            }
             // Unscoped rows of a provider that now identifies accounts have been taken over or no longer exist.
             list.removeAll { agent in
                 agent.account == nil && agent.billingPool == nil && accounts?[agent.vendor]?.isEmpty == false
@@ -154,8 +215,10 @@ public final class SettingsStore {
                     }
                     continue
                 }
-                let anchor = list.lastIndex { $0.vendor == found.vendor }
-                let enabled = anchor.map { list[$0].enabled } ?? PreferredVendors.personal.contains(found.vendor)
+                let anchor = list.lastIndex { $0.displayVendor == found.displayVendor }
+                let enabled = anchor.map { list[$0].enabled }
+                    ?? PreferredVendors.personal.contains(found.displayVendor)
+                    || PreferredVendors.personal.contains(found.vendor)
                 list.insert(found.with(enabled: enabled), at: anchor.map { $0 + 1 } ?? 0)
             }
             return list

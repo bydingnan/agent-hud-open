@@ -41,7 +41,11 @@ public struct AgentDescriptor: Hashable, Codable, Sendable, Identifiable {
         return id
     }
 
-    public var displayVendor: String { billingPool?.product == .api ? billingPool!.provider : vendor }
+    public var displayVendor: String {
+        let raw = billingPool?.product == .api ? billingPool!.provider : vendor
+        // OpenCode Go quota windows belong under the OpenCode settings/glow group.
+        return raw == "OpenCode Go" ? "OpenCode" : raw
+    }
     public var displayName: String { "\(displayVendor) · \(L10n.modelLabel(model))" }
 
     /// DeepSeek exposes API balance and costs instead of subscription quota windows.

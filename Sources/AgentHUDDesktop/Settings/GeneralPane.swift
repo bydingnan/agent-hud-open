@@ -32,6 +32,12 @@ struct GeneralPane: View {
                     subtitle: L10n.text("登录 Mac 后，自动开始监测用量。", "Keep an eye on usage whenever you start your Mac."),
                     isOn: settings.binding(\.launchAtLogin)
                 )
+                SettingsDivider(theme: theme)
+                SettingsToggleRow(
+                    label: L10n.text("在 Dock 中显示", "Show in Dock"),
+                    subtitle: L10n.text("关闭时仅保留菜单栏图标，与后台工具一致。", "When off, only the menu bar icon remains, like other background utilities."),
+                    isOn: settings.binding(\.showInDock)
+                )
             }
         }
     }

@@ -22,14 +22,24 @@ final class ZenMuxProviderTests: XCTestCase, @unchecked Sendable {
                 "ZENMUX_API_KEY": "inference-only",
                 "ZENMUX_MGMT_API_KEY": "mgmt-b",
                 "ZENMUX_MANAGEMENT_API_KEY": "mgmt-a",
-            ], home: home),
+            ], home: home, saved: nil),
             "mgmt-a"
         )
         XCTAssertEqual(
-            ZenMuxCredentials.managementKey(environment: ["ZENMUX_API_KEY": "inference-only"], home: home),
+            ZenMuxCredentials.managementKey(environment: ["ZENMUX_API_KEY": "inference-only"], home: home, saved: nil),
             "from-file"
         )
-        XCTAssertNil(ZenMuxCredentials.managementKey(environment: ["ZENMUX_API_KEY": "inference-only"], home: home.appendingPathComponent("empty")))
+        XCTAssertEqual(
+            ZenMuxCredentials.managementKey(environment: ["ZENMUX_MANAGEMENT_API_KEY": "from-env"], home: home, saved: "from-settings"),
+            "from-settings"
+        )
+        try Data("export ZENMUX_MANAGEMENT_API_KEY=\"from-export\"\n".utf8)
+            .write(to: home.appendingPathComponent(".config/api-tokens.env"))
+        XCTAssertEqual(
+            ZenMuxCredentials.managementKey(environment: [:], home: home, saved: nil),
+            "from-export"
+        )
+        XCTAssertNil(ZenMuxCredentials.managementKey(environment: ["ZENMUX_API_KEY": "inference-only"], home: home.appendingPathComponent("empty"), saved: nil))
     }
 
     func testParseSubscriptionMapsFlowsWindowsAndSkipsMonthlyUsed() throws {
@@ -205,6 +215,23 @@ final class ZenMuxProviderTests: XCTestCase, @unchecked Sendable {
         XCTAssertNotNil(source)
         XCTAssertNil(source?.directories, "ZenMux has no local logs and must be polled")
         XCTAssertEqual(source?.accountSteps.count, 1)
+    }
+
+    @MainActor
+    func testZenMuxPlaceholderMigratesToSubscriptionWindows() {
+        let name = "ZenMuxProviderTests.\(UUID().uuidString)", defaults = UserDefaults(suiteName: name)!
+        defer { defaults.removePersistentDomain(forName: name) }
+        let placeholder = AgentDescriptor(id: "zenmux", vendor: "ZenMux", model: "Plan",
+            source: L10n.sourceNotConnected, enabled: true, connected: false)
+        let settings = SettingsStore(defaults: defaults, defaultAgents: [placeholder])
+        let windows = ["zenmux:5h", "zenmux:7d"].map {
+            AgentDescriptor(id: $0, vendor: "ZenMux", model: $0, source: "ZenMux", enabled: false, connected: true)
+        }
+        settings.mergeDiscovered(windows)
+        settings.mergeDiscovered(windows)
+        XCTAssertEqual(settings.agents.map(\.id), ["zenmux:5h", "zenmux:7d"])
+        XCTAssertTrue(settings.agents.allSatisfy(\.enabled))
+        XCTAssertTrue(settings.agents.allSatisfy(\.connected))
     }
 }
 

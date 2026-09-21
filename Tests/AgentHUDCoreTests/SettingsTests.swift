@@ -14,6 +14,7 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(s.collapseDelayMs, 200)
         XCTAssertTrue(s.launchAtLogin)
         XCTAssertTrue(s.showMenuBarIcon)
+        XCTAssertFalse(s.showInDock)
         XCTAssertEqual(s.appearance, .system)
         XCTAssertTrue(s.showIslandTokens)
         XCTAssertEqual(s.hoverDelay, 0.4, accuracy: 1e-9)
@@ -126,6 +127,17 @@ final class AgentSettingsTests: XCTestCase {
         }
     }
 
+    func testOpenCodeGoQuotaWindowsShareTheOpenCodeSettingsGroup() {
+        let pool = BillingPool(provider: "OpenCode Go", realm: "Global", product: .plan, scope: "cred",
+                               evidence: .credential, entitlement: "opencode-go")
+        let agents = [AgentDescriptor(id: pool.id + ":monthly", vendor: "OpenCode Go", model: "Monthly",
+                                      source: "OpenCode", enabled: true, billingPool: pool)]
+        let groups = AgentSettingsGroup.make(sources: [], agents: agents)
+        XCTAssertEqual(groups.map(\.id).filter { $0.hasPrefix("OpenCode") }, ["OpenCode"])
+        XCTAssertEqual(groups.first { $0.id == "OpenCode" }?.agents.map(\.id), [pool.id + ":monthly"])
+        XCTAssertEqual(agents[0].displayVendor, "OpenCode")
+    }
+
     func testAPIBillingBelongsToProviderAndOnlyIdenticalAccountsMerge() {
         func pool(_ scope: String) -> BillingPool {
             .init(provider: "Anthropic", realm: "Global", product: .api, scope: scope, evidence: .account, entitlement: "api")
@@ -134,7 +146,7 @@ final class AgentSettingsTests: XCTestCase {
         let agents = [AgentDescriptor(id: "open", vendor: "OpenCode", model: "Model A", source: "", enabled: true, billingPool: shared),
                       AgentDescriptor(id: "pi", vendor: "Pi", model: "Model B", source: "", enabled: true, billingPool: shared)]
         let groups = AgentSettingsGroup.make(sources: [], agents: agents)
-        XCTAssertEqual(groups.map(\.id), ["Anthropic", "OpenCode", "Pi"])
+        XCTAssertEqual(groups.map(\.id), ["OpenCode", "Kimi", "GLM", "Anthropic", "Pi"])
         XCTAssertEqual(groups.first?.apiProviders, ["Anthropic"])
         XCTAssertEqual(groups.first { $0.id == "OpenCode" }?.apiProviders, ["Anthropic"])
         XCTAssertEqual(groups.first { $0.id == "Pi" }?.apiProviders, ["Anthropic"])
@@ -177,16 +189,16 @@ final class AgentSettingsTests: XCTestCase {
             AgentDescriptor(id: "chatgpt", vendor: "ChatGPT", model: "Plus", source: "", enabled: false),
         ]
         let groups = AgentSettingsGroup.make(sources: sources, agents: agents)
-        XCTAssertEqual(groups.map(\.id), ["Codex", "Claude", "ChatGPT", "Cursor"])
-        XCTAssertEqual(groups[1].agents.map(\.id), ["c1", "c2"])
-        XCTAssertEqual(groups[1].displayedCount, 1)
-        XCTAssertEqual(groups[1].agents.count, 2)
-        XCTAssertEqual(groups[2].source?.id, "chatgpt")
-        XCTAssertEqual(groups[3].displayedCount, 0)
-        XCTAssertTrue(groups[3].agents.isEmpty)
+        XCTAssertEqual(groups.map(\.id), ["OpenCode", "Kimi", "GLM", "Codex", "Claude", "ChatGPT", "Cursor"])
+        XCTAssertEqual(groups.first { $0.id == "Claude" }?.agents.map(\.id), ["c1", "c2"])
+        XCTAssertEqual(groups.first { $0.id == "Claude" }?.displayedCount, 1)
+        XCTAssertEqual(groups.first { $0.id == "Claude" }?.agents.count, 2)
+        XCTAssertEqual(groups.first { $0.id == "ChatGPT" }?.source?.id, "chatgpt")
+        XCTAssertEqual(groups.first { $0.id == "Cursor" }?.displayedCount, 0)
+        XCTAssertTrue(groups.first { $0.id == "Cursor" }!.agents.isEmpty)
         let hidden = AgentSettingsGroup.make(sources: sources, agents: agents.map { $0.with(enabled: false) })
-        XCTAssertEqual(hidden.map(\.displayedCount), [0, 0, 0, 0])
-        XCTAssertEqual(hidden[1].agents.count, 2)
+        XCTAssertEqual(hidden.map(\.displayedCount), [0, 0, 0, 0, 0, 0, 0])
+        XCTAssertEqual(hidden.first { $0.id == "Claude" }?.agents.count, 2)
     }
 }
 
@@ -200,17 +212,48 @@ final class SettingsStoreTests: XCTestCase {
     }
 
     func testPreferredVendorsAndDefaultsUseOnlyProviderEmittedPlaceholderIDs() {
-        XCTAssertEqual(PreferredVendors.personal, [
-            "Kimi", "GLM", "Cursor", "OpenCode", "OpenCode Go", "Codex", "ZenMux", "Grok",
-        ])
+        XCTAssertEqual(PreferredVendors.personal, ["ZenMux"])
         XCTAssertEqual(
             Set(DefaultAgents.list.filter(\.enabled).map(\.vendor)),
-            ["Codex", "ZenMux"]
+            ["ZenMux"]
         )
         XCTAssertTrue(DefaultAgents.list.allSatisfy { !$0.connected })
-        XCTAssertTrue(Set(["cursor", "glm", "grok", "kimi", "opencode", "opencode-go"])
+        XCTAssertEqual(Set(DefaultAgents.keyEntryPlaceholders.map(\.id)), ["opencode", "kimi", "glm"])
+        XCTAssertTrue(DefaultAgents.keyEntryPlaceholders.allSatisfy { !$0.enabled })
+        XCTAssertTrue(Set(["cursor", "grok", "opencode-go"])
             .isDisjoint(with: DefaultAgents.list.map(\.id)))
         XCTAssertTrue(DefaultAgents.list.filter { !PreferredVendors.personal.contains($0.vendor) }.allSatisfy { !$0.enabled })
+    }
+
+    func testVendorDisplaySwitchControlsEveryRowInTheGroup() {
+        let defaults = makeDefaults()
+        let store = SettingsStore(defaults: defaults, defaultAgents: [
+            AgentDescriptor(id: "kimi-a", vendor: "Kimi", model: "Weekly", source: "", enabled: false),
+            AgentDescriptor(id: "kimi-b", vendor: "Kimi", model: "5h", source: "", enabled: false),
+            AgentDescriptor(id: "codex", vendor: "Codex", model: "5h", source: "", enabled: true),
+        ])
+        XCTAssertFalse(store.isVendorDisplayed("Kimi"))
+        store.setVendorDisplayed("Kimi", enabled: true)
+        XCTAssertTrue(store.isVendorDisplayed("Kimi"))
+        XCTAssertEqual(Set(store.enabledAgents.map(\.id)), ["kimi-a", "kimi-b", "codex"])
+        store.setVendorDisplayed("Kimi", enabled: false)
+        XCTAssertEqual(store.enabledAgents.map(\.id), ["codex"])
+    }
+
+    func testOpenCodeGoInheritsOpenCodePlaceholderDisplaySwitch() {
+        let pool = BillingPool(provider: "OpenCode Go", realm: "Global", product: .plan, scope: "cred",
+                               evidence: .credential, entitlement: "opencode-go")
+        let store = SettingsStore(defaults: makeDefaults(), defaultAgents: [
+            AgentDescriptor(id: "opencode", vendor: "OpenCode", model: "Plan", source: L10n.sourceNotConnected,
+                            enabled: true, connected: false),
+        ])
+        store.mergeDiscovered([
+            AgentDescriptor(id: pool.id + ":monthly", vendor: "OpenCode Go", model: "Monthly", source: "OpenCode",
+                            enabled: false, billingPool: pool),
+        ])
+        XCTAssertNil(store.agents.first { $0.id == "opencode" })
+        XCTAssertTrue(store.agents.first { $0.id == pool.id + ":monthly" }!.enabled)
+        XCTAssertTrue(store.isVendorDisplayed("OpenCode"))
     }
 
     func testEnableOnlyVendorsPreservesRowsAndPersistsSwitches() {
@@ -269,8 +312,8 @@ final class SettingsStoreTests: XCTestCase {
     func testFreshStoreUsesDefaults() {
         let store = SettingsStore(defaults: makeDefaults())
         XCTAssertEqual(store.settings, Settings())
-        XCTAssertEqual(store.agents, DefaultAgents.list)
-        XCTAssertEqual(Set(store.enabledAgents.map(\.vendor)), ["Codex", "ZenMux"])
+        XCTAssertEqual(store.agents, DefaultAgents.list.groupedAgentOrder)
+        XCTAssertEqual(Set(store.enabledAgents.map(\.vendor)), ["ZenMux"])
         XCTAssertFalse(store.hasCompletedOnboarding)
     }
 
@@ -280,14 +323,17 @@ final class SettingsStoreTests: XCTestCase {
         let interleaved = [models[0], models[2], models[1], models[3], models[4], models[5]]
         defaults.set(try JSONEncoder().encode(interleaved), forKey: SettingsStore.Keys.agents)
         let store = SettingsStore(defaults: defaults)
-        XCTAssertEqual(store.agents, models, "previously interleaved rows become contiguous groups")
+        XCTAssertEqual(store.agents.map(\.id), models.map(\.id) + ["opencode", "kimi", "glm"],
+                       "contiguous groups, then key-entry placeholders")
+        XCTAssertTrue(store.agents.suffix(3).allSatisfy { !$0.enabled })
 
         store.setAgent(id: "claude-sonnet", enabled: false)
         store.moveAgentGroup(id: "Codex", to: "Claude")
         store.moveAgent(id: "claude-sonnet", to: 1)
 
         let reloaded = SettingsStore(defaults: defaults)
-        XCTAssertEqual(reloaded.agents.map(\.id), ["codex", "claude-sonnet", "claude-opus", "chatgpt", "antigravity", "deepseek"])
+        XCTAssertEqual(reloaded.agents.map(\.id),
+                       ["codex", "claude-sonnet", "claude-opus", "chatgpt", "antigravity", "deepseek", "opencode", "kimi", "glm"])
         XCTAssertEqual(reloaded.agents[1], models[1].with(enabled: false))
         XCTAssertEqual(reloaded.enabledAgents.map(\.id), ["codex", "claude-opus", "chatgpt"])
     }
@@ -334,13 +380,13 @@ final class UsageStoreTests: XCTestCase {
     func testPendingAgentsRemainRowsButStayOutOfGlow() async {
         let suite = "AgentHUDTests.\(UUID().uuidString)"
         let store = UsageStore(provider: DemoUsageProvider(), settings: SettingsStore(defaults: UserDefaults(suiteName: suite)!))
-        XCTAssertEqual(store.rows.map(\.id), ["codex", "zenmux"])
+        XCTAssertEqual(store.rows.map(\.id), ["zenmux"])
         XCTAssertEqual(store.levels, [])
         XCTAssertTrue(store.isLoading)
         await store.refresh()
         XCTAssertFalse(store.isLoading)
-        XCTAssertEqual(store.rows.map(\.id), ["codex", "zenmux"])
-        XCTAssertEqual(store.levels.count, 1, "demo data covers the default codex row")
+        XCTAssertEqual(store.rows.map(\.id), ["zenmux"])
+        XCTAssertEqual(store.levels.count, 0, "demo data does not cover the default zenmux row")
     }
 
     func testInitialLoadingStopsOnFailureOrPause() async {

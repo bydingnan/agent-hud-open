@@ -22,23 +22,35 @@ public struct AgentSettingsGroup: Identifiable, Equatable, Sendable {
         func vendor(_ source: SourceStatus) -> String {
             source.id == "chatgpt" ? "ChatGPT" : source.name
         }
+        /// OpenCode Go plan rows share the OpenCode settings card (key + login guide).
+        func groupID(_ raw: String) -> String { raw == "OpenCode Go" ? "OpenCode" : raw }
         let existing = agents.agentGroups
         var ids = existing.map(\.id)
-        for id in sources.map(vendor) + agents.map(\.vendor) + (report?.services ?? []).map(\.client)
-            where !ids.contains(id) { ids.append(id) }
+        for raw in sources.map(vendor) + agents.map(\.vendor) + (report?.services ?? []).map(\.client) {
+            let id = groupID(raw)
+            if !ids.contains(id) { ids.append(id) }
+        }
+        // Always list vendors that need a Settings key or login guide, even before they are installed.
+        for id in ["OpenCode", "Kimi", "GLM"] where !ids.contains(id) { ids.append(id) }
+        // Keep key-entry vendors near the top so distribution installs can find them without scrolling.
+        let pinned = ["ZenMux", "OpenCode", "Kimi", "GLM"]
+        ids = pinned.filter(ids.contains) + ids.filter { !pinned.contains($0) }
         return ids.map { id in
             let source = sources.first { vendor($0) == id }
             let windows = existing.first { $0.id == id }?.agents ?? []
-            let services = (report?.services ?? []).filter { $0.client == id }
+            let services = (report?.services ?? []).filter { groupID($0.client) == id }
             // Observations retain client-home history; display one summary per account, as quota rows do.
-            let accountIDs = Set((report?.accounts?[id] ?? []).map(\.account.id))
+            var accountRows = report?.accounts?[id] ?? []
+            if id == "OpenCode" { accountRows += report?.accounts?["OpenCode Go"] ?? [] }
+            let accountIDs = Set(accountRows.map(\.account.id))
             let accounts = accountIDs.compactMap { report?.observation(accountID: $0) }
                 .filter { !$0.account.id.hasPrefix("pool:") }
                 .sorted { ($0.isCurrent ? 1 : 0, $0.observedAt) > ($1.isCurrent ? 1 : 0, $1.observedAt) }
             var plans = accounts.isEmpty ? source?.planLabel.map { [$0] } ?? [] : []
             for service in services where service.product == .plan {
                 guard let plan = report?.subscriptions[service.accountID ?? service.provider], !plan.isEmpty else { continue }
-                plans.append(service.provider == id ? plan.capitalized : service.provider + " · " + plan.capitalized)
+                let label = groupID(service.provider) == id ? plan.capitalized : service.provider + " · " + plan.capitalized
+                plans.append(label)
             }
             for window in windows {
                 guard let pool = window.billingPool, pool.product == .plan,
@@ -46,10 +58,10 @@ public struct AgentSettingsGroup: Identifiable, Equatable, Sendable {
                 plans.append(plan.capitalized)
             }
             var api = services.filter { $0.product == .api }.map(\.provider)
-            api += agents.filter { $0.vendor == id && $0.billingPool?.product == .api }.compactMap { $0.billingPool?.provider }
+            api += agents.filter { groupID($0.vendor) == id && $0.billingPool?.product == .api }.compactMap { $0.billingPool?.provider }
             api += windows.compactMap { $0.billingPool?.product == .api ? $0.billingPool?.provider : nil }
             api += (report?.billing ?? []).filter {
-                ($0.billingPool?.provider ?? $0.vendor) == id && (!$0.balances.isEmpty || !$0.costs.isEmpty)
+                groupID($0.billingPool?.provider ?? $0.vendor) == id && !$0.balances.isEmpty
             }.map { $0.billingPool?.provider ?? $0.vendor }
             return Self(id: id, source: source, agents: windows, plans: Array(Set(plans)).sorted(),
                         apiProviders: Array(Set(api)).sorted(), accounts: accounts)

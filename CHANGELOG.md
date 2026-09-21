@@ -4,8 +4,11 @@ Releases of Agent HUD Open. A version is a git tag `vX.Y.Z` on `main`; `CFBundle
 
 ## Unreleased
 
-- ZenMux account usage: 5 h and 7 d quota windows, daily token history and reference USD costs from the official management API when `ZENMUX_MANAGEMENT_API_KEY` or `ZENMUX_MGMT_API_KEY` is set (or the same names in `~/.config/api-tokens.env`); no local sessions or turns. Settings lists ZenMux with Management Key guidance; the personal one-tap preset and fresh installs include it in the default watched vendors.
-- Host API: `ZenMuxCredentials`, `ZenMuxUsageProvider` and `PreferredVendors.personal` include `ZenMux`.
+- ZenMux account usage: 5 h and 7 d quota windows, daily token history and reference USD costs from the official management API when a Management API key is saved in Settings (Keychain) or via `ZENMUX_MANAGEMENT_API_KEY` / `ZENMUX_MGMT_API_KEY` / `~/.config/api-tokens.env`; no local sessions or turns. The personal one-tap preset and fresh installs watch ZenMux only; other clients stay off until enabled.
+- Settings → Agents: each source card has a Show switch; only ZenMux starts on. OpenCode / Kimi / GLM stay listed for key entry but stay off the glow until switched on.
+- Settings → Agents → OpenCode / Kimi / GLM: paste a coding-plan API key (Keychain) or follow the login hint so the HUD can read quota without relying on a pre-installed client; a saved key wins over env and client auth files for that product.
+- Settings → General → Show in Dock toggles whether the app appears in the Dock (`Settings.showInDock`, default off).
+- Host API: `ZenMuxCredentials` (including Keychain save/load), `OpenAgentSettingsKeys`, `ZenMuxUsageProvider` and `PreferredVendors.personal` include `ZenMux` only; `Settings.showInDock`.
 
 ## 0.4.17 — 2026-09-20
 

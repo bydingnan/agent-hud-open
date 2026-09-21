@@ -37,6 +37,17 @@ final class OpenAgentProviderTests: XCTestCase {
         try Data(value.utf8).write(to: file)
     }
 
+    func testSettingsSavedOpenCodeGoKeyIsDiscoveredWithoutEnv() {
+        OpenAgentSettingsKeys.save(.openCodeGo, "settings-go-key")
+        defer { OpenAgentSettingsKeys.save(.openCodeGo, nil) }
+        let found = OpenAgentCredentials.discover(home: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString),
+                                                  environment: ["OPENCODE_GO_API_KEY": "env-go-key"])
+        let go = found.filter { $0.service == .go }
+        XCTAssertEqual(go.count, 1)
+        XCTAssertEqual(go.first?.token, "settings-go-key")
+        XCTAssertTrue(go.first?.clients.contains("OpenCode") == true)
+    }
+
     func testSharedCredentialMergesClientsButKeepsRegionProductAndScopeSeparate() throws {
         let kimi = credential(), open = credential(client: "OpenCode"), pi = credential(client: "Pi")
         let merged = OpenAgentCredentials.merge([kimi, open, pi])

@@ -188,7 +188,7 @@ actor OpenAgentUsageProvider: UsageProvider, LedgerRecording {
         var snapshots: [UsageSnapshot] = [], descriptors: [AgentDescriptor] = []
         var insights: [String: UsageInsights] = [:]
         var notices = local.notices, plans: [String: String] = [:], links: [String: Set<String>] = [:]
-        var accounts: [String: [AccountObservation]] = ["Kimi": [], "GLM": [], "OpenCode Go": []]
+        var accounts: [String: [AccountObservation]] = ["Kimi": [], "GLM": [], "OpenCode": []]
         var services = apiServices()
         for result in quotas {
             let pool = result.credential.pool
@@ -206,7 +206,8 @@ actor OpenAgentUsageProvider: UsageProvider, LedgerRecording {
                 plans[pool.id] = plan
             }
             if result.isActive {
-                accounts[pool.provider, default: []].append(AccountObservation(account: ProviderAccount(pool: pool), plan: quota.plan, observedAt: result.at))
+                accounts[pool.provider == "OpenCode Go" ? "OpenCode" : pool.provider, default: []].append(
+                    AccountObservation(account: ProviderAccount(pool: pool), plan: quota.plan, observedAt: result.at))
             }
             for window in quota.windows {
                 snapshots.append(.init(agentId: window.id, remainingPct: window.remaining, resetAt: window.reset,
