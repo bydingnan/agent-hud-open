@@ -175,8 +175,7 @@ final class ZenMuxProviderTests: XCTestCase, @unchecked Sendable {
         XCTAssertEqual(report.snapshots.first?.remainingPct, 80)
         XCTAssertTrue(report.sourceNotices.isEmpty, "healthy monthly-cap information is not a source failure")
         XCTAssertEqual(report.usage, [usage])
-        XCTAssertEqual(report.billing.first?.vendor, "ZenMux")
-        XCTAssertEqual(report.billing.first?.costs, [cost])
+        XCTAssertTrue(report.billing.isEmpty, "ZenMux keeps subscription quota only; no billing card")
         XCTAssertNil(provider.watchedDirectories, "account-only ZenMux must be polled, not an empty watch list")
         XCTAssertFalse(provider.seesLocalWork)
 
@@ -192,22 +191,6 @@ final class ZenMuxProviderTests: XCTestCase, @unchecked Sendable {
         XCTAssertFalse((quiet.sourceNotices["ZenMux"] ?? "").contains("sk-"))
     }
 
-    func testFailedCostFetchLeavesBillingTimestampNilForRetention() async throws {
-        let now = Date(timeIntervalSince1970: 1_800_000_000)
-        let provider = ZenMuxUsageProvider(
-            readQuota: { ProviderQuota(windows: [], plan: "pro") },
-            readUsage: { [] },
-            readCosts: { throw UsageProviderError("rate limited") },
-            hasKey: { true },
-            clock: { now }
-        )
-
-        await provider.refreshAccountUsage(historyHours: 168)
-        let report = try await provider.fetchUsage(agents: [], historyHours: 168)
-
-        XCTAssertNil(report.billing.first?.updatedAt)
-        XCTAssertEqual(report.billing.first?.notice, "rate limited")
-    }
 
     func testCombinedStandardRegistersZenMuxAsAccountSource() {
         let provider = CombinedUsageProvider.standard(ledger: .inMemory())
@@ -228,10 +211,10 @@ final class ZenMuxProviderTests: XCTestCase, @unchecked Sendable {
             AgentDescriptor(id: $0, vendor: "ZenMux", model: $0, source: "ZenMux", enabled: false, connected: true)
         }
         settings.mergeDiscovered(windows)
-        settings.mergeDiscovered(windows)
-        XCTAssertEqual(settings.agents.map(\.id), ["zenmux:5h", "zenmux:7d"])
-        XCTAssertTrue(settings.agents.allSatisfy(\.enabled))
-        XCTAssertTrue(settings.agents.allSatisfy(\.connected))
+        XCTAssertEqual(settings.agents.filter { $0.vendor == "ZenMux" }.map(\.id), ["zenmux:5h", "zenmux:7d"])
+        XCTAssertTrue(settings.agents.filter { $0.vendor == "ZenMux" }.allSatisfy(\.enabled))
+        XCTAssertTrue(settings.agents.filter { $0.vendor == "ZenMux" }.allSatisfy(\.connected))
+        XCTAssertTrue(Set(settings.agents.map(\.id)).isSuperset(of: ["opencode", "kimi", "glm"]))
     }
 }
 

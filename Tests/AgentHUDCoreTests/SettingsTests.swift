@@ -146,8 +146,8 @@ final class AgentSettingsTests: XCTestCase {
         let agents = [AgentDescriptor(id: "open", vendor: "OpenCode", model: "Model A", source: "", enabled: true, billingPool: shared),
                       AgentDescriptor(id: "pi", vendor: "Pi", model: "Model B", source: "", enabled: true, billingPool: shared)]
         let groups = AgentSettingsGroup.make(sources: [], agents: agents)
-        XCTAssertEqual(groups.map(\.id), ["OpenCode", "Kimi", "GLM", "Anthropic", "Pi"])
-        XCTAssertEqual(groups.first?.apiProviders, ["Anthropic"])
+        XCTAssertEqual(groups.map(\.id), ["Anthropic", "OpenCode", "Pi", "Kimi", "GLM"])
+        XCTAssertEqual(groups.first { $0.id == "Anthropic" }?.apiProviders, ["Anthropic"])
         XCTAssertEqual(groups.first { $0.id == "OpenCode" }?.apiProviders, ["Anthropic"])
         XCTAssertEqual(groups.first { $0.id == "Pi" }?.apiProviders, ["Anthropic"])
         XCTAssertTrue(groups.first { $0.id == "Pi" }!.agents.isEmpty)
@@ -189,7 +189,7 @@ final class AgentSettingsTests: XCTestCase {
             AgentDescriptor(id: "chatgpt", vendor: "ChatGPT", model: "Plus", source: "", enabled: false),
         ]
         let groups = AgentSettingsGroup.make(sources: sources, agents: agents)
-        XCTAssertEqual(groups.map(\.id), ["OpenCode", "Kimi", "GLM", "Codex", "Claude", "ChatGPT", "Cursor"])
+        XCTAssertEqual(groups.map(\.id), ["Codex", "Claude", "ChatGPT", "Cursor", "OpenCode", "Kimi", "GLM"])
         XCTAssertEqual(groups.first { $0.id == "Claude" }?.agents.map(\.id), ["c1", "c2"])
         XCTAssertEqual(groups.first { $0.id == "Claude" }?.displayedCount, 1)
         XCTAssertEqual(groups.first { $0.id == "Claude" }?.agents.count, 2)
@@ -209,6 +209,24 @@ final class SettingsStoreTests: XCTestCase {
         let defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
         return defaults
+    }
+
+    func testSettingsGroupOrderFollowsSavedAgentsWithoutPinnedVendors() {
+        let agents = [
+            AgentDescriptor(id: "claude", vendor: "Claude", model: "Opus", source: "claude-code", enabled: true),
+            AgentDescriptor(id: "codex", vendor: "Codex", model: "5h", source: "codex", enabled: true),
+            AgentDescriptor(id: "zenmux:5h", vendor: "ZenMux", model: "5 小时", source: "zenmux", enabled: true),
+            AgentDescriptor(id: "kimi", vendor: "Kimi", model: "订阅", source: "not-connected", enabled: false),
+        ]
+        let sources: [SourceStatus] = [
+            .init(id: "claude-code", name: "Claude", detail: "", state: .ready(plan: nil)),
+            .init(id: "codex-cli", name: "Codex", detail: "", state: .ready(plan: nil)),
+            .init(id: "zenmux", name: "ZenMux", detail: "", state: .installed),
+            .init(id: "kimi", name: "Kimi", detail: "", state: .notDetected),
+        ]
+        let groups = AgentSettingsGroup.make(sources: sources, agents: agents)
+        XCTAssertEqual(groups.prefix(4).map(\.id), ["Claude", "Codex", "ZenMux", "Kimi"],
+                       "dragged agent order must not be overridden by a fixed vendor pin list")
     }
 
     func testPreferredVendorsAndDefaultsUseOnlyProviderEmittedPlaceholderIDs() {

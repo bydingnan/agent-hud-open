@@ -83,7 +83,8 @@ final class KimiQuotaIdentityTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suite) }
         let settings = SettingsStore(defaults: defaults, defaultAgents: [])
         settings.mergeDiscovered(first.discoveredAgents, activeQuotaPoolIDs: first.activeQuotaPoolIDs)
-        XCTAssertEqual(settings.agents.count, 4)
+        XCTAssertEqual(settings.agents.filter { $0.billingPool != nil }.count, 4)
+        XCTAssertTrue(Set(settings.agents.map(\.id)).isSuperset(of: ["opencode", "glm"]))
         await server.allowProfiles()
         input.advance(121)
         let second = try await retained.fetchAccountAndLocalUsage(agents: [], historyHours: 24)
@@ -92,7 +93,7 @@ final class KimiQuotaIdentityTests: XCTestCase {
         XCTAssertEqual(second.discoveredAgents.count, 2)
         XCTAssertEqual(second.subscriptions.count, 1)
         XCTAssertEqual(second.consumerIdsByQuota.count, 2)
-        XCTAssertEqual(settings.agents.count, 2)
+        XCTAssertEqual(settings.agents.filter { $0.billingPool != nil }.count, 2)
         XCTAssertNil(second.sourceNotices["Kimi"])
     }
 
@@ -130,7 +131,8 @@ final class KimiQuotaIdentityTests: XCTestCase {
         await retained.refreshAccountUsage(historyHours: UsageStore.historyHours)
         await store.refresh()
         XCTAssertTrue(store.rows.isEmpty)
-        XCTAssertTrue(settings.agents.isEmpty)
+        XCTAssertTrue(settings.agents.filter { $0.billingPool != nil }.isEmpty)
+        XCTAssertTrue(Set(settings.agents.map(\.id)).isSuperset(of: ["opencode", "kimi", "glm"]))
         XCTAssertEqual(store.report?.activeQuotaPoolIDs?["Kimi"], [])
         XCTAssertTrue(store.report?.snapshots.isEmpty == true)
         XCTAssertTrue(store.report?.subscriptions.isEmpty == true)

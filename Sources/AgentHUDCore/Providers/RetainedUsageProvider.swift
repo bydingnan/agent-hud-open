@@ -90,11 +90,14 @@ extension UsageReport {
         let retiredWindowIDs = Set(retired.map(\.id))
         func isRetained(_ agent: AgentDescriptor) -> Bool { isActive(agent) && !retiredWindowIDs.contains(agent.id) }
         let billingIDs = Set(billing.map(\.id))
+        // ZenMux dropped API billing; do not resurrect an empty balance card from the restart cache.
         let retainedBilling = billing.map { value -> APIBilling in
             guard value.updatedAt == nil, let old = previous.billing.first(where: { $0.id == value.id }) else { return value }
             return APIBilling(vendor: value.vendor, balances: old.balances, isAvailable: old.isAvailable,
                 updatedAt: old.updatedAt, costs: value.costs, sessionCosts: value.sessionCosts, notice: value.notice, billingPool: value.billingPool)
-        } + previous.billing.filter { !billingIDs.contains($0.id) }
+        } + previous.billing.filter {
+            !billingIDs.contains($0.id) && ($0.billingPool?.provider ?? $0.vendor) != "ZenMux"
+        }
         let knownAgents = UsageAggregation.consumersUnion([discoveredAgents, consumers, previous.discoveredAgents, previous.consumers])
         let failedIDs = Set(knownAgents.filter { sourceNotices[$0.vendor] != nil }.map(\.id))
         let retainedSessions = UsageAggregation.sessionsUnion([sessions, previous.sessions.filter { failedIDs.contains($0.agentId) }])

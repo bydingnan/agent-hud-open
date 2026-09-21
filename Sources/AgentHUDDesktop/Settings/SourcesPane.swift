@@ -21,11 +21,6 @@ struct SourcesPane: View {
         let groups = AgentSettingsGroup.make(sources: detected, agents: settings.agents, report: store.report)
         VStack(alignment: .leading, spacing: 24) {
             VStack(alignment: .leading, spacing: 10) {
-                Button(L10n.text("只用我的常用来源", "Use my usual sources only")) {
-                    settings.enableOnlyVendors(PreferredVendors.personal)
-                }
-                .buttonStyle(.bordered)
-                .accessibilityIdentifier("enable-preferred-vendors")
                 ForEach(groups) { group in
                     AgentSettingsCard(group: group, settings: settings, theme: theme,
                         isExpanded: Binding(get: { expanded.contains(group.id) }, set: { value in
@@ -60,7 +55,6 @@ struct AgentSettingsCard: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-                .onDrop(of: [UTType.text], delegate: dropDelegate(.group(group.id)))
             if isExpanded && group.hasLiveStatus {
                 SettingsDivider(theme: theme)
                 AgentLiveStatusSettings(vendor: group.id, settings: settings)
@@ -94,12 +88,20 @@ struct AgentSettingsCard: View {
         }
         .background(theme.card, in: RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(theme.cardBorder, lineWidth: 1))
+        // Whole card accepts group drops so reordering works without landing exactly on the handle.
+        .onDrop(of: [UTType.text], delegate: dropDelegate(.group(group.id)))
+    }
+
+    private var canReorderGroup: Bool {
+        // Only groups with at least one saved agent row have an order in SettingsStore.
+        group.agents.isEmpty == false
     }
 
     private var header: some View {
         HStack(spacing: 8) {
-            if !group.agents.isEmpty {
+            if canReorderGroup {
                 OrderDragHandle(theme: theme)
+                    .frame(width: 22, alignment: .leading)
                     .padding(.vertical, 18)
                     .contentShape(Rectangle())
                     .onDrag {
@@ -107,8 +109,9 @@ struct AgentSettingsCard: View {
                         return NSItemProvider(object: group.id as NSString)
                     }
                     .help(L10n.text("拖动以调整分组顺序", "Drag to reorder this group"))
+                    .accessibilityLabel(L10n.text("拖动 \(group.id)", "Drag \(group.id)"))
             } else {
-                Color.clear.frame(width: 16)
+                Color.clear.frame(width: 22)
             }
             Button {
                 if canExpand {

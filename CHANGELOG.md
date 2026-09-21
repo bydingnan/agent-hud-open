@@ -4,10 +4,12 @@ Releases of Agent HUD Open. A version is a git tag `vX.Y.Z` on `main`; `CFBundle
 
 ## Unreleased
 
-- ZenMux account usage: 5 h and 7 d quota windows, daily token history and reference USD costs from the official management API when a Management API key is saved in Settings (Keychain) or via `ZENMUX_MANAGEMENT_API_KEY` / `ZENMUX_MGMT_API_KEY` / `~/.config/api-tokens.env`; no local sessions or turns. The personal one-tap preset and fresh installs watch ZenMux only; other clients stay off until enabled.
-- Settings → Agents: each source card has a Show switch; only ZenMux starts on. OpenCode / Kimi / GLM stay listed for key entry but stay off the glow until switched on.
+- ZenMux account usage: 5 h and 7 d quota windows, daily token history and reference USD costs from the official management API when a Management API key is saved in Settings (Keychain) or via `ZENMUX_MANAGEMENT_API_KEY` / `ZENMUX_MGMT_API_KEY` / `~/.config/api-tokens.env`; no local sessions or turns. Fresh installs watch ZenMux only; other clients stay off until enabled. ZenMux is subscription-only on the HUD — its leftover API / balance card is not shown.
+- OpenAgent / ZenMux quota window labels are the duration only (`5 小时` / `7 天`, or `5h` / `7d`), without region, PLAN, or account-hash suffixes.
+- The expanded island panel scrolls when the agent list is taller than the screen; Settings / Statistics stay pinned at the bottom. Opening Settings collapses the panel first.
+- Settings → Agents: each source card has a Show switch; only ZenMux starts on. OpenCode / Kimi / GLM stay listed for key entry but stay off the glow until switched on. Drag the group handle (or an expanded window row) to reorder the glow and panel — saved order is no longer overridden by a fixed vendor pin list. The old “usual sources only” one-tap button is gone.
 - Settings → Agents → OpenCode / Kimi / GLM: paste a coding-plan API key (Keychain) or follow the login hint so the HUD can read quota without relying on a pre-installed client; a saved key wins over env and client auth files for that product.
-- Settings → General → Show in Dock toggles whether the app appears in the Dock (`Settings.showInDock`, default off).
+- Settings → General → Show in Dock toggles whether the app appears in the Dock (`Settings.showInDock`, default off). An application menu provides ⌘, / Edit shortcuts while Agent HUD is frontmost.
 - Host API: `ZenMuxCredentials` (including Keychain save/load), `OpenAgentSettingsKeys`, `ZenMuxUsageProvider` and `PreferredVendors.personal` include `ZenMux` only; `Settings.showInDock`.
 
 ## 0.4.17 — 2026-09-20

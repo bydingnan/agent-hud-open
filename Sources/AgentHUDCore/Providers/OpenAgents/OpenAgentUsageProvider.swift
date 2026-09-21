@@ -212,7 +212,7 @@ actor OpenAgentUsageProvider: UsageProvider, LedgerRecording {
             for window in quota.windows {
                 snapshots.append(.init(agentId: window.id, remainingPct: window.remaining, resetAt: window.reset,
                     windowDuration: window.duration, updatedAt: result.at))
-                descriptors.append(.init(id: window.id, vendor: pool.provider, model: window.label + (quota.plan.map { " · " + $0 } ?? ""),
+                descriptors.append(.init(id: window.id, vendor: pool.provider, model: window.label,
                     source: result.credential.clients.sorted().joined(separator: ", "), enabled: true, billingPool: pool,
                     account: ProviderAccount(pool: pool)))
                 // Historical records lacking a pool must not inherit the current credential's quota.

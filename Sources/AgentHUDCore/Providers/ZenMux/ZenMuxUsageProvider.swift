@@ -1,29 +1,26 @@
 import Foundation
 
-/// ZenMux exposes account-wide quota, token usage and costs without a local session source.
+/// ZenMux exposes account-wide subscription quota and token usage without a local session source.
+/// Cost / billing history is not shown — only plan windows stay on the HUD.
 public actor ZenMuxUsageProvider: UsageProvider {
     private typealias HistoryReader<Value: Sendable> = @Sendable (Int, Date) async throws -> Value
 
     private let readQuota: @Sendable () async throws -> ProviderQuota
     private let readUsage: HistoryReader<[UsageBucket]>
-    private let readCosts: HistoryReader<[CostBucket]>
     private let hasKey: @Sendable () -> Bool
     private let clock: @Sendable () -> Date
     private var lastRefreshAt: Date?
     private var quota: Result<ProviderQuota, UsageProviderError>?
     private var usage: Result<[UsageBucket], UsageProviderError>?
-    private var costs: Result<[CostBucket], UsageProviderError>?
 
     init(
         readQuota: @escaping @Sendable () async throws -> ProviderQuota,
         readUsage: @escaping @Sendable () async throws -> [UsageBucket],
-        readCosts: @escaping @Sendable () async throws -> [CostBucket],
         hasKey: @escaping @Sendable () -> Bool,
         clock: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.readQuota = readQuota
         self.readUsage = { _, _ in try await readUsage() }
-        self.readCosts = { _, _ in try await readCosts() }
         self.hasKey = hasKey
         self.clock = clock
     }
@@ -31,15 +28,25 @@ public actor ZenMuxUsageProvider: UsageProvider {
     private init(
         readQuota: @escaping @Sendable () async throws -> ProviderQuota,
         readUsage: @escaping HistoryReader<[UsageBucket]>,
-        readCosts: @escaping HistoryReader<[CostBucket]>,
         hasKey: @escaping @Sendable () -> Bool,
         clock: @escaping @Sendable () -> Date
     ) {
         self.readQuota = readQuota
         self.readUsage = readUsage
-        self.readCosts = readCosts
         self.hasKey = hasKey
         self.clock = clock
+    }
+
+    /// Test helper that ignores cost readers — subscription quota only.
+    init(
+        readQuota: @escaping @Sendable () async throws -> ProviderQuota,
+        readUsage: @escaping @Sendable () async throws -> [UsageBucket],
+        readCosts: @escaping @Sendable () async throws -> [CostBucket],
+        hasKey: @escaping @Sendable () -> Bool,
+        clock: @escaping @Sendable () -> Date = { Date() }
+    ) {
+        _ = readCosts
+        self.init(readQuota: readQuota, readUsage: readUsage, hasKey: hasKey, clock: clock)
     }
 
     public static func standard(ledger: UsageLedger) -> ZenMuxUsageProvider {
@@ -49,9 +56,6 @@ public actor ZenMuxUsageProvider: UsageProvider {
             readQuota: { try await client.fetchSubscription() },
             readUsage: { hours, now in
                 try await client.fetchUsageHistory(days: Self.historyDays(hours), now: now)
-            },
-            readCosts: { hours, now in
-                try await client.fetchCostHistory(days: Self.historyDays(hours), now: now)
             },
             hasKey: { ZenMuxCredentials.managementKey() != nil },
             clock: { Date() }
@@ -68,7 +72,6 @@ public actor ZenMuxUsageProvider: UsageProvider {
             lastRefreshAt = nil
             quota = nil
             usage = nil
-            costs = nil
             return
         }
         let now = clock()
@@ -76,10 +79,9 @@ public actor ZenMuxUsageProvider: UsageProvider {
             return
         }
         lastRefreshAt = now
-        // Island only needs quota. History is filled on a later poll after this step signals ZenMux.
+        // Island only needs quota. Token history is filled on a later poll.
         quota = await capture { try await readQuota() }
         usage = nil
-        costs = nil
     }
 
     public func fetchUsage(agents: [AgentDescriptor], historyHours: Int) async throws -> UsageReport {
@@ -94,10 +96,8 @@ public actor ZenMuxUsageProvider: UsageProvider {
         if quota == nil {
             // First paint: quota alone. History waits for the next poll.
             await refreshAccountUsage(historyHours: historyHours)
-        } else if usage == nil || costs == nil {
+        } else if usage == nil {
             usage = await capture { try await readUsage(historyHours, now) }
-            guard !Task.isCancelled else { return makeReport(now: now) }
-            costs = await capture { try await readCosts(historyHours, now) }
         }
         return makeReport(now: now)
     }
@@ -106,7 +106,6 @@ public actor ZenMuxUsageProvider: UsageProvider {
         let observedAt = lastRefreshAt ?? now
         let quotaValue = try? quota?.get()
         let usageValue = (try? usage?.get()) ?? []
-        let costValue = (try? costs?.get()) ?? []
         let windows = quotaValue?.windows ?? []
         let snapshots = windows.map {
             UsageSnapshot(agentId: $0.id, remainingPct: $0.remaining, resetAt: $0.reset,
@@ -118,13 +117,8 @@ public actor ZenMuxUsageProvider: UsageProvider {
         }
         let consumer = AgentDescriptor(id: "zenmux", vendor: "ZenMux", model: L10n.text("订阅", "Plan"),
                                        source: L10n.text("ZenMux 账户用量", "ZenMux account usage"), enabled: true)
-        let notices = [failureMessage(quota), failureMessage(usage), failureMessage(costs)].compactMap { $0 }
+        let notices = [failureMessage(quota), failureMessage(usage)].compactMap { $0 }
         let notice = notices.isEmpty ? nil : notices.joined(separator: " · ")
-        // Costs feed stats charts; empty balances keep ZenMux on quota rows (5h / 7d), not a wallet card.
-        let billing = APIBilling(
-            vendor: "ZenMux", balances: [], isAvailable: nil,
-            updatedAt: costs != nil && failureMessage(costs) == nil ? observedAt : nil,
-            costs: costValue, notice: failureMessage(costs))
         return UsageReport(
             generatedAt: now,
             snapshots: snapshots,
@@ -135,8 +129,7 @@ public actor ZenMuxUsageProvider: UsageProvider {
             usage: usageValue,
             subscriptions: quotaValue?.plan.map { ["ZenMux": $0] } ?? [:],
             sourceNotices: notice.map { ["ZenMux": $0] } ?? [:],
-            consumerIdsByQuota: Dictionary(uniqueKeysWithValues: windows.map { ($0.id, ["zenmux"]) }),
-            billing: [billing]
+            consumerIdsByQuota: Dictionary(uniqueKeysWithValues: windows.map { ($0.id, ["zenmux"]) })
         )
     }
 

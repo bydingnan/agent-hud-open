@@ -97,9 +97,9 @@ struct ZenMuxClient: Sendable {
                 reset: ProviderDate.iso(node["resets_at"].stringValue), duration: duration))
         }
         try window(key: "quota_5_hour", id: "zenmux:5h",
-                   label: L10n.text("5 小时", "5h"), duration: 5 * 3600)
+                   label: Countdown.windowPeriod(5 * 3600), duration: 5 * 3600)
         try window(key: "quota_7_day", id: "zenmux:7d",
-                   label: L10n.text("7 天", "7d"), duration: 7 * 86400)
+                   label: Countdown.windowPeriod(7 * 86400), duration: 7 * 86400)
         guard !quota.windows.isEmpty else { throw ProviderFailure.format }
         return quota
     }

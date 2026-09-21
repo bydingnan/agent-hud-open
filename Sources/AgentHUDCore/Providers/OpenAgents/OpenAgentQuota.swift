@@ -40,7 +40,8 @@ struct OpenAgentQuotaClient: Sendable {
         var quota = ProviderQuota()
         func add(_ key: String, _ title: String, _ used: Double, reset: Date?, duration: Double?) throws {
             guard used.isFinite, used >= 0 else { throw ProviderFailure.format }
-            quota.windows.append(.init(id: credential.pool.windowID(key), label: title + " · " + credential.pool.label,
+            // Duration-only labels ("5 小时", "7 天"); realm / plan / credential noise stays off the HUD.
+            quota.windows.append(.init(id: credential.pool.windowID(key), label: title,
                 remaining: max(0, 100 - used), reset: reset, duration: duration))
         }
         switch credential.service {
@@ -50,7 +51,9 @@ struct OpenAgentQuotaClient: Sendable {
                       let used = numeric(detail["used"]) ?? numeric(detail["remaining"]).map({ max(0, limit - $0) }) else { throw ProviderFailure.format }
                 try add(key, title, used / limit * 100, reset: ProviderDate.iso(detail["resetTime"].stringValue), duration: duration)
             }
-            if root["usage"].objectValue != nil { try window(root["usage"], key: "weekly", title: "7d", duration: 7 * 86400) }
+            if root["usage"].objectValue != nil {
+                try window(root["usage"], key: "weekly", title: Countdown.windowPeriod(7 * 86400), duration: 7 * 86400)
+            }
             for entry in root["limits"].arrayValue ?? [] {
                 let windowSpec = entry["window"]
                 guard let count = numeric(windowSpec["duration"]), count > 0,
@@ -58,7 +61,7 @@ struct OpenAgentQuotaClient: Sendable {
                       let multiplier = ["TIME_UNIT_MINUTE": 60.0, "TIME_UNIT_HOUR": 3600, "TIME_UNIT_DAY": 86400, "TIME_UNIT_WEEK": 604800][unit] else { throw ProviderFailure.format }
                 let duration = count * multiplier
                 guard duration.isFinite, duration <= 253402300799 else { throw ProviderFailure.format }
-                try window(entry["detail"], key: "limit:\(unit):\(count)", title: "\(Int(duration / 60))m", duration: duration)
+                try window(entry["detail"], key: "limit:\(unit):\(count)", title: Countdown.windowPeriod(duration), duration: duration)
             }
             quota.plan = root["membership"]["level"].stringValue
         case .go:
@@ -70,7 +73,9 @@ struct OpenAgentQuotaClient: Sendable {
                 let reset = numeric(value["resetInSec"]).flatMap { $0 <= 253402300799 - now.timeIntervalSince1970 ? now.addingTimeInterval($0) : nil }
                     ?? ProviderDate.iso(value["resetTime"].stringValue)
                 // Direct API percentage is 0...100: 0.5 means 0.5%, never 50%.
-                try add(key, key, percent, reset: reset, duration: key == "rolling" ? 5 * 3600 : key == "weekly" ? 7 * 86400 : nil)
+                let duration: Double? = key == "rolling" ? 5 * 3600 : key == "weekly" ? 7 * 86400 : nil
+                let title = duration.map(Countdown.windowPeriod) ?? L10n.text("每月", "Monthly")
+                try add(key, title, percent, reset: reset, duration: duration)
             }
         case .glmChina, .glmGlobal:
             guard root["success"].boolValue == true, root["code"].numberValue == 200,
@@ -89,7 +94,7 @@ struct OpenAgentQuotaClient: Sendable {
                 if let duration, !duration.isFinite || duration > 253402300799 { throw ProviderFailure.format }
                 var reset = ProviderDate.milliseconds(raw["nextResetTime"])
                 if type != "TIME_LIMIT", duration == 18000, let date = reset, date > now.addingTimeInterval(18060) { reset = nil }
-                let label = type == "TIME_LIMIT" ? "MCP" : (duration.map { "\(Int($0 / 60))m" } ?? type)
+                let label = type == "TIME_LIMIT" ? "MCP" : (duration.map(Countdown.windowPeriod) ?? type)
                 try add("\(type):\(unit):\(count)", label, percent, reset: reset, duration: type == "TIME_LIMIT" && unit == 5 && count == 1 ? nil : duration)
             }
             quota.plan = root["data"]["planName"].stringValue

@@ -45,6 +45,21 @@ public enum Countdown {
         return format(interval)
     }
 
+    /// Quota window length: "5 小时" / "5h", "7 天" / "7d". Prefer days/hours over raw minute counts like "300m".
+    public static func windowPeriod(_ duration: TimeInterval) -> String {
+        let minutes = max(0, Int((duration / 60).rounded()))
+        guard minutes > 0 else { return "—" }
+        if minutes % (24 * 60) == 0 {
+            let days = minutes / (24 * 60)
+            return L10n.text("\(days) 天", "\(days)d")
+        }
+        if minutes % 60 == 0 {
+            let hours = minutes / 60
+            return L10n.text("\(hours) 小时", "\(hours)h")
+        }
+        return L10n.text("\(minutes) 分钟", "\(minutes)m")
+    }
+
     /// Session duration labels: "27m 进行中" / "27m running", "结束于 51m 前" / "ended 51m ago".
     public static func sessionLabel(_ session: LiveSession, now: Date) -> String {
         if session.isLive {

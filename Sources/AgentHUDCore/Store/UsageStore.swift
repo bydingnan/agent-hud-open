@@ -274,9 +274,12 @@ public final class UsageStore {
 
     /// Account cards shown in the island and menu follow the agent switches.
     /// Cost-only vendors (subscription quota + usage costs, no wallet) stay on quota rows.
+    /// ZenMux is subscription-only — never show its leftover API / balance card.
     public var enabledBilling: [APIBilling] {
         let vendors = Set(enabledAgents.map(\.vendor))
         return (report?.billing ?? []).filter { billing in
+            let provider = billing.billingPool?.provider ?? billing.vendor
+            guard provider != "ZenMux" else { return false }
             guard !billing.balances.isEmpty || billing.costs.isEmpty else { return false }
             return billing.billingPool.map { pool in enabledAgents.contains { $0.billingPool?.id == pool.id } } ?? vendors.contains(billing.vendor)
         }

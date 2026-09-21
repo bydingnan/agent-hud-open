@@ -28,6 +28,7 @@ final class SettingsWindowController: HostedWindowController {
     func show(pageID: String?) {
         if let pageID, pageIDs.contains(pageID) { navigation.pageID = pageID }
         window?.title = Self.title
+        // Closed or buried windows must resurface; HostedWindowController.show() handles both.
         super.show()
     }
 

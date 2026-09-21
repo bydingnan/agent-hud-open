@@ -106,7 +106,9 @@ public final class SettingsStore {
     }
 
     private func saveAgents(_ list: [AgentDescriptor], change: Change) {
-        let next = list.groupedAgentOrder
+        // Quota discovery can retire every pool row for a vendor; put the Settings key-entry
+        // placeholders back so Kimi / GLM / OpenCode never disappear from Agents.
+        let next = Self.withKeyEntryPlaceholders(list)
         guard next != agents else { return }
         agents = next
         persist(next, key: Keys.agents)
@@ -196,7 +198,10 @@ public final class SettingsStore {
                 }
                 guard !arrivals.isEmpty, let index = list.firstIndex(where: { $0.id == placeholder.id }) else { continue }
                 let existing = list.remove(at: index)
-                list.insert(contentsOf: arrivals.map { $0.with(enabled: existing.enabled) }, at: index)
+                // A not-connected placeholder has never been shown; turn the real windows on so pasting
+                // a key immediately surfaces quota. An explicit Show preference is kept.
+                let enabled = existing.source == L10n.sourceNotConnected ? true : existing.enabled
+                list.insert(contentsOf: arrivals.map { $0.with(enabled: enabled) }, at: index)
             }
             // Unscoped rows of a provider that now identifies accounts have been taken over or no longer exist.
             list.removeAll { agent in
@@ -216,9 +221,12 @@ public final class SettingsStore {
                     continue
                 }
                 let anchor = list.lastIndex { $0.displayVendor == found.displayVendor }
-                let enabled = anchor.map { list[$0].enabled }
-                    ?? PreferredVendors.personal.contains(found.displayVendor)
-                    || PreferredVendors.personal.contains(found.vendor)
+                let keyEntry = DefaultAgents.keyEntryPlaceholder(for: found.displayVendor) != nil
+                let enabled = anchor.map { list[$0].enabled } ?? (
+                    PreferredVendors.personal.contains(found.displayVendor)
+                        || PreferredVendors.personal.contains(found.vendor)
+                        || keyEntry
+                )
                 list.insert(found.with(enabled: enabled), at: anchor.map { $0 + 1 } ?? 0)
             }
             return list

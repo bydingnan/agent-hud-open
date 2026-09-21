@@ -54,6 +54,17 @@ final class CountdownTests: XCTestCase {
         XCTAssertEqual(Countdown.formatRough(7260), "2h 01m")
         XCTAssertEqual(Countdown.formatRough(1800), "30m")
     }
+
+    func testWindowPeriodPrefersHoursAndDays() {
+        XCTAssertEqual(Countdown.windowPeriod(300 * 60), "5 小时")
+        XCTAssertEqual(Countdown.windowPeriod(10080 * 60), "7 天")
+        XCTAssertEqual(Countdown.windowPeriod(2 * 86400), "2 天")
+        XCTAssertEqual(Countdown.windowPeriod(45 * 60), "45 分钟")
+        XCTAssertEqual(Countdown.windowPeriod(0), "—")
+        L10n.setLanguage(.en)
+        XCTAssertEqual(Countdown.windowPeriod(300 * 60), "5h")
+        XCTAssertEqual(Countdown.windowPeriod(10080 * 60), "7d")
+    }
 }
 
 final class TokenFormatTests: XCTestCase {

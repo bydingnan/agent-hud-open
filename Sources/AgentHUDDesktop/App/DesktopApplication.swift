@@ -14,6 +14,7 @@ public final class DesktopApplication {
     private var shownRequests: [String] = []
     private var notch: IslandController?
     private var statusItem: StatusItemController?
+    private var keyMonitor: Any?
     private lazy var settingsWindow = SettingsWindowController(
         settings: settings, store: store, additionalPages: additionalSettingsPages
     )
@@ -53,9 +54,12 @@ public final class DesktopApplication {
             quit: { NSApp.terminate(nil) }
         )
         self.statusItem = statusItem
+        HostedWindowActivation.restorePolicy = { [weak self] in self?.applyDockVisibility() }
+        AppMainMenu.install(openSettings: { [weak self] in self?.showSettings() })
         HotKeyCenter.shared.register(id: 1, keyCode: HotKeyCenter.keyH, modifiers: HotKeyCenter.commandOption) { [weak self] in
             self?.toggleGlow()
         }
+        installForegroundShortcuts()
         observeChanges({ [weak self] in
             self?.settings.settings.appearance
         }, onChange: { [weak self] in self?.applyAppearance() })
@@ -65,6 +69,7 @@ public final class DesktopApplication {
             guard let self else { return }
             self.statusItem?.refreshButton()
             self.notch?.apply(animated: false)
+            AppMainMenu.install(openSettings: { [weak self] in self?.showSettings() })
             Task { await self.store.refresh() }
         })
         observeChanges({ [weak self] in
@@ -94,7 +99,12 @@ public final class DesktopApplication {
         if options.demo { PermissionRequests.shared.seedDemo() } else { PermissionRequests.shared.start() }
         store.start()
         if options.openPanel { notch.forceOpen() }
-        if store.isAccessAllowed, options.showOnboarding || !settings.hasCompletedOnboarding { showOnboarding() }
+        // First-launch source list is unused for day-to-day; only --show-onboarding opens it.
+        if options.showOnboarding {
+            showOnboarding()
+        } else if !settings.hasCompletedOnboarding {
+            settings.markOnboardingComplete()
+        }
         if options.showSettings { showSettings() }
         if options.showStats { showStats() }
     }
@@ -103,6 +113,11 @@ public final class DesktopApplication {
         // Quitting must never leave a client waiting on an answer that is no longer coming.
         PermissionRequests.shared.stop()
         store.stop()
+        HostedWindowActivation.restorePolicy = nil
+        if let keyMonitor {
+            NSEvent.removeMonitor(keyMonitor)
+            self.keyMonitor = nil
+        }
     }
 
     /// Mirrors the requests waiting for the user onto the island: a new one is shown, and one the client took back
@@ -116,7 +131,11 @@ public final class DesktopApplication {
         // A request that only joined or left the queue changes no card, but it does change how many are waiting.
         notch?.apply(animated: true)
     }
-    public func showSettings(pageID: String? = nil) { settingsWindow.show(pageID: pageID) }
+    public func showSettings(pageID: String? = nil) {
+        // Settings and the expanded island compete for attention; collapse first.
+        notch?.forceCollapse()
+        settingsWindow.show(pageID: pageID)
+    }
     public func showStats() {
         Task { await store.refreshAccounts() }
         statsWindow.show()
@@ -143,6 +162,21 @@ public final class DesktopApplication {
     }
 
     private func applyDockVisibility() {
-        NSApp.setActivationPolicy(settings.settings.showInDock ? .regular : .accessory)
+        let hostedOpen = NSApp.windows.contains {
+            $0.windowController is HostedWindowController && ($0.isVisible || $0.isMiniaturized)
+        }
+        NSApp.setActivationPolicy((settings.settings.showInDock || hostedOpen) ? .regular : .accessory)
+    }
+
+    /// ⌘, opens Settings while this app is frontmost (has a key window). Status-item menu
+    /// equivalents only fire when that menu is open; this covers the settings/stats windows.
+    private func installForegroundShortcuts() {
+        guard keyMonitor == nil else { return }
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            guard flags == .command, event.charactersIgnoringModifiers == "," else { return event }
+            self?.showSettings()
+            return nil
+        }
     }
 }

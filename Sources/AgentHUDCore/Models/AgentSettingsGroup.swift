@@ -31,10 +31,8 @@ public struct AgentSettingsGroup: Identifiable, Equatable, Sendable {
             if !ids.contains(id) { ids.append(id) }
         }
         // Always list vendors that need a Settings key or login guide, even before they are installed.
+        // Append only — never reorder ahead of the user's saved agent order (drag-and-drop).
         for id in ["OpenCode", "Kimi", "GLM"] where !ids.contains(id) { ids.append(id) }
-        // Keep key-entry vendors near the top so distribution installs can find them without scrolling.
-        let pinned = ["ZenMux", "OpenCode", "Kimi", "GLM"]
-        ids = pinned.filter(ids.contains) + ids.filter { !pinned.contains($0) }
         return ids.map { id in
             let source = sources.first { vendor($0) == id }
             let windows = existing.first { $0.id == id }?.agents ?? []

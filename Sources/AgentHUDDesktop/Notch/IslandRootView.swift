@@ -98,8 +98,9 @@ struct IslandRootView: View {
             HoverPanelView(store: store, onOpenStats: onOpenStats, onOpenSettings: onOpenSettings,
                            alert: alert, onOpenAlert: onOpenAlert, onDecideAlert: onDecideAlert,
                            waitingRequests: waitingRequests)
-                .frame(width: IslandController.expandedWidth, alignment: .top)
-                .fixedSize(horizontal: false, vertical: true)
+                // Ideal height still comes from PanelHeightKey; presentationSize is the screen-capped
+                // island height so overflowing quota rows scroll instead of being clipped.
+                .frame(width: IslandController.expandedWidth, height: presentationSize?.height, alignment: .top)
                 .onPreferenceChange(PanelHeightKey.self, perform: onContentHeight)
                 .transition(detailTransition)
         } else if let alert {
