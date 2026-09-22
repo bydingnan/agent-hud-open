@@ -54,7 +54,8 @@ public final class DesktopApplication {
             quit: { NSApp.terminate(nil) }
         )
         self.statusItem = statusItem
-        HostedWindowActivation.restorePolicy = { [weak self] in self?.applyDockVisibility() }
+        HostedWindowActivation.restorePolicy = { [weak self] closing in self?.applyDockVisibility(excluding: closing) }
+        HostedWindowActivation.setDockVisible = { [weak self] visible in self?.setDockVisible(visible) }
         AppMainMenu.install(openSettings: { [weak self] in self?.showSettings() })
         HotKeyCenter.shared.register(id: 1, keyCode: HotKeyCenter.keyH, modifiers: HotKeyCenter.commandOption) { [weak self] in
             self?.toggleGlow()
@@ -114,6 +115,7 @@ public final class DesktopApplication {
         PermissionRequests.shared.stop()
         store.stop()
         HostedWindowActivation.restorePolicy = nil
+        HostedWindowActivation.setDockVisible = nil
         if let keyMonitor {
             NSEvent.removeMonitor(keyMonitor)
             self.keyMonitor = nil
@@ -162,11 +164,23 @@ public final class DesktopApplication {
         }
     }
 
-    private func applyDockVisibility() {
+    private func applyDockVisibility(excluding closing: NSWindow? = nil) {
         let hostedOpen = NSApp.windows.contains {
-            $0.windowController is HostedWindowController && ($0.isVisible || $0.isMiniaturized)
+            guard $0 !== closing else { return false }
+            return $0.windowController is HostedWindowController && ($0.isVisible || $0.isMiniaturized)
         }
-        NSApp.setActivationPolicy((settings.settings.showInDock || hostedOpen) ? .regular : .accessory)
+        setDockVisible(settings.settings.showInDock || hostedOpen)
+    }
+
+    /// AppKit often keeps a Dock icon after `.regular` → `.accessory` while we stay active.
+    /// Hopping through `.prohibited` forces the icon off for menu-bar-only mode.
+    private func setDockVisible(_ visible: Bool) {
+        let wanted: NSApplication.ActivationPolicy = visible ? .regular : .accessory
+        guard NSApp.activationPolicy() != wanted else { return }
+        if !visible {
+            NSApp.setActivationPolicy(.prohibited)
+        }
+        NSApp.setActivationPolicy(wanted)
     }
 
     /// ⌘, opens Settings while this app is frontmost (has a key window). Status-item menu

@@ -22,7 +22,10 @@ enum WindowFactory {
 
 /// Lets `DesktopApplication` restore Dock / accessory policy when the last hosted window closes.
 enum HostedWindowActivation {
-    @MainActor static var restorePolicy: (() -> Void)?
+    /// Called with the closing window so it can be excluded from the still-open check.
+    @MainActor static var restorePolicy: ((NSWindow?) -> Void)?
+    /// Force `.regular` while a hosted window is opening (avoids scanning NSApp.windows).
+    @MainActor static var setDockVisible: ((Bool) -> Void)?
 }
 
 /// Hosts one SwiftUI root view in a factory window. Subclasses pass the view to `setContent` after initialisation, so
@@ -62,7 +65,7 @@ class HostedWindowController: NSWindowController, NSWindowDelegate {
     func show() {
         // Become a normal app only while a hosted window is open, then order front once.
         // Do not re-activate on every click — that steals focus from SecureField paste / typing.
-        NSApp.setActivationPolicy(.regular)
+        HostedWindowActivation.setDockVisible?(true)
         guard let window else { return }
         if window.isMiniaturized { window.deminiaturize(nil) }
         // A closed window (isReleasedWhenClosed = false) must be shown again; already-open
@@ -78,14 +81,8 @@ class HostedWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
-        // The closing window is still visible during this callback. Minimized windows
-        // remain open and must keep the app available in the Dock and app switcher.
-        let hasOtherOpenWindow = NSApp.windows.contains {
-            $0 !== window && $0.windowController is HostedWindowController
-                && ($0.isVisible || $0.isMiniaturized)
-        }
-        if !hasOtherOpenWindow {
-            HostedWindowActivation.restorePolicy?()
-        }
+        // Exclude this window: it is still isVisible here, and with isReleasedWhenClosed = false
+        // it can linger in NSApp.windows after close. Minimized others keep the Dock.
+        HostedWindowActivation.restorePolicy?(window)
     }
 }
