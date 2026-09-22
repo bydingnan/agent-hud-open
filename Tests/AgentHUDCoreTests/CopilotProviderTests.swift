@@ -94,14 +94,16 @@ final class CopilotProviderTests: XCTestCase, @unchecked Sendable {
         defer { defaults.removePersistentDomain(forName: suite) }
         let settings = SettingsStore(defaults: defaults, defaultAgents: [])
         settings.mergeDiscovered(signedIn.discoveredAgents, accounts: signedIn.accounts)
-        XCTAssertEqual(settings.agents.map(\.id), signedIn.discoveredAgents.map(\.id))
+        XCTAssertEqual(AgentTestHelpers.agentIDsWithoutPlaceholders(settings.agents),
+                       signedIn.discoveredAgents.map(\.id))
         consent.on = false
         await retained.refreshAccountUsage(historyHours: 24)
         let withdrawn = try await retained.fetchUsage(agents: settings.agents, historyHours: 24)
         XCTAssertTrue(withdrawn.snapshots.isEmpty)
         XCTAssertEqual(withdrawn.accounts?[vendor], [])
         settings.mergeDiscovered(withdrawn.discoveredAgents, accounts: withdrawn.accounts)
-        XCTAssertTrue(settings.agents.isEmpty, "withdrawing consent removes the Copilot rows from settings")
+        XCTAssertTrue(AgentTestHelpers.withoutKeyEntryPlaceholders(settings.agents).isEmpty,
+                      "withdrawing consent removes the Copilot rows from settings")
     }
 
     func testTokenSourcesInOrder() throws {

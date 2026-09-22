@@ -285,7 +285,7 @@ final class SettingsStoreTests: XCTestCase {
 
         store.enableOnlyVendors(["Kimi", "Codex"])
 
-        XCTAssertEqual(store.agents.map(\.id), original.map(\.id))
+        XCTAssertEqual(store.agents.map(\.id), original.map(\.id) + ["opencode", "glm"])
         XCTAssertEqual(store.enabledAgents.map(\.id), ["kimi", "codex"])
         XCTAssertEqual(SettingsStore(defaults: defaults).enabledAgents.map(\.id), ["kimi", "codex"])
     }

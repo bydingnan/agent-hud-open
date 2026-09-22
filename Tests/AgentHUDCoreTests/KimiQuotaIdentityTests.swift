@@ -208,7 +208,7 @@ final class KimiQuotaIdentityTests: XCTestCase {
         let payload = Data("{\"exp\":\(Int(now.timeIntervalSince1970 - 1)),\"user_id\":\"unverified\"}".utf8)
             .base64EncodedString().replacingOccurrences(of: "=", with: "").replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
         let token = "eyJhbGciOiJub25lIn0.\(payload).fixture"
-        let discovered = OpenAgentCredentials.discover(home: try directory(), environment: ["KIMI_CODE_API_KEY": token], now: now)
+        let discovered = OpenAgentCredentials.discover(home: try directory(), environment: ["KIMI_CODE_API_KEY": token], now: now, includeSavedKeys: false)
         XCTAssertTrue(discovered.isEmpty)
         let unexpired = credential("eyJhbGciOiJub25lIn0.eyJleHAiOjE5OTk5OTk5OTksInVzZXJfaWQiOiJ1bnZlcmlmaWVkIn0.fixture")
         XCTAssertEqual(unexpired.pool.evidence, .credential)

@@ -131,7 +131,7 @@ final class ProviderAccountTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suite) }
         let settings = SettingsStore(defaults: defaults, defaultAgents: [descriptor(accountA)])
         settings.mergeDiscovered(cleared.discoveredAgents, accounts: cleared.accounts)
-        XCTAssertTrue(settings.agents.isEmpty)
+        XCTAssertTrue(AgentTestHelpers.withoutKeyEntryPlaceholders(settings.agents).isEmpty)
     }
 
     func testUnscopedReadingsAreDroppedOnceTheProviderIdentifiesAccounts() async throws {
@@ -155,15 +155,19 @@ final class ProviderAccountTests: XCTestCase {
         ])
         let first = report(account: accountA, remaining: 50, at: now, credits: nil)
         settings.mergeDiscovered(first.discoveredAgents, accounts: first.accounts)
-        XCTAssertEqual(settings.agents.map(\.id), ["claude-session", accountA.windowID("codex")])
-        XCTAssertFalse(settings.agents[1].enabled, "the switch and position move with the window")
+        XCTAssertEqual(AgentTestHelpers.agentIDsWithoutPlaceholders(settings.agents),
+                       ["claude-session", accountA.windowID("codex")])
+        XCTAssertFalse(settings.agents.first { $0.id == accountA.windowID("codex") }!.enabled,
+                       "the switch and position move with the window")
         var inventory = first.accounts!
         inventory["Codex"]!.append(AccountObservation(account: accountB, observedAt: now))
         settings.mergeDiscovered([descriptor(accountB)], accounts: inventory)
-        XCTAssertEqual(settings.agents.map(\.id), ["claude-session", accountA.windowID("codex"), accountB.windowID("codex")])
-        XCTAssertFalse(settings.agents[2].enabled)
+        XCTAssertEqual(AgentTestHelpers.agentIDsWithoutPlaceholders(settings.agents),
+                       ["claude-session", accountA.windowID("codex"), accountB.windowID("codex")])
+        XCTAssertFalse(settings.agents.first { $0.id == accountB.windowID("codex") }!.enabled)
         settings.mergeDiscovered([], accounts: ["Codex": [AccountObservation(account: accountB, observedAt: now)]])
-        XCTAssertEqual(settings.agents.map(\.id), ["claude-session", accountB.windowID("codex")], "retired accounts leave the settings")
+        XCTAssertEqual(AgentTestHelpers.agentIDsWithoutPlaceholders(settings.agents),
+                       ["claude-session", accountB.windowID("codex")], "retired accounts leave the settings")
     }
 
     func testSwitchingAccountsIsNeitherAResetNorAnExhaustion() {

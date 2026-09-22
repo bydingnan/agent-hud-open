@@ -259,8 +259,9 @@ final class AdditionalProviderTests: XCTestCase, @unchecked Sendable {
         let windows = ["one", "two"].map { AgentDescriptor(id: "antigravity:\($0)", vendor: "Antigravity", model: $0,
             source: L10n.sourceAdditionalUsage, enabled: false) }
         settings.mergeDiscovered(windows); settings.mergeDiscovered(windows)
-        XCTAssertEqual(settings.agents.count, 2)
-        XCTAssertTrue(settings.agents.allSatisfy { $0.enabled && $0.connected })
+        let antigravity = settings.agents.filter { $0.vendor == "Antigravity" }
+        XCTAssertEqual(antigravity.count, 2)
+        XCTAssertTrue(antigravity.allSatisfy { $0.enabled && $0.connected })
     }
 
     func testAdditionalProviderCachesQuotaAndStillReportsLocalUsageWhenSignedOut() async throws {

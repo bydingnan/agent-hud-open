@@ -3,6 +3,16 @@ import SQLite3
 @testable import AgentHUDCore
 
 final class OpenAgentProviderTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        L10n.setLanguage(.zhHans)
+    }
+
+    override func tearDown() {
+        L10n.setLanguage(.system)
+        super.tearDown()
+    }
+
     func testAPIServiceDiscoverySeparatesKeysOAuthPlansAndProxyOverrides() throws {
         let home = try temp()
         try write(#"{"anthropic":{"type":"api","key":"fixture"},"openai":{"type":"oauth","access":"fixture"},"kimi-for-coding":{"type":"api","key":"fixture"},"deepseek":{"type":"api","key":"fixture"},"zai-coding-plan":{"type":"api","key":"fixture"}}"#,
@@ -74,7 +84,7 @@ final class OpenAgentProviderTests: XCTestCase {
                   to: home.appendingPathComponent(".pi/agent/auth.json"))
         try write(#"{"provider":{"zai-coding-plan":{"options":{"baseURL":"https://api.z.ai/api/paas/v4"}}}}"#,
                   to: home.appendingPathComponent(".config/opencode/opencode.json"))
-        let actual = OpenAgentCredentials.discover(home: home, environment: ["KIMI_CODE_API_KEY": "shared"], now: now)
+        let actual = OpenAgentCredentials.discover(home: home, environment: ["KIMI_CODE_API_KEY": "shared"], now: now, includeSavedKeys: false)
         XCTAssertEqual(actual.count, 1)
         XCTAssertEqual(actual.first?.clients, ["Kimi", "OpenCode", "Pi"])
         XCTAssertNil(OpenAgentCredentials.service(provider: "kimi-code", baseURL: "https://api.moonshot.cn/v1"))
@@ -87,7 +97,7 @@ final class OpenAgentProviderTests: XCTestCase {
         let home = try temp(), file = home.appendingPathComponent(".kimi-code/credentials/kimi-code.json")
         let raw = #"{"access_token":"expired","expires_at":1,"refresh_token":"do-not-use"}"#
         try write(raw, to: file)
-        XCTAssertTrue(OpenAgentCredentials.discover(home: home, environment: [:], now: now).isEmpty)
+        XCTAssertTrue(OpenAgentCredentials.discover(home: home, environment: [:], now: now, includeSavedKeys: false).isEmpty)
         XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), raw)
         XCTAssertFalse(FileManager.default.fileExists(atPath: home.appendingPathComponent(".kimi-code/device_id").path))
     }
@@ -257,15 +267,15 @@ final class OpenAgentProviderTests: XCTestCase {
             try write(#"{"access_token":"same-fixture-token","expires_at":1999999999}"#,
                       to: home.appendingPathComponent(".kimi-code/credentials/\(name).json"))
         }
-        let both = OpenAgentCredentials.discover(home: home, environment: [:], now: now)
+        let both = OpenAgentCredentials.discover(home: home, environment: [:], now: now, includeSavedKeys: false)
         XCTAssertEqual(both.count, 2)
         XCTAssertEqual(Set(both.map { $0.pool.realm }), ["CN", "International"])
         XCTAssertEqual(Set(both.compactMap { $0.endpoint.host }), ["api.kimi.com", "api.kimi.ai"])
         XCTAssertFalse(FileManager.default.fileExists(atPath: home.appendingPathComponent(".kimi-code/device_id").path))
-        let global = OpenAgentCredentials.discover(home: home, environment: ["KIMI_CODE_BASE_URL": "https://api.kimi.ai/coding/v1"], now: now)
+        let global = OpenAgentCredentials.discover(home: home, environment: ["KIMI_CODE_BASE_URL": "https://api.kimi.ai/coding/v1"], now: now, includeSavedKeys: false)
         XCTAssertEqual(global.count, 1)
         XCTAssertEqual(global.first?.service, .kimiGlobal)
-        XCTAssertTrue(OpenAgentCredentials.discover(home: home, environment: ["KIMI_CODE_BASE_URL": "https://custom.example/coding/v1"], now: now).isEmpty)
+        XCTAssertTrue(OpenAgentCredentials.discover(home: home, environment: ["KIMI_CODE_BASE_URL": "https://custom.example/coding/v1"], now: now, includeSavedKeys: false).isEmpty)
     }
 
     func testJSONCOverrideCannotBeMistakenForNativeProvider() throws {
@@ -277,7 +287,7 @@ final class OpenAgentProviderTests: XCTestCase {
           "provider": {"kimi-for-coding": {"options": {"baseURL": "https://proxy.example/coding",},},},
         }
         """, to: home.appendingPathComponent(".config/opencode/opencode.jsonc"))
-        XCTAssertTrue(OpenAgentCredentials.discover(home: home, environment: [:], now: now).isEmpty)
+        XCTAssertTrue(OpenAgentCredentials.discover(home: home, environment: [:], now: now, includeSavedKeys: false).isEmpty)
     }
 
     func testKimiOfficialProfileProvesIdentityAcrossKeysWithinOneDeployment() async throws {
@@ -390,11 +400,11 @@ final class OpenAgentProviderTests: XCTestCase {
         let home = try temp(), file = home.appendingPathComponent(".pi/agent/auth.json")
         let auth = #"{"zai":{"type":"api_key","key":"same"},"zai-coding-cn":{"type":"api_key","key":"same"},"kimi-coding":{"type":"oauth","access":"access-fixture","refresh":"never-use","expires":1999999999000}}"#
         try write(auth, to: file)
-        let found = OpenAgentCredentials.discover(home: home, environment: [:], now: now)
+        let found = OpenAgentCredentials.discover(home: home, environment: [:], now: now, includeSavedKeys: false)
         XCTAssertEqual(found.count, 3)
         XCTAssertEqual(Set(found.map(\.service)), [.kimi, .glmChina, .glmGlobal])
         XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), auth)
-        let custom = OpenAgentCredentials.discover(home: home, environment: ["KIMI_CODE_OAUTH_HOST": "https://custom.example"], now: now)
+        let custom = OpenAgentCredentials.discover(home: home, environment: ["KIMI_CODE_OAUTH_HOST": "https://custom.example"], now: now, includeSavedKeys: false)
         XCTAssertFalse(custom.contains { $0.service == .kimi })
     }
 

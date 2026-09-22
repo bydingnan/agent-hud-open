@@ -80,11 +80,13 @@ enum OpenAgentCredentials {
     }
     static func discover(home: URL = FileManager.default.homeDirectoryForCurrentUser,
                          environment env: [String: String] = ProcessInfo.processInfo.environment,
-                         now: Date = Date()) -> [OpenAgentCredential] {
+                         now: Date = Date(), includeSavedKeys: Bool = true) -> [OpenAgentCredential] {
         let paths = OpenAgentPaths(home: home, environment: env)
         var found: [OpenAgentCredential] = []
         // Settings → Agents keys (Keychain) win for that product over env / client files.
-        found.append(contentsOf: OpenAgentSettingsKeys.savedCredentials().filter { $0.isUsable(at: now) })
+        if includeSavedKeys {
+            found.append(contentsOf: OpenAgentSettingsKeys.savedCredentials().filter { $0.isUsable(at: now) })
+        }
         let savedServices = Set(found.map(\.service))
         let settingsOwnsKimi = savedServices.contains(.kimi) || savedServices.contains(.kimiGlobal)
         let settingsOwnsGLM = savedServices.contains(.glmGlobal) || savedServices.contains(.glmChina)

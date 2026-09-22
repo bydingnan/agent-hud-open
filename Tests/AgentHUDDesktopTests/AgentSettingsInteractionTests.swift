@@ -118,9 +118,14 @@ final class AgentSettingsInteractionTests: XCTestCase {
                 continue
             }
             let changed = settings.agents.filter { agent in agentsBefore.first { $0.id == agent.id }?.enabled != agent.enabled }.map(\.id)
-            if let id = changed.first {
-                toggledWindow = id
+            if changed == ["settings-claude-5h"] {
+                toggledWindow = "settings-claude-5h"
                 break
+            }
+            if let id = changed.first {
+                // Undo accidental toggles on other Claude rows while scanning.
+                settings.setAgent(id: id, enabled: agentsBefore.first { $0.id == id }!.enabled)
+                await settle()
             }
         }
         XCTAssertEqual(toggledWindow, "settings-claude-5h",
