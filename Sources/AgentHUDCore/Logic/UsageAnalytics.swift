@@ -2,23 +2,30 @@ import Foundation
 
 /// Pure transforms from quota samples + transcript usage to the report's derived series.
 public enum UsageAnalytics {
-    /// Time-weighted average over the observed part of this reset cycle, including idle time.
+    /// Readings wobble by a point or two between queries; only a larger rise is a reset.
+    static let resetRise: Double = 5
+
+    /// Recent pace: consumption over the cycle's latest `paceInterval` of readings, including idle time.
+    /// A younger or shorter observed series is used whole.
     public static func burnRate(samples: [QuotaSample], cycle: QuotaCycle?, now: Date) -> BurnRate? {
         guard let cycle, now >= cycle.start, now < cycle.resetAt else { return nil }
         let sampled = sampledQuota(samples, cycle: cycle, now: now)
-        guard let first = sampled.first, let last = sampled.last else { return nil }
+        guard let earliest = sampled.first, let last = sampled.last else { return nil }
+        let cutoff = last.timestamp.addingTimeInterval(-cycle.paceInterval)
+        let first = sampled.last { $0.timestamp <= cutoff } ?? earliest
         let elapsed = last.timestamp.timeIntervalSince(first.timestamp)
+        // Whole-point readings say nothing about a shorter span.
         guard elapsed >= cycle.sampleInterval else { return nil }
-        return BurnRate(pctPerHour: (first.remainingPct - last.remainingPct) / (elapsed / 3600))
+        return BurnRate(pctPerHour: max(0, first.remainingPct - last.remainingPct) / (elapsed / 3600))
     }
 
     /// Keep the observed baseline, each cycle-aligned bucket's last reading, and the latest partial bucket.
-    /// A quota increase breaks the series (for example an early reset); never bridge across it.
+    /// A rise of `resetRise` points or more breaks the series (for example an early reset); never bridge across it.
     static func sampledQuota(_ samples: [QuotaSample], cycle: QuotaCycle, now: Date) -> [QuotaSample] {
         let current = samples.filter { $0.timestamp >= cycle.start && $0.timestamp <= now && $0.timestamp < cycle.resetAt }
             .sorted { $0.timestamp < $1.timestamp }
         var startIndex = 0
-        for index in current.indices.dropFirst() where current[index].remainingPct > current[index - 1].remainingPct {
+        for index in current.indices.dropFirst() where current[index].remainingPct - current[index - 1].remainingPct >= resetRise {
             startIndex = index
         }
         let segment = current.dropFirst(startIndex)

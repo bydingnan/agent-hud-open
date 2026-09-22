@@ -1,3 +1,4 @@
+import AgentHUDSupport
 import XCTest
 @testable import AgentHUDCore
 
@@ -35,6 +36,30 @@ final class LiveStatusTests: XCTestCase {
             XCTAssertEqual(store.liveSessions.count, sessions.count)
         }
         XCTAssertTrue(settings.settings.disabledLiveStatusSources.isEmpty)
+    }
+
+    @MainActor
+    func testSessionsAreOrderedByTheirLastEventRegardlessOfRunning() {
+        let suite = "LiveStatusOrderTests.\(UUID())", defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = UsageStore(provider: DemoUsageProvider(), settings: SettingsStore(defaults: defaults))
+        let now = Date()
+        func session(_ id: String, startedAt: TimeInterval, endedAt: TimeInterval? = nil, observedAt: TimeInterval = 0) -> LiveSession {
+            .init(id: id, agentId: "claude-model:test", task: id, terminal: nil, startedAt: now.addingTimeInterval(startedAt),
+                  endedAt: endedAt.map(now.addingTimeInterval), pctOfWindow: nil, tokensIn: 10, tokensOut: 2,
+                  observedAt: now.addingTimeInterval(observedAt))
+        }
+        func turn(_ sessionID: String, observedAt: TimeInterval) -> SessionTurn {
+            .init(provider: "claude", sessionID: sessionID, turnID: sessionID, state: .running,
+                  startedAtMs: nil, observedAtMs: RecordCoding.milliseconds(now.addingTimeInterval(observedAt)))
+        }
+        store.replace(report: UsageReport(
+            generatedAt: now, snapshots: [],
+            sessions: [session("quiet-run", startedAt: -600), session("ended", startedAt: -3600, endedAt: -60),
+                       session("busy-run", startedAt: -7200), session("turnless-run", startedAt: -86400, observedAt: -5)],
+            turns: [turn("quiet-run", observedAt: -540), turn("busy-run", observedAt: -10)]))
+        XCTAssertEqual(store.sessions.map(\.id), ["turnless-run", "busy-run", "ended", "quiet-run"],
+                       "A running session that has been quiet longer than another session has been finished ranks below it")
     }
 
     func testSettingsDecodeDefaultsAndNormalizeAtTheBoundary() throws {

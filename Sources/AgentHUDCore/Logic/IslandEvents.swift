@@ -23,19 +23,24 @@ public struct IslandEventTracker: Sendable {
         public var exhaustedWindows: [Crossing]
         /// Windows that crossed the critical threshold without also reaching zero, in agent order.
         public var criticalWindows: [Crossing]
+        /// Accounts that gained usage resets in this update.
+        public var resetCreditGrants: [ResetCreditGrant]
 
         public init(completions: [SessionCompletion] = [], quotaAlerts: [QuotaAlert] = [],
-                    exhaustedWindows: [Crossing] = [], criticalWindows: [Crossing] = []) {
+                    exhaustedWindows: [Crossing] = [], criticalWindows: [Crossing] = [],
+                    resetCreditGrants: [ResetCreditGrant] = []) {
             self.completions = completions
             self.quotaAlerts = quotaAlerts
             self.exhaustedWindows = exhaustedWindows
             self.criticalWindows = criticalWindows
+            self.resetCreditGrants = resetCreditGrants
         }
     }
 
     private let startedAt: Date
     private var seenCompletions: Set<String> = []
     private var quotas = QuotaAlertTracker()
+    private var resetCredits = ResetCreditTracker()
 
     /// Completions at or before `startedAt` are history, not events.
     public init(startedAt: Date = Date()) { self.startedAt = startedAt }
@@ -61,6 +66,7 @@ public struct IslandEventTracker: Sendable {
                 result.criticalWindows.append(Crossing(agent: agent, snapshot: snapshot))
             }
         }
+        result.resetCreditGrants = resetCredits.update(report: report, now: now)
         return result
     }
 }

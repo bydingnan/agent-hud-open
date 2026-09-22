@@ -2,15 +2,17 @@ import Foundation
 import SwiftUI
 import AgentHUDCore
 
-/// One presentation queue for quota events, completed turns and tool calls waiting to be approved.
+/// One presentation queue for quota events, added usage resets, completed turns and tool calls waiting to be approved.
 enum IslandAlert: Identifiable {
     case quota(QuotaAlert)
+    case resetCredits(ResetCreditGrant)
     case completion(SessionCompletion)
     case permission(PermissionRequest)
 
     var id: String {
         switch self {
         case .quota(let event): return event.id.uuidString
+        case .resetCredits(let event): return event.id.uuidString
         case .completion(let event): return event.id
         case .permission(let request): return request.id
         }
@@ -18,6 +20,7 @@ enum IslandAlert: Identifiable {
     var vendor: String {
         switch self {
         case .quota(let event): return event.agent.vendor
+        case .resetCredits(let event): return event.account.account.provider
         case .completion(let event): return event.vendor
         case .permission(let request): return request.vendor
         }
@@ -26,7 +29,7 @@ enum IslandAlert: Identifiable {
         switch self {
         case .quota(let event): return event.kind == .exhaustion
         case .permission: return true
-        case .completion: return false
+        case .resetCredits, .completion: return false
         }
     }
     /// A request is a question, not news: it stays until its client has its answer, and nothing else takes its place
@@ -42,24 +45,23 @@ enum IslandAlert: Identifiable {
     }
 
     /// How wide the expanded card is. A queue of requests reads across — a project, what kind of call, on what and
-    /// how long it has waited — so it takes the width; one request is a line and does not. News stays narrow.
-    @MainActor func detailWidth(queued: Int = 1) -> CGFloat {
-        guard isPersistent else { return IslandController.alertDetailWidth }
-        return queued > 1 ? 470 : 400
-    }
+    /// how long it has waited — and one request is the same card with one row in it, so the width does not move
+    /// under the user as requests arrive and are answered. News stays narrow.
+    @MainActor var detailWidth: CGFloat { isPersistent ? 470 : IslandController.alertDetailWidth }
 
     /// How far the expanded card starts below the island's own silhouette. News is one line under a headline and can
     /// afford the room.
     var detailTopInset: CGFloat { 16 }
 
     /// The frame a request card wears: the usage panel's own, because the two open in the same place, one after the
-    /// other, and a queue of requests is a panel of rows like any other. News keeps the silhouette-relative inset
-    /// above, which is measured from a shape whose height changes with the screen.
+    /// other, and a queue of requests is a panel of rows like any other. Its top is a floor, not a measurement —
+    /// the island's own silhouette wins when it is taller, since the card is narrower than the panel and sits under
+    /// the notch rather than beside it. News keeps the silhouette-relative inset above.
     var detailInsets: EdgeInsets? {
         isPersistent ? EdgeInsets(top: 32, leading: 18, bottom: 14, trailing: 18) : nil
     }
 
-    /// Completed turns and resets share the calm accent; a window running out uses the warm one.
+    /// Completed turns, resets and added usage resets share the calm accent; a window running out uses the warm one.
     var accent: RGBA { isWarning ? Self.warningAccent : Self.calmAccent }
     static let calmAccent = RGBA(hex: 0x6cd8ac)
     /// The card being decided, lifted off the island's own black so a pile of requests reads as cards.

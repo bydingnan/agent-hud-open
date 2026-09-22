@@ -17,4 +17,11 @@ public struct QuotaCycle: Hashable, Sendable {
     public var sampleInterval: TimeInterval {
         duration >= 24 * 3600 ? 3600 : min(15 * 60, duration / 2)
     }
+
+    /// How far back the burn rate looks: the last hour of a 5h window, the last day of a weekly one, the last week of a monthly one.
+    /// A day covers the daily rhythm and a week the weekend, so the rate does not depend on when it is read.
+    public var paceInterval: TimeInterval {
+        if duration >= 28 * 86400 { return 7 * 86400 }
+        return duration >= 7 * 86400 ? 86400 : duration / 5
+    }
 }

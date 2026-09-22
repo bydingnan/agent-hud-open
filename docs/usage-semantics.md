@@ -40,6 +40,8 @@ The three dimensions (`TokenDimensions`) are additive and never overlap. Charts,
 - The policy is fixed (`AlertPolicy`): nothing is stored, synchronized or configurable. A color describes the resource state of one reading; readings of different windows are never combined into one health score, and a color never indicates task progress.
 - The glow shows one segment per enabled window that has a reading; windows without a reading stay out of it, and a paused or hidden glow is grey.
 - Alerts (`QuotaAlertTracker`): the first reading of a window is a silent baseline; crossing 90% used, reaching zero, a forecast of exhaustion before the reset, and a confirmed reset each notify once. Readings older than 30 minutes stay visible but generate no alerts.
+- Added usage resets (`ResetCreditTracker`): a rise in a signed-in account's Codex reset-credit count notifies once, with how many were added; the first reading of an account is a silent baseline, and using a credit or letting one expire is not an event. A reading with a notice or older than 30 minutes confirms nothing.
+- The burn rate (`UsageAnalytics.burnRate`) is the recent pace with idle time included: consumption over the last hour of a 5h window, the last day of a weekly one and the last week of a monthly one, or over the whole observed series while that is shorter. A rise under 5 points is reading noise; a larger one is a reset and restarts the series. A series shorter than 15 minutes, or one hour for windows of a day or more, gives no estimate.
 - The island shows these alerts (`IslandEventTracker`). Baselines start again at every launch, so readings present at start-up never alert; nothing is checked while collection is paused or the last refresh failed, and alerts that arrive while the glow is hidden are dropped.
 
 ### Accounts
@@ -83,7 +85,7 @@ Reads never run in parallel: the usage store runs one pass of source reads or on
 | --- | --- |
 | Token dimensions, bar buckets | `Sources/AgentHUDCore/Logic/ChartData.swift` |
 | Alert levels, status colors | `Sources/AgentHUDCore/Models/AgentThresholds.swift`, `Sources/AgentHUDCore/Logic/StatusLevel.swift` |
-| Alert tracker, island events, forecast, reading age | `Sources/AgentHUDCore/Logic/QuotaAlerts.swift`, `IslandEvents.swift`, `QuotaForecast.swift` |
+| Alert tracker, added usage resets, island events, forecast, reading age | `Sources/AgentHUDCore/Logic/QuotaAlerts.swift`, `ResetCreditGrants.swift`, `IslandEvents.swift`, `QuotaForecast.swift` |
 | Event union, analytics, history retention | `Sources/AgentHUDCore/Store/UsageAggregation.swift`, `QuotaHistoryStore.swift`, `Sources/AgentHUDCore/Logic/UsageAnalytics.swift` |
 | Session liveness, retained readings | `Sources/AgentHUDCore/Models/LiveSession.swift`, `Sources/AgentHUDCore/Providers/RetainedUsageProvider.swift` |
 | Accounts, current and previous readings, settings migration | `Sources/AgentHUDCore/Models/ProviderAccount.swift`, `Sources/AgentHUDCore/Providers/RetainedUsageProvider.swift`, `Sources/AgentHUDCore/Store/SettingsStore.swift` |

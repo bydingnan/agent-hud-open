@@ -3,7 +3,7 @@ import Foundation
 /// Metrics of one quota window, derived from its stored readings: burn rate, forecast and this week's cap hits.
 public struct UsageInsights: Hashable, Codable, Sendable {
     public let burnRatePctPerHour: Double?
-    /// Seconds until this quota window is exhausted at its current-cycle average rate.
+    /// Seconds until this quota window is exhausted at its recent burn rate.
     public let timeToExhaust: TimeInterval?
     public let weeklyCapHits: Int
     public let weeklyWaitTotal: TimeInterval

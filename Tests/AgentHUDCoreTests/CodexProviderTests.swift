@@ -314,7 +314,7 @@ final class CodexProviderTests: XCTestCase {
         XCTAssertNil(report.codexResetCredits)
     }
 
-    func testForecastUsesEachServicesWindowPeriodAndFullCurrentCycle() async throws {
+    func testForecastUsesEachServicesWindowPeriodAndRecentPace() async throws {
         let now = self.now
         let dir = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -331,9 +331,9 @@ final class CodexProviderTests: XCTestCase {
         let history = QuotaHistoryStore()
         await history.append([
             QuotaSample(agentId: account.windowID("codex"), timestamp: now.addingTimeInterval(-5 * 86400), remainingPct: 100),
-            QuotaSample(agentId: account.windowID("codex"), timestamp: now.addingTimeInterval(-86400), remainingPct: 70),
+            QuotaSample(agentId: account.windowID("codex"), timestamp: now.addingTimeInterval(-30 * 3600), remainingPct: 70),
             QuotaSample(agentId: account.windowID("codex:spark:primary"), timestamp: now.addingTimeInterval(-3 * 3600), remainingPct: 100),
-            QuotaSample(agentId: account.windowID("codex:spark:primary"), timestamp: now.addingTimeInterval(-3600), remainingPct: 40),
+            QuotaSample(agentId: account.windowID("codex:spark:primary"), timestamp: now.addingTimeInterval(-3600), remainingPct: 60),
             QuotaSample(agentId: account.windowID("codex:unknown:primary"), timestamp: now.addingTimeInterval(-3600), remainingPct: 80)
         ], now: now)
         let provider = CodexUsageProvider(readLimits: { limits }, transcripts: CodexTranscriptStore(roots: [dir]),
@@ -342,12 +342,12 @@ final class CodexProviderTests: XCTestCase {
         XCTAssertEqual(report.snapshot(for: account.windowID("codex"))?.windowDuration, 7 * 86400)
         XCTAssertEqual(report.snapshot(for: account.windowID("codex:spark:primary"))?.windowDuration, 5 * 3600)
         let weekly = try XCTUnwrap(report.insightsByAgent[account.windowID("codex")])
-        XCTAssertEqual(try XCTUnwrap(weekly.burnRatePctPerHour), 40.0 / 120, accuracy: 1e-9,
-                       "the statistics range must not truncate the quota cycle")
+        XCTAssertEqual(try XCTUnwrap(weekly.burnRatePctPerHour), 10.0 / 30, accuracy: 1e-9,
+                       "the statistics range must not truncate the readings behind the last day")
         XCTAssertEqual(try XCTUnwrap(weekly.timeToExhaust), 180 * 3600, accuracy: 1e-6)
         let session = try XCTUnwrap(report.insightsByAgent[account.windowID("codex:spark:primary")])
         XCTAssertEqual(try XCTUnwrap(session.burnRatePctPerHour), 20, accuracy: 1e-9,
-                       "an idle last hour still includes earlier consumption in this cycle")
+                       "the quiet first two hours do not dilute the last one")
         XCTAssertEqual(try XCTUnwrap(session.timeToExhaust), 2 * 3600, accuracy: 1e-6)
         XCTAssertNil(report.insightsByAgent[account.windowID("codex:unknown:primary")]?.burnRatePctPerHour)
     }

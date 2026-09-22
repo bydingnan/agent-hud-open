@@ -149,6 +149,7 @@ public final class DesktopApplication {
         let now = Date()
         let update = islandEvents.update(report: report, agents: settings.agents, now: now, settings: settings.settings)
         for alert in update.quotaAlerts { notch?.present(alert) }
+        for grant in update.resetCreditGrants { notch?.present(.resetCredits(grant)) }
         for completion in update.completions { notch?.present(.completion(completion)) }
         onIslandEvents?(update, report, now)
     }

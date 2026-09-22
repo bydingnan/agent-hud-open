@@ -14,7 +14,7 @@ final class QuotaForecastTests: XCTestCase {
         super.tearDown()
     }
 
-    func testCycleConsumptionPredictsHoursAndMinutesInBothLanguages() throws {
+    func testRecentConsumptionPredictsHoursAndMinutesInBothLanguages() throws {
         let samples = [
             QuotaSample(agentId: "window", timestamp: now.addingTimeInterval(-1800), remainingPct: 82),
             QuotaSample(agentId: "window", timestamp: now, remainingPct: 67),

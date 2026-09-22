@@ -99,6 +99,26 @@ final class IslandHoverRegionTests: XCTestCase {
                        "a collapsed HUD must let clicks through everywhere it is not drawing")
     }
 
+    func testAnsweringTheLastRequestClosesTheIslandRatherThanOpeningThePanel() {
+        // The pointer is on the button that was just pressed; the usage panel is not what that press asked for.
+        XCTAssertTrue(ScreenHUD.closesAfterLastAlert(wasInUsagePanel: false, pointerInside: true))
+        XCTAssertTrue(ScreenHUD.closesAfterLastAlert(wasInUsagePanel: false, pointerInside: false))
+        // A request answered as a row inside the panel leaves the panel where the user had it.
+        XCTAssertFalse(ScreenHUD.closesAfterLastAlert(wasInUsagePanel: true, pointerInside: true))
+        XCTAssertTrue(ScreenHUD.closesAfterLastAlert(wasInUsagePanel: true, pointerInside: false))
+    }
+
+    func testTheWindowKeepsASurfaceUnderThePointerWhileTheCardShrinks() {
+        // Opening a shorter request, or answering one and losing its row, makes the card shorter than the pointer
+        // that asked for it. The window holds its height so the pointer still stands on the HUD; what it holds is
+        // transparent, because the card is drawn at its own size.
+        XCTAssertEqual(ScreenHUD.heldWindowHeight(card: 200, floor: 320, pointerInside: true), 320)
+        // Growing is free, and raises the floor with it.
+        XCTAssertEqual(ScreenHUD.heldWindowHeight(card: 420, floor: 320, pointerInside: true), 420)
+        // The pointer gone, the window is the card again — nothing invisible is left behind.
+        XCTAssertEqual(ScreenHUD.heldWindowHeight(card: 200, floor: 320, pointerInside: false), 200)
+    }
+
     func testAnOpenPanelOwnsItsWholeFrame() {
         XCTAssertEqual(ScreenHUD.hoverRegion(open: true, panel: panel, alert: wings, marks: marks), panel)
     }

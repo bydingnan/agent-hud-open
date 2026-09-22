@@ -87,9 +87,14 @@ struct IslandRootView: View {
         if isOpen, showsAlertDetails, let alert {
             IslandAlertDetailView(alert: alert, onOpen: onOpenAlert, onDecide: onDecideAlert,
                                   waitingRequests: waitingRequests, onSelectRequest: onSelectRequest)
-                .padding(alert.detailInsets
-                    ?? EdgeInsets(top: collapsedSize.height + alert.detailTopInset, leading: 24, bottom: 22, trailing: 24))
-                .frame(width: alert.detailWidth(queued: max(1, waitingRequests.count)))
+                .padding(alert.detailInsets.map {
+                    // Never under the silhouette: a notch is 38 pt of hardware on some Macs, and a card narrower
+                    // than the usage panel sits squarely in its shadow rather than beside it. A screenshot cannot
+                    // show that, which is why the number has to come from the screen and not from the panel.
+                    EdgeInsets(top: max($0.top, collapsedSize.height), leading: $0.leading,
+                               bottom: $0.bottom, trailing: $0.trailing)
+                } ?? EdgeInsets(top: collapsedSize.height + alert.detailTopInset, leading: 24, bottom: 22, trailing: 24))
+                .frame(width: alert.detailWidth)
                 .fixedSize(horizontal: false, vertical: true)
                 .background(GeometryReader { proxy in Color.clear.preference(key: PanelHeightKey.self, value: proxy.size.height) })
                 .onPreferenceChange(PanelHeightKey.self, perform: onContentHeight)
