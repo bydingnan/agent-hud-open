@@ -148,10 +148,12 @@ final class PiSessionObserverTests: XCTestCase, @unchecked Sendable {
         import { join } from 'node:path';
         import observer from './observer.mjs';
         process.env.PI_CODING_AGENT_DIR = process.argv[2];
-        let timer, cleared = 0, clock = 1789000000000;
+        let timer, settle, cleared = 0, clock = 1789000000000;
         Date.now = () => ++clock;
         globalThis.setInterval = (fn, ms) => { assert.equal(ms, 15000); timer = fn; return { unref() {} }; };
-        globalThis.clearInterval = () => { cleared++; };
+        globalThis.clearInterval = () => { cleared++; timer = undefined; };
+        globalThis.setTimeout = (fn, ms) => { assert.equal(ms, 750); settle = fn; return { unref() {} }; };
+        globalThis.clearTimeout = () => { settle = undefined; };
         const handlers = new Map();
         const pi = { on: (name, handler) => handlers.set(name, handler) };
         const ctx = { cwd: '/workspace', model: { id: 'model', provider: 'provider' },
@@ -167,27 +169,28 @@ final class PiSessionObserverTests: XCTestCase, @unchecked Sendable {
         assert.equal(first.sessionFile, undefined);
         emit('message_end', { message: { role: 'assistant', stopReason: 'error', content: 'private prompt', usage: { input: 99 } } });
         emit('agent_end');
-        emit('agent_start'); // retry, still the same logical turn
+        emit('agent_start'); // retry cancels the agent_end debounce
+        assert.equal(settle, undefined);
         assert.equal(rows()[0].turnID, first.turnID);
         assert.equal(rows()[0].state, 'running');
         timer();
         assert.ok(rows()[0].observedAtMs > first.observedAtMs);
         emit('message_end', { message: { role: 'assistant', stopReason: 'stop' } });
-        emit('agent_end'); // queued follow-up must not trigger completion
+        emit('agent_end'); // OMP never emits agent_settled; debounce then completes
         assert.equal(rows()[0].state, 'running');
-        emit('agent_settled');
+        settle();
         assert.equal(rows()[0].state, 'completed');
         const completedAt = rows()[0].observedAtMs;
         emit('session_shutdown');
         assert.equal(rows()[0].observedAtMs, completedAt);
-        // OMP often settles after a final toolUse rather than stopReason == stop.
+        // OMP often ends after a final toolUse rather than stopReason == stop.
         emit('agent_start');
         emit('message_end', { message: { role: 'assistant', stopReason: 'toolUse' } });
-        emit('agent_settled');
+        emit('agent_end'); settle();
         for (const reason of ['error', 'aborted', 'length']) {
           emit('agent_start');
           emit('message_end', { message: { role: 'assistant', stopReason: reason } });
-          emit('agent_settled');
+          emit('agent_end'); settle();
         }
         emit('agent_start');
         emit('session_shutdown');

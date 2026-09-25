@@ -132,8 +132,12 @@ public enum PiSessionObserver {
         return join(homedir(), ".pi", "agent");
       }
       const directory = join(agentHome(), "agent-hud", "turns");
+      // OMP 18.x emits agent_end but not agent_settled (confirmed in omp logs). Debounce
+      // agent_end like Herdr's idle path so retries/compaction can still cancel it.
+      const settleDebounceMs = 750;
       let active;
       let heartbeat;
+      let settleTimer;
       let lastStopReason;
 
       function publish(ctx, state = "running") {
@@ -155,11 +159,33 @@ public enum PiSessionObserver {
         } catch { /* Observability must never interrupt Pi's agent loop. */ }
       }
 
+      function clearSettle() {
+        if (settleTimer) clearTimeout(settleTimer);
+        settleTimer = undefined;
+      }
+
       function finish(ctx, state) {
+        clearSettle();
         publish(ctx, state);
         clearInterval(heartbeat);
         heartbeat = undefined;
         active = undefined;
+      }
+
+      function terminalState() {
+        const failed = lastStopReason === "error" || lastStopReason === "aborted" || lastStopReason === "length";
+        return failed ? "ended" : "completed";
+      }
+
+      function scheduleFinish(ctx) {
+        clearSettle();
+        if (!active) return;
+        settleTimer = setTimeout(() => {
+          settleTimer = undefined;
+          if (!active) return;
+          finish(ctx, terminalState());
+        }, settleDebounceMs);
+        settleTimer.unref?.();
       }
 
       pi.on("session_start", () => {
@@ -173,6 +199,7 @@ public enum PiSessionObserver {
       });
       pi.on("agent_start", (_event, ctx) => {
         // Retries, auto-compaction and queued follow-ups belong to one unsettled run.
+        clearSettle();
         if (!active) {
           active = { id: randomUUID(), startedAtMs: Date.now() };
           heartbeat = setInterval(() => publish(ctx), 15000);
@@ -187,13 +214,13 @@ public enum PiSessionObserver {
       });
       pi.on("tool_execution_start", (_event, ctx) => publish(ctx));
       pi.on("tool_execution_end", (_event, ctx) => publish(ctx));
-      // agent_settled is a finished run. OMP/cursor often settle after a final toolUse
-      // (or with no stopReason) rather than stopReason == "stop"; only explicit failures
-      // skip the completion reminder the island announces.
-      pi.on("agent_settled", (_event, ctx) => {
-        const failed = lastStopReason === "error" || lastStopReason === "aborted" || lastStopReason === "length";
-        finish(ctx, failed ? "ended" : "completed");
+      // OMP finishes turns with agent_end (Herdr already keys off this). agent_settled is
+      // kept for Pi hosts that still emit it; only explicit failures skip the island reminder.
+      pi.on("agent_end", (event, ctx) => {
+        if (typeof event?.stopReason === "string") lastStopReason = event.stopReason;
+        scheduleFinish(ctx);
       });
+      pi.on("agent_settled", (_event, ctx) => finish(ctx, terminalState()));
       pi.on("session_shutdown", (_event, ctx) => finish(ctx, "ended"));
     }
     """#
