@@ -44,8 +44,14 @@ final class PiSessionObserverTests: XCTestCase, @unchecked Sendable {
         XCTAssertTrue(FileManager.default.fileExists(atPath: other.path))
         let occupied = custom.appendingPathComponent("extensions/agent-hud.ts")
         try write(Data("unrelated".utf8), to: occupied)
-        XCTAssertThrowsError(try PiSessionObserver.configure(enabled: true, home: home, environment: env))
-        XCTAssertThrowsError(try PiSessionObserver.configure(enabled: false, home: home, environment: env))
+        // Occupied primary name falls back to agent-hud-session.ts instead of being overwritten.
+        try PiSessionObserver.configure(enabled: true, home: home, environment: env)
+        XCTAssertEqual(try String(contentsOf: occupied, encoding: .utf8), "unrelated")
+        let alternate = custom.appendingPathComponent("extensions/agent-hud-session.ts")
+        XCTAssertEqual(try String(contentsOf: alternate, encoding: .utf8), PiSessionObserver.script)
+        XCTAssertTrue(PiSessionObserver.isInstalled(home: home, environment: env))
+        try PiSessionObserver.configure(enabled: false, home: home, environment: env)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: alternate.path))
         XCTAssertEqual(try String(contentsOf: occupied, encoding: .utf8), "unrelated")
     }
 
@@ -57,6 +63,24 @@ final class PiSessionObserverTests: XCTestCase, @unchecked Sendable {
         try FileManager.default.createDirectory(at: custom, withIntermediateDirectories: true)
         try PiSessionObserver.configureIfAvailable(home: home, environment: env)
         XCTAssertTrue(PiSessionObserver.isInstalled(home: home, environment: env))
+    }
+
+    func testOmpAttentionExtensionKeepsAlternateSessionObserverAndHUDReadsOmpTurns() async throws {
+        let home = try temporaryHome()
+        let omp = home.appendingPathComponent(".omp/agent")
+        let attention = omp.appendingPathComponent("extensions/agent-hud.ts")
+        try write(Data("// Agent HUD Omp attention observer\nexport default function () {}\n".utf8), to: attention)
+        try PiSessionObserver.configureIfAvailable(home: home, environment: [:])
+        let session = omp.appendingPathComponent("extensions/agent-hud-session.ts")
+        XCTAssertTrue(try String(contentsOf: attention, encoding: .utf8)
+                       .hasPrefix("// Agent HUD Omp attention observer\n"))
+        XCTAssertEqual(try String(contentsOf: session, encoding: .utf8), PiSessionObserver.script)
+        let turn = omp.appendingPathComponent("agent-hud/turns/turn.json")
+        try write(JSONEncoder().encode(observation(.running)), to: turn)
+        let local = await OpenAgentLocalStore(paths: OpenAgentPaths(home: home, environment: [:]))
+            .index(since: now.addingTimeInterval(-86400))
+        XCTAssertEqual(local.sessions.map(\.id), ["pi:session"])
+        XCTAssertEqual(local.sessions.first?.turns.map(\.state), [.running])
     }
 
     func testRunningBeforeFirstResponseThenUsageAndCompletionMergeIntoOneSession() async throws {

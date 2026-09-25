@@ -4,6 +4,8 @@ Releases of Agent HUD Open. A version is a git tag `vX.Y.Z` on `main`; `CFBundle
 
 ## Unreleased
 
+- OMP sessions that use `cursor/*` (or any other model) now report live turns to the HUD: the Pi session observer also installs under `~/.omp/agent` as `agent-hud-session.ts` when `agent-hud.ts` is already the attention observer, and the HUD reads sessions/turns from both `~/.pi/agent` and `~/.omp/agent`. Cursor lifecycle hooks still apply only to Cursor Agent / IDE — an OMP process is not `cursor-agent`.
+- Cursor Agent / IDE local running and terminal turns: `CursorLifecycleObserver` merges Application Support `lifecycle/cursor` snapshots (from `~/.cursor/hooks/cursor-lifecycle.sh`) with account usage; setup appends owned handlers without removing Herdr / completion hooks.
 - ZenMux account usage: 5 h and 7 d quota windows, daily token history and reference USD costs from the official management API when a Management API key is saved in Settings (Keychain) or via `ZENMUX_MANAGEMENT_API_KEY` / `ZENMUX_MGMT_API_KEY` / `~/.config/api-tokens.env`; no local sessions or turns. Fresh installs watch ZenMux only; other clients stay off until enabled. ZenMux is subscription-only on the HUD — its leftover API / balance card is not shown.
 - OpenAgent / ZenMux quota window labels are the duration only (`5 小时` / `7 天`, or `5h` / `7d`), without region, PLAN, or account-hash suffixes.
 - The expanded island panel scrolls when the agent list is taller than the screen; Settings / Statistics stay pinned at the bottom. Opening Settings collapses the panel first.

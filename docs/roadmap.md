@@ -11,7 +11,7 @@ What is being built, what comes next, and what is not scheduled. Released versio
 
 ## Next
 
-- Running and terminal turn evidence for Cursor, Antigravity and OpenCode. Their providers supply usage observations only; Cursor and Antigravity finish turns through [completion hooks](session-lifecycle.md#completion-hooks), and OpenCode's persisted messages carry no lifecycle signal.
+- Running and terminal turn evidence for Antigravity and OpenCode. Cursor now has a local lifecycle inbox via `CursorLifecycleObserver` + `~/.cursor/hooks/cursor-lifecycle.sh`; Antigravity still finishes through [completion hooks](session-lifecycle.md#completion-hooks), and OpenCode's persisted messages carry no lifecycle signal.
 - Keep the bundle's `CFBundleShortVersionString` equal to the release tag, checked before tagging.
 - A CI step that fails when the root `THIRD_PARTY_NOTICES.txt` and the bundled copy differ, and that checks the notices file is present in the built bundle.
 

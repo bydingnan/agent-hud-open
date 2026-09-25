@@ -15,11 +15,11 @@ Which clients expose running and terminal turns, which of them say they are wait
 | DeepSeek Harness | Yes | Yes | `turn/start`, later step, message and tool events (format 0 also logs streaming chunks), `turn/end`; only `reason.kind == completed` is a completion, and sub-agent sessions and inherited fork history record none. A quiet turn stays active while a Node process that predates it holds the Harness profile. |
 | Grok CLI | Yes | Yes | Session updates keyed by `promptId`; `turn_completed` with `stop_reason` `end_turn` completes, other outcomes end without a completion. Older unified logs carry usage only. |
 | Kimi | Yes | Yes | On the `main` agent the first `step.begin` starts the turn and loop events refresh it; `turn.ended` with `reason == completed` and no `error` completes it; child agents never finish the parent. Older status logs carry usage only. |
-| Pi | Yes, with the observer | Yes, with the observer | `agent_start`, `agent_settled` and `session_shutdown` from the Agent HUD extension; an assistant stop alone does not finish a run. |
+| Pi / OMP | Yes, with the observer | Yes, with the observer | `agent_start`, `agent_settled` and `session_shutdown` from the Agent HUD extension under `~/.pi/agent` and `~/.omp/agent` (OMP may use `agent-hud-session.ts` when `agent-hud.ts` is already the attention observer). An assistant stop alone does not finish a run. Using a `cursor/*` model inside OMP is still an OMP/Pi turn — it does not fire Cursor lifecycle hooks. |
 | OpenClaw | Yes | Yes | Gateway lifecycle status on a session's current window: `running` (turn `lifecycleRunId`) is running, `done` (turn `lastRunId`) completes, `failed`, `timeout` and `killed` end without a completion; a parent waiting on sub-agents stays running, and sub-agent sessions and legacy transcripts report none. |
 | GitHub Copilot CLI | Yes | Through the `agentStop` hook | A main-agent `user.message` or `assistant.turn_start` starts the turn and loop events, including sub-agent ones, refresh it; `abort` and `session.shutdown` end it. |
 | Antigravity | No | Through the `Stop` hook | Local records supply usage only. |
-| Cursor | No | Through the `stop` hook | Local records supply usage only. |
+| Cursor | Through local lifecycle hooks (`beforeSubmitPrompt` / tool / `stop`) written under Application Support | Through the `stop` hook and lifecycle inbox | Account usage plus local lifecycle turns. |
 | CodeBuddy | No | Through the `Stop` hook | Local records supply usage only. |
 | Hermes Agent, ZCode, WorkBuddy | No | No | Local records hold usage counters only. |
 | OpenCode | No | No | A persisted message end is not an agent end. |
@@ -40,7 +40,7 @@ Which clients expose running and terminal turns, which of them say they are wait
 
 ### Pi observer
 
-- The standalone host installs or updates its extension under the Pi directory (`PI_CODING_AGENT_DIR`, default `~/.pi/agent`) whenever that directory exists; existing Pi processes need one `/reload`, new ones load it automatically. A same-named file that is not Agent HUD's is left alone.
+- The standalone host installs or updates its extension under the Pi directory (`PI_CODING_AGENT_DIR`, default `~/.pi/agent`) and, when present, under `~/.omp/agent`. OMP already uses `agent-hud.ts` for attention prompts, so session turns install as `agent-hud-session.ts` there. Existing Pi/OMP processes need one `/reload`; new ones load automatically. A same-named file that is not Agent HUD's session observer is left alone. The HUD reads sessions and turn snapshots from both agent homes.
 - The observer writes metadata-only turn snapshots, keeps retries, compaction and queued continuations inside one run until `agent_settled`, and reports a completion only for a successful final response; errors, cancellation and shutdown end activity without claiming success. A run with no shutdown event stops being live 30 minutes after its last snapshot; snapshots are kept 7 days.
 - Token totals still come only from Pi's message transcripts; installing the observer replays no reminders and creates no usage events.
 

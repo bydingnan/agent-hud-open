@@ -1,31 +1,62 @@
 import AgentHUDSupport
 import Foundation
 
-/// Pi's native lifecycle events are independent of its persisted message usage.
+/// Pi / OMP native lifecycle events are independent of persisted message usage.
+/// OMP is Pi-compatible but stores under `~/.omp/agent` and may already own `extensions/agent-hud.ts`
+/// for attention prompts; session turns then install as `agent-hud-session.ts`.
 public enum PiSessionObserver {
     private static let filename = "agent-hud.ts"
+    private static let alternateFilename = "agent-hud-session.ts"
+    private static let marker = "// Agent HUD Pi session observer\n"
 
     /// Adapter setup is independent of the user's live-status presentation preference.
     public static func configureIfAvailable(home: URL = FileManager.default.homeDirectoryForCurrentUser,
                                             environment: [String: String] = ProcessInfo.processInfo.environment) throws {
-        guard FileManager.default.fileExists(atPath: OpenAgentPaths(home: home, environment: environment).pi.path) else { return }
+        let paths = OpenAgentPaths(home: home, environment: environment)
+        let manager = FileManager.default
+        guard manager.fileExists(atPath: paths.pi.path) || manager.fileExists(atPath: paths.omp.path) else { return }
         try configure(enabled: true, home: home, environment: environment)
     }
 
     public static func isInstalled(home: URL = FileManager.default.homeDirectoryForCurrentUser,
                                    environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
         let paths = OpenAgentPaths(home: home, environment: environment)
-        return (try? String(contentsOf: paths.pi.appendingPathComponent("extensions/\(filename)"), encoding: .utf8)) == script
+        return (try? String(contentsOf: extensionFile(in: paths.pi), encoding: .utf8)) == script
     }
 
     public static func configure(enabled: Bool, home: URL = FileManager.default.homeDirectoryForCurrentUser,
                                  environment: [String: String] = ProcessInfo.processInfo.environment) throws {
         let paths = OpenAgentPaths(home: home, environment: environment)
-        let file = paths.pi.appendingPathComponent("extensions/\(filename)")
+        let manager = FileManager.default
+        // Explicit configure always manages the configured Pi home (tests and PI_CODING_AGENT_DIR).
+        try apply(enabled: enabled, agentHome: paths.pi)
+        // OMP keeps a separate agent home; install there when present and distinct.
+        if manager.fileExists(atPath: paths.omp.path),
+           paths.omp.resolvingSymlinksInPath() != paths.pi.resolvingSymlinksInPath() {
+            try apply(enabled: enabled, agentHome: paths.omp)
+        }
+    }
+
+    /// Prefer `agent-hud.ts`; if that name is already an unrelated extension (OMP attention), use the alternate.
+    static func extensionFile(in agentHome: URL) -> URL {
+        let primary = agentHome.appendingPathComponent("extensions/\(filename)")
+        let alternate = agentHome.appendingPathComponent("extensions/\(alternateFilename)")
+        if let previous = try? String(contentsOf: primary, encoding: .utf8), !previous.hasPrefix(marker) {
+            return alternate
+        }
+        if (try? String(contentsOf: alternate, encoding: .utf8))?.hasPrefix(marker) == true {
+            return alternate
+        }
+        return primary
+    }
+
+    private static func apply(enabled: Bool, agentHome: URL) throws {
+        let file = extensionFile(in: agentHome)
         let previous = try? String(contentsOf: file, encoding: .utf8)
         // Only replace/remove our own extension, never an unrelated file with the same name.
-        guard previous == nil || previous!.hasPrefix("// Agent HUD Pi session observer\n") else {
-            throw UsageProviderError(L10n.text("agent-hud.ts 已被其他扩展使用", "agent-hud.ts belongs to another extension"))
+        guard previous == nil || previous!.hasPrefix(marker) else {
+            throw UsageProviderError(L10n.text("\(file.lastPathComponent) 已被其他扩展使用",
+                                               "\(file.lastPathComponent) belongs to another extension"))
         }
         if enabled {
             guard previous != script else { return }

@@ -39,8 +39,8 @@ actor OpenAgentLocalStore {
                 try OpenAgentParser.kimi(data, path: url.path)
             },
             listing(.pi, paths.roots(for: .pi), accepts: { $0.pathExtension == "jsonl" }, parse: pi),
-            // Turn observations of the Pi extension, read like transcripts.
-            listing(.pi, [paths.piTurns], accepts: { ["jsonl", "json"].contains($0.pathExtension) }, parse: pi),
+            // Turn observations of the Pi / OMP extension, read like transcripts.
+            listing(.pi, paths.turnDirectories, accepts: { ["jsonl", "json"].contains($0.pathExtension) }, parse: pi),
         ])
     }
 

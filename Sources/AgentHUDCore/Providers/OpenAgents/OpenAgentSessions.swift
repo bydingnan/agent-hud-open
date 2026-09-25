@@ -21,13 +21,30 @@ struct OpenAgentPaths: Sendable {
     let home: URL
     let environment: [String: String]
     var openCode: URL { URL(fileURLWithPath: environment["XDG_DATA_HOME"] ?? home.appendingPathComponent(".local/share").path).appendingPathComponent("opencode") }
+    /// Configured Pi / OMP-compatible agent home. OMP sets `PI_CODING_AGENT_DIR` to `~/.omp/agent` in its own process;
+    /// the HUD process usually does not, so `omp` is also watched below.
     var pi: URL { URL(fileURLWithPath: environment["PI_CODING_AGENT_DIR"] ?? home.appendingPathComponent(".pi/agent").path) }
+    var omp: URL { home.appendingPathComponent(".omp/agent") }
     var piTurns: URL { pi.appendingPathComponent("agent-hud/turns") }
+    /// Pi and OMP both write lifecycle turns under `<agent-home>/agent-hud/turns`.
+    var turnDirectories: [URL] {
+        agentHomes.map { $0.appendingPathComponent("agent-hud/turns") }
+    }
+    /// Distinct agent homes the HUD should read. Includes the configured Pi dir and `~/.omp/agent` when different.
+    var agentHomes: [URL] {
+        var seen = Set<String>(), result: [URL] = []
+        for url in [pi, omp] {
+            let path = url.resolvingSymlinksInPath().path
+            guard seen.insert(path).inserted else { continue }
+            result.append(url)
+        }
+        return result
+    }
     var kimi: URL { URL(fileURLWithPath: environment["KIMI_CODE_HOME"] ?? home.appendingPathComponent(".kimi-code").path) }
     func roots(for source: OpenAgentSource) -> [URL] {
         switch source {
         case .opencode: [openCode]
-        case .pi: [pi.appendingPathComponent("sessions")]
+        case .pi: agentHomes.map { $0.appendingPathComponent("sessions") }
         case .kimi: [kimi.appendingPathComponent("sessions"), home.appendingPathComponent(".kimi/sessions")]
         case .glm: []
         }

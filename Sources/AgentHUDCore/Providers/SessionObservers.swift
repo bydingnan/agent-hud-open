@@ -5,6 +5,8 @@ public enum SessionObservers {
     public static func configure(executable: URL) {
         do { try PiSessionObserver.configureIfAvailable() }
         catch { NSLog("[AgentHUD] Pi observer setup failed: %@", error.localizedDescription) }
+        do { try CursorLifecycleObserver.configureIfAvailable() }
+        catch { NSLog("[AgentHUD] Cursor lifecycle setup failed: %@", error.localizedDescription) }
         for source in AttentionHooks.Source.allCases where source.isInstalled() {
             do { try AttentionHooks.configure(source, enabled: true, executable: executable) }
             catch { NSLog("[AgentHUD] Notification hook setup failed for %@: %@", source.rawValue, error.localizedDescription) }

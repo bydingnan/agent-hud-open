@@ -47,7 +47,11 @@ actor AdditionalUsageProvider: UsageProvider, LedgerRecording {
             case .openclaw, .hermes, .zcode, .codebuddy, .workbuddy: return ProviderQuota()
             }
         }, readSessions: { since in
-            if source == .cursor { return await cursor.savedSessions }
+            if source == .cursor {
+                let account = await cursor.savedSessions
+                let life = (try? CursorLifecycleObserver.sessions(since: since)) ?? []
+                return CursorLifecycleObserver.merge(account: account, lifecycle: life)
+            }
             return await local.index(since: since)
         }, history: QuotaHistoryStore(ledger: ledger, scope: source.rawValue,
             importing: persistHistory ? AppSupport.directory.appendingPathComponent("\(source.rawValue)-quota-history.json") : nil),
@@ -58,9 +62,11 @@ actor AdditionalUsageProvider: UsageProvider, LedgerRecording {
             if source == .cursor {
                 _ = await cursor.sessions(since: Date().addingTimeInterval(-Double(max(168, hours)) * 3600))
             }
-        }, watchedDirectories: local.roots + (CompletionHooks.Source(rawValue: source.rawValue).map {
-            [CompletionHooks.directory.appendingPathComponent($0.rawValue)]
-        } ?? []), ledger: ledger)
+        }, watchedDirectories: local.roots
+            + (CompletionHooks.Source(rawValue: source.rawValue).map {
+                [CompletionHooks.directory.appendingPathComponent($0.rawValue)]
+            } ?? [])
+            + (source == .cursor ? [CursorLifecycleObserver.directory] : []), ledger: ledger)
     }
 
     /// This source's 15-minute token totals from the period holding `since`.
