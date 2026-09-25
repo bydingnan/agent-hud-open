@@ -39,8 +39,13 @@ actor OpenAgentLocalStore {
                 try OpenAgentParser.kimi(data, path: url.path)
             },
             listing(.pi, paths.roots(for: .pi), accepts: { $0.pathExtension == "jsonl" }, parse: pi),
-            // Turn observations of the Pi / OMP extension, read like transcripts.
-            listing(.pi, paths.turnDirectories, accepts: { ["jsonl", "json"].contains($0.pathExtension) }, parse: pi),
+            // Turn snapshots are tiny and time-critical for the island; parse them before large transcripts.
+            .init(name: OpenAgentSource.pi.name, files: LogFiles(roots: paths.turnDirectories, watchesChanges: false, limit: 20000,
+                  accepts: { ["jsonl", "json"].contains($0.pathExtension) }), leads: true, parse: { url, _ in
+                let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+                guard size <= 64 * 1024 * 1024 else { throw ProviderFailure.limit }
+                return try pi(Data(contentsOf: url), url)
+            }),
         ])
     }
 

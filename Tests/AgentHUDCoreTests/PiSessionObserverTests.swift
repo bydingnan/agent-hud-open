@@ -180,6 +180,10 @@ final class PiSessionObserverTests: XCTestCase, @unchecked Sendable {
         const completedAt = rows()[0].observedAtMs;
         emit('session_shutdown');
         assert.equal(rows()[0].observedAtMs, completedAt);
+        // OMP often settles after a final toolUse rather than stopReason == stop.
+        emit('agent_start');
+        emit('message_end', { message: { role: 'assistant', stopReason: 'toolUse' } });
+        emit('agent_settled');
         for (const reason of ['error', 'aborted', 'length']) {
           emit('agent_start');
           emit('message_end', { message: { role: 'assistant', stopReason: reason } });
@@ -187,7 +191,7 @@ final class PiSessionObserverTests: XCTestCase, @unchecked Sendable {
         }
         emit('agent_start');
         emit('session_shutdown');
-        assert.equal(rows().filter(r => r.state === 'completed').length, 1);
+        assert.equal(rows().filter(r => r.state === 'completed').length, 2);
         assert.equal(rows().filter(r => r.state === 'ended').length, 4);
         assert.ok(cleared >= 5);
         assert.equal(JSON.stringify(rows()).includes('private prompt'), false);

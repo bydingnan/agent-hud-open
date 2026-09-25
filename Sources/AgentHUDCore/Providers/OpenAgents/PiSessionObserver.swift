@@ -187,7 +187,13 @@ public enum PiSessionObserver {
       });
       pi.on("tool_execution_start", (_event, ctx) => publish(ctx));
       pi.on("tool_execution_end", (_event, ctx) => publish(ctx));
-      pi.on("agent_settled", (_event, ctx) => finish(ctx, lastStopReason === "stop" ? "completed" : "ended"));
+      // agent_settled is a finished run. OMP/cursor often settle after a final toolUse
+      // (or with no stopReason) rather than stopReason == "stop"; only explicit failures
+      // skip the completion reminder the island announces.
+      pi.on("agent_settled", (_event, ctx) => {
+        const failed = lastStopReason === "error" || lastStopReason === "aborted" || lastStopReason === "length";
+        finish(ctx, failed ? "ended" : "completed");
+      });
       pi.on("session_shutdown", (_event, ctx) => finish(ctx, "ended"));
     }
     """#

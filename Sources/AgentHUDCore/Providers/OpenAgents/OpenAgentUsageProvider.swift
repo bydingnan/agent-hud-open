@@ -58,7 +58,7 @@ actor OpenAgentUsageProvider: UsageProvider, LedgerRecording {
             identify: { try await OpenAgentQuotaClient().identify($0) },
             identityCacheURL: persistHistory ? AppSupport.directory.appendingPathComponent("open-agent-identities.json") : nil,
             apiServices: { AgentAPIServiceDiscovery.discover() },
-            watchedDirectories: [paths.openCode, paths.piTurns] + paths.roots(for: .kimi) + paths.roots(for: .pi), ledger: ledger)
+            watchedDirectories: [paths.openCode] + paths.turnDirectories + paths.roots(for: .kimi) + paths.roots(for: .pi), ledger: ledger)
     }
 
     /// Token totals of every open agent client from the period holding `since`.
