@@ -113,11 +113,25 @@ public enum PiSessionObserver {
     // Agent HUD Pi session observer
     import { mkdirSync, writeFileSync, renameSync, readdirSync, statSync, unlinkSync } from "node:fs";
     import { homedir } from "node:os";
-    import { join } from "node:path";
+    import { dirname, join } from "node:path";
     import { createHash, randomUUID } from "node:crypto";
+    import { fileURLToPath } from "node:url";
 
     export default function (pi) {
-      const directory = join(process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent"), "agent-hud", "turns");
+      // Prefer PI_CODING_AGENT_DIR; else the agent home that owns this extension file
+      // (OMP installs as agent-hud-session.ts under ~/.omp/agent and often leaves PI_CODING unset).
+      function agentHome() {
+        if (process.env.PI_CODING_AGENT_DIR) return process.env.PI_CODING_AGENT_DIR;
+        try {
+          const here = fileURLToPath(import.meta.url).split("?")[0];
+          const extensions = dirname(here);
+          if (extensions.endsWith("/extensions") || extensions.endsWith("\\extensions")) {
+            return dirname(extensions);
+          }
+        } catch { /* fall through */ }
+        return join(homedir(), ".pi", "agent");
+      }
+      const directory = join(agentHome(), "agent-hud", "turns");
       let active;
       let heartbeat;
       let lastStopReason;
