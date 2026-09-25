@@ -2,9 +2,11 @@ import AgentHUDSupport
 import Foundation
 
 public enum OpenAgentSource: String, CaseIterable, Sendable {
-    case opencode, kimi, glm, pi
+    case opencode, kimi, glm, pi, omp
     public var name: String {
-        switch self { case .opencode: "OpenCode"; case .kimi: "Kimi"; case .glm: "GLM"; case .pi: "Pi" }
+        switch self {
+        case .opencode: "OpenCode"; case .kimi: "Kimi"; case .glm: "GLM"; case .pi: "Pi"; case .omp: "OMP"
+        }
     }
     public var detail: String {
         self == .glm ? L10n.text("国内 / 国际 Coding Plan，按计费池去重", "China / Global Coding Plan, grouped by billing pool")
@@ -12,8 +14,10 @@ public enum OpenAgentSource: String, CaseIterable, Sendable {
     }
     public func isInstalled(home: URL = FileManager.default.homeDirectoryForCurrentUser,
                             environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
+        let paths = OpenAgentPaths(home: home, environment: environment)
         if self == .glm { return OpenAgentCredentials.discover(home: home, environment: environment).contains { $0.pool.provider == "GLM" } }
-        return OpenAgentPaths(home: home, environment: environment).roots(for: self).contains { FileManager.default.fileExists(atPath: $0.path) }
+        if self == .omp { return FileManager.default.fileExists(atPath: paths.omp.path) }
+        return paths.roots(for: self).contains { FileManager.default.fileExists(atPath: $0.path) }
     }
 }
 
@@ -44,7 +48,9 @@ struct OpenAgentPaths: Sendable {
     func roots(for source: OpenAgentSource) -> [URL] {
         switch source {
         case .opencode: [openCode]
+        // Pi-compatible transcripts stay under one listing; the parser labels OMP by agent-home path.
         case .pi: agentHomes.map { $0.appendingPathComponent("sessions") }
+        case .omp: []
         case .kimi: [kimi.appendingPathComponent("sessions"), home.appendingPathComponent(".kimi/sessions")]
         case .glm: []
         }
@@ -86,6 +92,12 @@ struct OpenAgentSession: Sendable {
 /// Provider licenses are listed in THIRD_PARTY_NOTICES.txt.
 /// Only metadata and counters leave these parsers; prompts, tool bodies and credentials do not.
 enum OpenAgentParser {
+    /// OMP's Pi-compatible agent home. Session IDs stay in the `pi:` namespace so turns merge with transcripts.
+    static func isOmpAgentPath(_ path: String) -> Bool {
+        let norm = path.replacingOccurrences(of: "\\", with: "/")
+        return norm.contains("/.omp/agent/") || norm.hasSuffix("/.omp/agent")
+    }
+
     static func decimal(_ value: ProviderJSON) -> Decimal? {
         guard let number = value.numberValue, number >= 0 else { return nil }
         return Decimal(string: String(number), locale: Locale(identifier: "en_US_POSIX"))
@@ -105,11 +117,13 @@ enum OpenAgentParser {
     }
 
     static func pi(_ data: Data, path: String) throws -> [OpenAgentSession] {
+        let client: OpenAgentSource = isOmpAgentPath(path) ? .omp : .pi
         var session: OpenAgentSession?
         try jsonLines(data) { line, index in
             let type = line["type"].stringValue
             if type == "session", let id = line["id"].stringValue {
-                session = .init(id: "pi:\(id)", client: .pi, title: "Pi", workspace: line["cwd"].stringValue, path: path,
+                // sessionID keeps the pi: namespace so OMP turns merge with the same transcript.
+                session = .init(id: "pi:\(id)", client: client, title: client.name, workspace: line["cwd"].stringValue, path: path,
                                 start: ProviderDate.iso(line["timestamp"].stringValue))
                 return
             }

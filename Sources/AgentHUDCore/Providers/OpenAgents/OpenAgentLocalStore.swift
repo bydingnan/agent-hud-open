@@ -16,7 +16,7 @@ actor OpenAgentLocalStore {
     init(paths: OpenAgentPaths) {
         self.paths = paths
         func pi(_ data: Data, _ url: URL) throws -> [OpenAgentSession] {
-            url.pathExtension == "json" ? [try PiSessionObserver.read(data).session] : try OpenAgentParser.pi(data, path: url.path)
+            url.pathExtension == "json" ? [try PiSessionObserver.read(data, path: url.path).session] : try OpenAgentParser.pi(data, path: url.path)
         }
         func listing(_ source: OpenAgentSource, _ roots: [URL], accepts: @escaping (URL) -> Bool,
                      parse: @escaping (Data, URL) throws -> [OpenAgentSession]) -> WholeFileStore<[OpenAgentSession]>.Listing {
@@ -73,6 +73,8 @@ actor OpenAgentLocalStore {
                         prior.currentModel = item.currentModel ?? prior.currentModel
                         if !item.path.isEmpty { prior.path = item.path }
                     }
+                    // OMP and Pi share the pi: session namespace; prefer the OMP product label when either side is OMP.
+                    if item.client == .omp { prior.client = .omp }
                     prior.events = UsageAggregation.usageUnion([prior.events, item.events])
                     prior.models.merge(item.models, uniquingKeysWith: { old, _ in old })
                     prior.start = [prior.start, item.start].compactMap { $0 }.min()

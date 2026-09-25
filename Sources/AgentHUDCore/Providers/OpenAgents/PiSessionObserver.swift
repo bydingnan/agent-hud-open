@@ -79,32 +79,72 @@ public enum PiSessionObserver {
         let state: SessionTurn.State
         let startedAtMs: Int64
         let observedAtMs: Int64
+        /// Product label for a Pi-compatible host. Session IDs stay `pi:` so OMP merges with its transcript.
+        let host: String
+
+        init(version: Int, sessionID: String, sessionFile: String?, workspace: String, title: String,
+             model: String?, providerID: String?, turnID: String, state: SessionTurn.State,
+             startedAtMs: Int64, observedAtMs: Int64, host: String = "Pi") {
+            self.version = version
+            self.sessionID = sessionID
+            self.sessionFile = sessionFile
+            self.workspace = workspace
+            self.title = title
+            self.model = model
+            self.providerID = providerID
+            self.turnID = turnID
+            self.state = state
+            self.startedAtMs = startedAtMs
+            self.observedAtMs = observedAtMs
+            self.host = host == "OMP" ? "OMP" : "Pi"
+        }
+
+        var source: OpenAgentSource { host == "OMP" ? .omp : .pi }
 
         var turn: SessionTurn {
-            .init(provider: "Pi", sessionID: sessionID, turnID: turnID, state: state,
+            .init(provider: host, sessionID: sessionID, turnID: turnID, state: state,
                   startedAtMs: startedAtMs, observedAtMs: observedAtMs)
         }
 
         var session: OpenAgentSession {
-            var value = OpenAgentSession(id: sessionID, client: .pi, title: title, workspace: workspace,
+            var value = OpenAgentSession(id: sessionID, client: source, title: title, workspace: workspace,
                 path: sessionFile ?? "", start: RecordCoding.date(startedAtMs), end: RecordCoding.date(observedAtMs), turns: [turn])
             if let model, let providerID { value.setModel(model, provider: providerID) }
             if state == .completed {
-                value.completions = [.init(sessionID: sessionID, vendor: "Pi", turnID: turnID,
+                value.completions = [.init(sessionID: sessionID, vendor: host, turnID: turnID,
                     task: title, model: model ?? "Unknown", startedAt: RecordCoding.date(startedAtMs), completedAt: RecordCoding.date(observedAtMs))]
             }
             return value
         }
     }
 
-    static func read(_ data: Data) throws -> Observation {
+    static func read(_ data: Data, path: String? = nil) throws -> Observation {
         guard data.count <= 64 * 1024 else { throw ProviderFailure.limit }
-        let value = try JSONDecoder().decode(Observation.self, from: data)
+        let value = try JSONDecoder().decode(Wire.self, from: data)
         guard value.version == 1, value.sessionID.hasPrefix("pi:"), value.sessionID.count > 3,
               !value.turnID.isEmpty, value.startedAtMs > 0, value.observedAtMs >= value.startedAtMs else {
             throw ProviderFailure.format
         }
-        return value
+        let host = value.host == "OMP" || OpenAgentParser.isOmpAgentPath(path ?? "") ? "OMP" : "Pi"
+        return Observation(version: value.version, sessionID: value.sessionID, sessionFile: value.sessionFile,
+                           workspace: value.workspace, title: value.title, model: value.model, providerID: value.providerID,
+                           turnID: value.turnID, state: value.state, startedAtMs: value.startedAtMs,
+                           observedAtMs: value.observedAtMs, host: host)
+    }
+
+    private struct Wire: Decodable {
+        let version: Int
+        let sessionID: String
+        let sessionFile: String?
+        let workspace: String
+        let title: String
+        let model: String?
+        let providerID: String?
+        let turnID: String
+        let state: SessionTurn.State
+        let startedAtMs: Int64
+        let observedAtMs: Int64
+        let host: String?
     }
 
     // No Pi imports are required: this works with Pi's built-in extension loader.
@@ -131,7 +171,13 @@ public enum PiSessionObserver {
         } catch { /* fall through */ }
         return join(homedir(), ".pi", "agent");
       }
-      const directory = join(agentHome(), "agent-hud", "turns");
+      function hostLabel(home) {
+        const norm = String(home || "").replace(/\\/g, "/");
+        return /(^|\/)\.omp\/agent$/.test(norm) ? "OMP" : "Pi";
+      }
+      const home = agentHome();
+      const host = hostLabel(home);
+      const directory = join(home, "agent-hud", "turns");
       // OMP 18.x emits agent_end but not agent_settled (confirmed in omp logs). Debounce
       // agent_end like Herdr's idle path so retries/compaction can still cancel it.
       const settleDebounceMs = 750;
@@ -142,10 +188,11 @@ public enum PiSessionObserver {
 
       function publish(ctx, state = "running") {
         if (!active) return;
+        // sessionID keeps the pi: namespace so OMP turns merge with the same transcript.
         const sessionID = "pi:" + ctx.sessionManager.getSessionId();
         const record = {
           version: 1, sessionID, sessionFile: ctx.sessionManager.getSessionFile(),
-          workspace: ctx.cwd, title: ctx.sessionManager.getSessionName() || "Pi",
+          workspace: ctx.cwd, title: ctx.sessionManager.getSessionName() || host, host,
           model: ctx.model?.id, providerID: ctx.model?.provider,
           turnID: active.id, state, startedAtMs: active.startedAtMs, observedAtMs: Date.now(),
         };

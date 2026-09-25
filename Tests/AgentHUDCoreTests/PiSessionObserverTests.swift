@@ -80,6 +80,8 @@ final class PiSessionObserverTests: XCTestCase, @unchecked Sendable {
         let local = await OpenAgentLocalStore(paths: OpenAgentPaths(home: home, environment: [:]))
             .index(since: now.addingTimeInterval(-86400))
         XCTAssertEqual(local.sessions.map(\.id), ["pi:session"])
+        XCTAssertEqual(local.sessions.first?.client, .omp)
+        XCTAssertEqual(local.sessions.first?.turns.map(\.provider), ["OMP"])
         XCTAssertEqual(local.sessions.first?.turns.map(\.state), [.running])
     }
 
@@ -166,6 +168,7 @@ final class PiSessionObserverTests: XCTestCase, @unchecked Sendable {
         emit('agent_start');
         const first = rows()[0];
         assert.equal(first.state, 'running');
+        assert.equal(first.host, 'Pi');
         assert.equal(first.sessionFile, undefined);
         emit('message_end', { message: { role: 'assistant', stopReason: 'error', content: 'private prompt', usage: { input: 99 } } });
         emit('agent_end');
@@ -200,6 +203,17 @@ final class PiSessionObserverTests: XCTestCase, @unchecked Sendable {
         assert.equal(JSON.stringify(rows()).includes('private prompt'), false);
         assert.equal(JSON.stringify(rows()).includes('usage'), false);
         assert.equal(JSON.stringify(rows()).includes('content'), false);
+        // OMP agent homes label completions as OMP while keeping the pi: session namespace.
+        const ompHome = join(process.argv[2], '.omp', 'agent');
+        const ompTurns = join(ompHome, 'agent-hud', 'turns');
+        process.env.PI_CODING_AGENT_DIR = ompHome;
+        observer(pi);
+        emit('agent_start');
+        const ompRows = () => readdirSync(ompTurns).filter(f => f.endsWith('.json')).map(f => JSON.parse(readFileSync(join(ompTurns, f), 'utf8')));
+        assert.equal(ompRows().at(-1).host, 'OMP');
+        emit('agent_end'); settle();
+        assert.equal(ompRows().at(-1).host, 'OMP');
+        assert.equal(ompRows().at(-1).state, 'completed');
         // An unwritable inbox cannot break an agent run.
         process.env.PI_CODING_AGENT_DIR = join(process.argv[2], 'blocked');
         writeFileSync(process.env.PI_CODING_AGENT_DIR, 'file instead of directory');

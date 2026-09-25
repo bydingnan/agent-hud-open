@@ -141,8 +141,8 @@ actor OpenAgentUsageProvider: UsageProvider, LedgerRecording {
     func fetchUsage(agents: [AgentDescriptor], historyHours: Int) async throws -> UsageReport {
         let now = clock(), since = clock().addingTimeInterval(-Double(max(168, historyHours)) * 3600)
         var local = await sessions(since)
-        // Pi's observer keeps active runs fresh. An expired heartbeat ends activity without claiming success.
-        for index in local.sessions.indices where local.sessions[index].client == .pi {
+        // Pi / OMP observers keep active runs fresh. An expired heartbeat ends activity without claiming success.
+        for index in local.sessions.indices where local.sessions[index].client == .pi || local.sessions[index].client == .omp {
             local.sessions[index].turns = local.sessions[index].turns.map { turn in
                 guard turn.state == .running, now.timeIntervalSince1970 - Double(turn.observedAtMs) / 1000 >= 120 else { return turn }
                 return SessionTurn(provider: turn.provider, sessionID: turn.sessionID, turnID: turn.turnID,
