@@ -48,7 +48,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !options.demo, let executable = Bundle.main.executableURL {
             SessionObservers.configure(executable: executable)
         }
-        let desktop = DesktopApplication(options: options, settings: settings, store: store)
+        let notifier = options.demo ? nil : SystemNotifier.shared
+        notifier?.prepare()
+        let desktop = DesktopApplication(options: options, settings: settings, store: store,
+            onIslandEvents: { update, _, _ in notifier?.present(update) })
         self.desktop = desktop
         desktop.start()
     }

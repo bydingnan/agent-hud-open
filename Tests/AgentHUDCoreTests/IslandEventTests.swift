@@ -112,6 +112,50 @@ final class IslandEventTests: XCTestCase {
         XCTAssertEqual(update(100, 5), ["reset codex"])
     }
 
+    func testInterruptionReportsAStopOfInFlightWorkOnceAndOnlyWhenTheClientRecordedIt() {
+        var tracker = IslandEventTracker(startedAt: start)
+        let agents = [AgentDescriptor(id: "codex", vendor: "Codex", model: "5h", source: "", enabled: true)]
+        let session = LiveSession(id: "codex:s", agentId: "codex", task: "Fix the parser", terminal: nil,
+                                  startedAt: start, pctOfWindow: nil, tokensIn: 0, tokensOut: 0)
+        func update(_ state: SessionTurn.State, observed seconds: Double, at now: Double) -> IslandEventTracker.Update {
+            let turn = SessionTurn(provider: "codex", sessionID: "codex:s", turnID: "t", state: state,
+                                   startedAtMs: 1_788_850_000_000, observedAtMs: 1_788_850_000_000 + Int64(seconds * 1000))
+            return tracker.update(report: report(sessions: [session], turns: [turn], at: start.addingTimeInterval(now)),
+                                  agents: agents, now: start.addingTimeInterval(now))
+        }
+        XCTAssertEqual(update(.running, observed: 0, at: 1).interruptions, [], "the first look establishes a baseline")
+        let stopped = update(.ended, observed: 2, at: 3).interruptions
+        XCTAssertEqual(stopped.map(\.vendor), ["Codex"], "the vendor is resolved the way the panel resolves a session")
+        XCTAssertEqual(stopped.map(\.task), ["Fix the parser"])
+        XCTAssertEqual(update(.ended, observed: 2, at: 4).interruptions, [], "one stop is one event")
+        update(.running, observed: 5, at: 6)
+        let again = update(.ended, observed: 7, at: 8).interruptions
+        XCTAssertEqual(again.count, 1, "the next turn that stops is its own event")
+        XCTAssertNotEqual(again.first?.id, stopped.first?.id)
+        // A turn a quiet source parked keeps its old observation time, so it never reads as the client stopping it.
+        update(.running, observed: 10, at: 11)
+        XCTAssertEqual(update(.ended, observed: 10, at: 131).interruptions, [])
+    }
+
+    func testInterruptionCoversApprovalBlocksNotCompletionsAndConsumesSuppressedStops() {
+        var tracker = IslandEventTracker(startedAt: start)
+        let agents = [AgentDescriptor(id: "codex", vendor: "Codex", model: "5h", source: "", enabled: true)]
+        func update(_ state: SessionTurn.State, at now: Double, settings: Settings = Settings()) -> IslandEventTracker.Update {
+            let turn = SessionTurn(provider: "codex", sessionID: "codex:s", turnID: "t", state: state,
+                                   startedAtMs: 1_788_850_000_000, observedAtMs: 1_788_850_000_000 + Int64(now * 1000))
+            return tracker.update(report: report(turns: [turn], at: start.addingTimeInterval(now)),
+                                  agents: agents, now: start.addingTimeInterval(now), settings: settings)
+        }
+        update(.waitingForApproval, at: 1)
+        XCTAssertEqual(update(.ended, at: 2).interruptions.count, 1, "a blocked turn that stops was interrupted")
+        update(.running, at: 3)
+        XCTAssertEqual(update(.completed, at: 4).interruptions, [], "a completion is the completion event, not an interruption")
+        let suppressed = Settings().with { $0.setLiveStatus(for: "Codex", enabled: false) }
+        update(.running, at: 5, settings: suppressed)
+        XCTAssertEqual(update(.ended, at: 6, settings: suppressed).interruptions, [])
+        XCTAssertEqual(update(.ended, at: 7).interruptions, [], "a suppressed stop is consumed, never replayed")
+    }
+
     private func completion(_ turn: String, vendor: String = "Codex", at: Date) -> SessionCompletion {
         SessionCompletion(sessionID: vendor, vendor: vendor, turnID: turn, task: "Task", model: "Model", startedAt: nil, completedAt: at)
     }
@@ -120,9 +164,10 @@ final class IslandEventTests: XCTestCase {
         UsageSnapshot(agentId: agent.id, remainingPct: remaining, resetAt: start.addingTimeInterval(deadline), updatedAt: at)
     }
 
-    private func report(completions: [SessionCompletion] = [], snapshots: [UsageSnapshot] = [], at: Date? = nil) -> UsageReport {
-        UsageReport(generatedAt: at ?? start, snapshots: snapshots, sessions: [],
-                    completions: completions)
+    private func report(completions: [SessionCompletion] = [], snapshots: [UsageSnapshot] = [], sessions: [LiveSession] = [],
+                        turns: [SessionTurn] = [], at: Date? = nil) -> UsageReport {
+        UsageReport(generatedAt: at ?? start, snapshots: snapshots, sessions: sessions,
+                    completions: completions, turns: turns)
     }
 
     /// Island alerts by kind, then threshold crossings, each with the window id.

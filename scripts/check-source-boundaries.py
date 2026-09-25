@@ -12,7 +12,9 @@ paths = subprocess.check_output(
 private_extensions = {".p8", ".p12", ".pfx", ".key", ".pem", ".mobileprovision", ".provisionprofile", ".entitlements"}
 private_directories = {"signing", "Sync", "AgentHUDServices"}
 service_patterns = [
-    r"\bimport\s+(?:CloudKit|UserNotifications|AgentHUDServices)\b",
+    # UserNotifications is the standalone app's own notification channel; the private services layer around it
+    # (AgentHUDServices, NotificationTracker, CloudKit) stays out.
+    r"\bimport\s+(?:CloudKit|AgentHUDServices)\b",
     r"\b(?:CKContainer|CKDatabase|ICloudSync|LiveActivitySender|NotificationTracker)\b",
     r"com\.apple\.developer\.(?:icloud|aps|team-identifier)",
     r"\b(?:DEVELOPMENT_TEAM|NOTARY_PROFILE|ICLOUD_PROVISIONING_PROFILE)\b",
