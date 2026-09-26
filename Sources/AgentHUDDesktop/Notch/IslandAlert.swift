@@ -2,11 +2,13 @@ import Foundation
 import SwiftUI
 import AgentHUDCore
 
-/// One presentation queue for quota events, added usage resets, completed turns and tool calls waiting to be approved.
+/// One presentation queue for quota events, added usage resets, completed turns,
+/// asks waiting for the user, and tool calls waiting to be approved.
 enum IslandAlert: Identifiable {
     case quota(QuotaAlert)
     case resetCredits(ResetCreditGrant)
     case completion(SessionCompletion)
+    case attention(SessionAttentionNeed)
     case permission(PermissionRequest)
 
     var id: String {
@@ -14,6 +16,7 @@ enum IslandAlert: Identifiable {
         case .quota(let event): return event.id.uuidString
         case .resetCredits(let event): return event.id.uuidString
         case .completion(let event): return event.id
+        case .attention(let event): return event.id
         case .permission(let request): return request.id
         }
     }
@@ -22,26 +25,33 @@ enum IslandAlert: Identifiable {
         case .quota(let event): return event.agent.vendor
         case .resetCredits(let event): return event.account.account.provider
         case .completion(let event): return event.vendor
+        case .attention(let event): return event.vendor
         case .permission(let request): return request.vendor
         }
     }
     var isWarning: Bool {
         switch self {
         case .quota(let event): return event.kind == .exhaustion
-        case .permission: return true
+        case .permission, .attention: return true
         case .resetCredits, .completion: return false
         }
     }
     /// A request is a question, not news: it stays until its client has its answer, and nothing else takes its place
-    /// while it waits. Everything else is over the moment it has been read.
+    /// while it waits. An ask / attention wait is the same kind of question — answered in the client rather than on
+    /// the island — so it holds the island the same way. Everything else is over the moment it has been read.
     var isPersistent: Bool {
-        if case .permission = self { return true }
-        return false
+        switch self {
+        case .permission, .attention: return true
+        case .quota, .resetCredits, .completion: return false
+        }
     }
     /// When the client started waiting. News has no such moment: it is over as soon as it has been read.
     var waitingSince: Date? {
-        if case .permission(let request) = self { return request.at }
-        return nil
+        switch self {
+        case .permission(let request): return request.at
+        case .attention(let event): return event.at
+        case .quota, .resetCredits, .completion: return nil
+        }
     }
 
     /// How wide the expanded card is. A queue of requests reads across — a project, what kind of call, on what and

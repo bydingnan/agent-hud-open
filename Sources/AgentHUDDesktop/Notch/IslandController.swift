@@ -59,6 +59,11 @@ final class IslandController {
     private struct Inputs: Equatable {
         let rows: [AgentRow]
         let sessions: [LiveSession]
+        /// Whether each vendor's mark should bob; compared apart from sessions so a turn that starts or stops
+        /// while the LiveSession row looks unchanged still redraws the queue.
+        let workingVendors: Set<String>
+        /// Newest turn state per session, so waiting ↔ running refreshes the front status without a new session row.
+        let turnStates: [String: SessionTurn.State]
         let isPaused: Bool
         let glowHidden: Bool
         let appearance: GlowAppearance
@@ -67,8 +72,16 @@ final class IslandController {
     }
 
     private var inputs: Inputs {
-        Inputs(rows: store.rows, sessions: store.sessions, isPaused: store.isPaused, glowHidden: store.glowHidden,
-               appearance: store.glowAppearance(light: systemIsLight), settings: settings.settings, agents: settings.agents)
+        var turnStates: [String: (SessionTurn.State, Int64)] = [:]
+        for turn in store.report?.turns ?? [] {
+            if let previous = turnStates[turn.sessionID], previous.1 >= turn.observedAtMs { continue }
+            turnStates[turn.sessionID] = (turn.state, turn.observedAtMs)
+        }
+        return Inputs(rows: store.rows, sessions: store.sessions, workingVendors: store.workingVendors,
+                      turnStates: turnStates.mapValues(\.0),
+                      isPaused: store.isPaused, glowHidden: store.glowHidden,
+                      appearance: store.glowAppearance(light: systemIsLight), settings: settings.settings,
+                      agents: settings.agents)
     }
 
     // MARK: Screens

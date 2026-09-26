@@ -1,9 +1,13 @@
+import AgentHUDSupport
 import Foundation
 
 /// Clients supply request observations. Billing services supply account observations, exactly once per pool.
 actor OpenAgentUsageProvider: UsageProvider, LedgerRecording {
     private let credentials: @Sendable () -> [OpenAgentCredential]
     private let sessions: @Sendable (Date) async -> OpenAgentLocalStore.Result
+    private let attention: @Sendable () -> [String: OpenAgentAttention.Event]
+    /// When the OMP attention observer is installed, a cleared inbox releases stale `waitingForApproval` turns.
+    private let attentionInboxAuthoritative: @Sendable () -> Bool
     private let fetchQuota: @Sendable (OpenAgentCredential, Date) async throws -> ProviderQuota
     private let identify: @Sendable (OpenAgentCredential) async throws -> OpenAgentCredential
     private let apiServices: @Sendable () -> [AgentService]
@@ -31,12 +35,16 @@ actor OpenAgentUsageProvider: UsageProvider, LedgerRecording {
     static let source = "open-agents"
     init(credentials: @escaping @Sendable () -> [OpenAgentCredential],
          sessions: @escaping @Sendable (Date) async -> OpenAgentLocalStore.Result,
+         attention: @escaping @Sendable () -> [String: OpenAgentAttention.Event] = { [:] },
+         attentionInboxAuthoritative: @escaping @Sendable () -> Bool = { false },
          fetchQuota: @escaping @Sendable (OpenAgentCredential, Date) async throws -> ProviderQuota,
          history: QuotaHistoryStore, identify: @escaping @Sendable (OpenAgentCredential) async throws -> OpenAgentCredential = { $0 }, clock: @escaping @Sendable () -> Date = { Date() },
          identityCacheURL: URL? = nil,
          apiServices: @escaping @Sendable () -> [AgentService] = { [] },
          watchedDirectories: [URL]? = nil, ledger: UsageLedger = .inMemory()) {
-        self.credentials = credentials; self.sessions = sessions; self.fetchQuota = fetchQuota
+        self.credentials = credentials; self.sessions = sessions; self.attention = attention
+        self.attentionInboxAuthoritative = attentionInboxAuthoritative
+        self.fetchQuota = fetchQuota
         self.history = history; self.identify = identify; self.clock = clock
         self.apiServices = apiServices
         self.identityCacheURL = identityCacheURL
@@ -52,13 +60,16 @@ actor OpenAgentUsageProvider: UsageProvider, LedgerRecording {
         let paths = OpenAgentPaths(home: FileManager.default.homeDirectoryForCurrentUser, environment: ProcessInfo.processInfo.environment)
         let local = OpenAgentLocalStore(paths: paths)
         return .init(credentials: { OpenAgentCredentials.discover() }, sessions: { await local.index(since: $0) },
+            attention: { OpenAgentAttention.read(directories: paths.attentionDirectories) },
+            attentionInboxAuthoritative: { OpenAgentAttention.isInboxAuthoritative(in: paths) },
             fetchQuota: { try await OpenAgentQuotaClient().fetch($0, now: $1) },
             history: QuotaHistoryStore(ledger: ledger, scope: Self.source,
                 importing: persistHistory ? AppSupport.directory.appendingPathComponent("open-agent-quota-history.json") : nil),
             identify: { try await OpenAgentQuotaClient().identify($0) },
             identityCacheURL: persistHistory ? AppSupport.directory.appendingPathComponent("open-agent-identities.json") : nil,
             apiServices: { AgentAPIServiceDiscovery.discover() },
-            watchedDirectories: [paths.openCode] + paths.turnDirectories + paths.roots(for: .kimi) + paths.roots(for: .pi), ledger: ledger)
+            watchedDirectories: [paths.openCode] + paths.turnDirectories + paths.attentionDirectories
+                + paths.roots(for: .kimi) + paths.roots(for: .pi), ledger: ledger)
     }
 
     /// Token totals of every open agent client from the period holding `since`.
@@ -141,12 +152,17 @@ actor OpenAgentUsageProvider: UsageProvider, LedgerRecording {
     func fetchUsage(agents: [AgentDescriptor], historyHours: Int) async throws -> UsageReport {
         let now = clock(), since = clock().addingTimeInterval(-Double(max(168, historyHours)) * 3600)
         var local = await sessions(since)
-        // Pi / OMP observers keep active runs fresh. An expired heartbeat ends activity without claiming success.
+        // Pi / OMP observers keep active runs fresh. Apply attention first so an open ask is not expired as a quiet run,
+        // then end heartbeats that are still only "running". Waiting on the user is not quiet work.
+        let requests = attention()
+        let inboxAuthoritative = attentionInboxAuthoritative()
         for index in local.sessions.indices where local.sessions[index].client == .pi || local.sessions[index].client == .omp {
+            local.sessions[index].turns = OpenAgentAttention.awaiting(
+                local.sessions[index].turns, requests: requests, inboxAuthoritative: inboxAuthoritative, now: now)
             local.sessions[index].turns = local.sessions[index].turns.map { turn in
                 guard turn.state == .running, now.timeIntervalSince1970 - Double(turn.observedAtMs) / 1000 >= 120 else { return turn }
                 return SessionTurn(provider: turn.provider, sessionID: turn.sessionID, turnID: turn.turnID,
-                    state: .ended, startedAtMs: turn.startedAtMs, observedAtMs: turn.observedAtMs)
+                    state: .ended, startedAtMs: turn.startedAtMs, observedAtMs: turn.observedAtMs, message: turn.message)
             }
         }
         let quotas = (cached ?? [:]).values.sorted { $0.credential.pool.id < $1.credential.pool.id }
@@ -175,10 +191,14 @@ actor OpenAgentUsageProvider: UsageProvider, LedgerRecording {
                     source: L10n.text("本地会话", "Local session"), enabled: true)
             }
             // A quiet log does not end a turn: one tool call can take minutes without writing a line. Only silence
-            // long enough to mean the client is gone does.
-            let running = item.turns.last.map {
-                $0.state == .running && now.timeIntervalSince1970 - Double($0.observedAtMs) / 1000 < UsageRefresh.abandonedTurnTimeout
-            } ?? false
+            // long enough to mean the client is gone does. Waiting on the user is still live work.
+            // In-flight status follows the newest observation, not start order: a later completed snapshot must not
+            // hide an earlier turn that is still heartbeating, or the island mark stays idle while the agent works.
+            let running = item.turns
+                .filter { $0.state == .running || $0.state == .waitingForApproval }
+                .max(by: { $0.observedAtMs < $1.observedAtMs })
+                .map { now.timeIntervalSince1970 - Double($0.observedAtMs) / 1000 < UsageRefresh.abandonedTurnTimeout }
+                ?? false
             let unique = UsageAggregation.usageUnion([item.events])
             return LiveSession(id: item.id, agentId: agentID, task: item.title,
                 terminal: item.workspace.map { URL(fileURLWithPath: $0).lastPathComponent }, startedAt: start, endedAt: running ? nil : end,
@@ -226,11 +246,16 @@ actor OpenAgentUsageProvider: UsageProvider, LedgerRecording {
                     weeklyWaitTotal: caps.totalWait, weeklyWaitLongest: caps.longestWait, weeklyWaitLongestAt: caps.longestAt)
             }
         }
+        let suppressedCompletionIDs = Set(local.sessions.flatMap(\.turns)
+            .filter { $0.state == .waitingForApproval }
+            .map { RecordCoding.hash([$0.provider, $0.sessionID, $0.turnID]) })
         return UsageReport(generatedAt: now, snapshots: snapshots, sessions: live,
             notice: notices.isEmpty ? nil : notices.keys.sorted().map { "\($0): \(notices[$0]!)" }.joined(separator: " · "),
             discoveredAgents: descriptors, consumers: consumers.values.sorted { $0.id < $1.id },
             indexing: local.indexing, insightsByAgent: insights, subscriptions: plans, sourceNotices: notices, consumerIdsByQuota: links,
-            completions: local.sessions.flatMap(\.completions), turns: local.sessions.flatMap(\.turns), services: services,
+            // OMP ask can outlive agent_end: do not toast completion while that turn is reopened as waiting.
+            completions: local.sessions.flatMap(\.completions).filter { !suppressedCompletionIDs.contains($0.id) },
+            turns: local.sessions.flatMap(\.turns), services: services,
             activeQuotaPoolIDs: cached == nil ? nil : activePools, accounts: cached == nil ? nil : accounts)
     }
 }

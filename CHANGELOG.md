@@ -4,6 +4,14 @@ Releases of Agent HUD Open. A version is a git tag `vX.Y.Z` on `main`; `CFBundle
 
 ## Unreleased
 
+## 0.4.19 — 2026-09-26
+
+- OMP Ask (including Cursor-via-OMP) notifies again: the session observer opens a turn when `ask` arrives with no active run — Cursor often fires Ask after `agent_end` — and keeps the intent when args are null; the island and Notification Center say the client needs you the way they say a turn finished.
+- An Ask / attention wait holds the island like a permission request: it still opens when the glow is hidden or the HUD is paused, stays until the client stops waiting (instead of expiring as a toast), and is withdrawn when that wait clears. When OMP’s attention observer is installed, clearing the attention inbox also releases a turn snapshot still marked `waitingForApproval`, so answering an ask cannot leave a stuck “待确认 / Needs you” card.
+
+- Live work follows the newest in-flight turn observation rather than start order, so a later completed snapshot cannot hide a turn that is still heartbeating. Releasing a cleared OMP ask wait refreshes that observation, and the island redraws when working vendors or turn states change — the front mark bobs and the glow leaves the idle period while the agent works.
+- Host API: `SessionAttentionNeed` and `IslandEventTracker.Update.attentionNeeds`.
+- OMP `ask` and tool-approval waits show on the HUD: the session observer publishes `waitingForApproval` (and holds the turn across `agent_end` until the wait clears), and the HUD also reads `~/.omp/agent/agent-hud/attention` (and the Pi home’s matching inbox) so an attention-only extension still marks the session — including when `agent_end` already wrote `completed` while the ask dialog is still open. The panel keeps the waiting colour and “Needs approval” label; a quiet heartbeat no longer clears an open ask, and a completion toast is suppressed for a turn that attention has reopened as waiting.
 - OMP completion and live-status labels say **OMP** (not Pi). The shared Pi-compatible observer writes `host: "OMP"` under `~/.omp/agent`; session IDs stay in the `pi:` namespace so turns still merge with OMP transcripts. True Pi homes keep saying Pi.
 - OMP sessions that use `cursor/*` (or any other model) now report live turns to the HUD: the Pi session observer also installs under `~/.omp/agent` as `agent-hud-session.ts` when `agent-hud.ts` is already the attention observer, and the HUD reads sessions/turns from both `~/.pi/agent` and `~/.omp/agent`. The observer resolves the turns directory from the extension's own agent home when `PI_CODING_AGENT_DIR` is unset (OMP's usual case). OMP 18.x emits `agent_end` but not `agent_settled`, so the observer completes after a short `agent_end` debounce (cancelled by a follow-up `agent_start`); `agent_settled` still finishes immediately on Pi hosts that emit it. Failures (`error` / `aborted` / `length`) skip the island completion reminder. Turn snapshots are parsed ahead of large transcripts, and the open-agent file watch includes every turns directory. Cursor lifecycle hooks still apply only to Cursor Agent / IDE — an OMP process is not `cursor-agent`.
 - Cursor Agent / IDE local running and terminal turns: `CursorLifecycleObserver` merges Application Support `lifecycle/cursor` snapshots (from `~/.cursor/hooks/cursor-lifecycle.sh`) with account usage; setup appends owned handlers without removing Herdr / completion hooks.
@@ -18,6 +26,7 @@ Releases of Agent HUD Open. A version is a git tag `vX.Y.Z` on `main`; `CFBundle
 - An interruption is named only when the client itself recorded the stop — Claude Code's interrupt line, Codex's aborted turn, Copilot's abort, a failed DeepSeek attempt — so a turn a quiet source parked never reads as one, and a stop of a vendor whose Live status is off is consumed, never replayed.
 - Host API: `SessionInterruption` in AgentHUDCore and `IslandEventTracker.Update.interruptions`; the standalone application wires `onIslandEvents` to its own `SystemNotifier`.
 - Host API: `ZenMuxCredentials` (including Keychain save/load), `OpenAgentSettingsKeys`, `ZenMuxUsageProvider` and `PreferredVendors.personal` include `ZenMux` only; `Settings.showInDock`.
+- Notarized DMGs are named `Agent-HUD-Open-${VERSION}.dmg` (default output: `~/Downloads`).
 
 ## 0.4.18 — 2026-09-21
 

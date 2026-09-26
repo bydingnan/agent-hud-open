@@ -14,7 +14,10 @@ public enum OpenAgentDiagnostics {
             let sessions = result.sessions.filter { $0.client == source }
             let events = UsageAggregation.usageUnion(sessions.map(\.events)).filter { $0.timestamp >= since }
             let running = sessions.filter { session in
-                session.turns.last.map { $0.state == .running && Date().timeIntervalSince1970 - Double($0.observedAtMs) / 1000 < 120 } ?? false
+                session.turns
+                    .filter { $0.state == .running || $0.state == .waitingForApproval }
+                    .max(by: { $0.observedAtMs < $1.observedAtMs })
+                    .map { Date().timeIntervalSince1970 - Double($0.observedAtMs) / 1000 < 120 } ?? false
             }.count
             rows.append("\(source.name): \(sessions.count) sessions, \(running) running, \(events.count) distinct usage events, "
                 + "\(events.reduce(0) { $0 + $1.tokensIn }) in / \(events.reduce(0) { $0 + $1.tokensOut }) out / "

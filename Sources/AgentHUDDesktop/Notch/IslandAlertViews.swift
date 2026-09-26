@@ -17,6 +17,28 @@ struct IslandAlertCompactView: View {
             QuotaAlertCompactView(alert: event, cameraWidth: cameraWidth, height: height, onOpen: onOpen)
         case .resetCredits(let event):
             ResetCreditAlertCompactView(grant: event, cameraWidth: cameraWidth, height: height, onOpen: onOpen)
+        case .attention(let event):
+            Button(action: onOpen) {
+                HStack(spacing: 0) {
+                    HStack(spacing: 8) {
+                        AgentLogo(vendor: event.vendor, size: 17)
+                        Text(event.vendor).font(.ui(13, .semibold)).lineLimit(1)
+                    }.frame(width: IslandController.alertWingWidth, alignment: .leading)
+                    Color.clear.frame(width: cameraWidth)
+                    HStack(spacing: 7) {
+                        Image(systemName: "hand.raised.fill")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(Color(IslandAlert.warningAccent))
+                        Text(L10n.text("待确认", "Needs you")).font(.ui(12, .medium))
+                    }.frame(width: IslandController.alertWingWidth, alignment: .trailing)
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, IslandController.alertSidePadding).frame(height: height)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("island-alert-attention")
+            .accessibilityLabel("\(event.vendor) · \(L10n.text("需要你确认", "Needs your input")) · \(event.message ?? event.task)")
         case .completion(let event):
             Button(action: onOpen) {
                 HStack(spacing: 0) {
@@ -54,6 +76,35 @@ struct IslandAlertDetailView: View {
                                       all: waitingRequests, onSelect: onSelectRequest)
         case .quota(let event): QuotaAlertDetailView(alert: event, onOpen: onOpen)
         case .resetCredits(let event): ResetCreditAlertDetailView(grant: event, onOpen: onOpen)
+        case .attention(let event):
+            VStack(alignment: .leading, spacing: 18) {
+                HStack(spacing: 10) {
+                    AgentLogo(vendor: event.vendor, size: 24)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(event.vendor).font(.ui(13, .semibold))
+                        Text(event.task).font(.ui(10)).foregroundStyle(.white.opacity(0.45)).lineLimit(1)
+                    }
+                    Spacer()
+                    Image(systemName: "hand.raised.fill")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(Color(IslandAlert.warningAccent))
+                    Text(L10n.text("需要你确认", "Needs your input"))
+                        .font(.ui(11)).foregroundStyle(Color(IslandAlert.warningAccent))
+                }
+                Text(event.message ?? event.task)
+                    .font(.ui(15, .medium)).lineLimit(4).fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    Text(event.at.formatted(date: .omitted, time: .shortened))
+                    Spacer()
+                    Text(L10n.text("在客户端中回答", "Answer in the client"))
+                }.font(.tabular(11)).foregroundStyle(.white.opacity(0.5))
+                Button(action: onOpen) {
+                    Text(L10n.text("查看会话", "View sessions"))
+                        .font(.ui(12, .semibold)).foregroundStyle(.black)
+                        .frame(maxWidth: .infinity).frame(height: 32)
+                        .background(Color(IslandAlert.warningAccent), in: RoundedRectangle(cornerRadius: 7))
+                }.buttonStyle(.plain)
+            }.foregroundStyle(.white)
         case .completion(let event):
             VStack(alignment: .leading, spacing: 18) {
                 HStack(spacing: 10) {
@@ -97,6 +148,21 @@ struct IslandAlertInlineView: View {
                                                                  waiting: max(1, waitingRequests.count))
         case .quota(let event): QuotaAlertInlineView(alert: event, onOpen: onOpen)
         case .resetCredits(let event): ResetCreditAlertInlineView(grant: event, onOpen: onOpen)
+        case .attention(let event):
+            Button(action: onOpen) {
+                HStack(spacing: 10) {
+                    Image(systemName: "hand.raised.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Color(IslandAlert.warningAccent))
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(L10n.text("\(event.vendor) 需要你确认", "\(event.vendor) needs your input"))
+                            .font(.ui(12, .medium))
+                        Text(event.message ?? event.task).font(.ui(10)).foregroundStyle(.white.opacity(0.45)).lineLimit(1)
+                    }
+                    Spacer()
+                    Image(systemName: "arrow.up.right").font(.ui(10))
+                }.foregroundStyle(.white).padding(.vertical, 8).contentShape(Rectangle())
+            }.buttonStyle(.plain)
         case .completion(let event):
             Button(action: onOpen) {
                 HStack(spacing: 10) {

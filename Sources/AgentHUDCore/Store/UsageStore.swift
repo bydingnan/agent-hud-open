@@ -395,9 +395,10 @@ public final class UsageStore {
     /// What the newest turn of this session is doing, when its source reported one.
     public func sessionState(_ session: LiveSession) -> SessionTurn.State? {
         let vendor = sessionSource(session).vendor?.lowercased()
-        return report?.turns.last {
-            $0.sessionID == session.id && (vendor == nil || $0.provider.lowercased() == vendor)
-        }?.state
+        return report?.turns
+            .filter { $0.sessionID == session.id && (vendor == nil || $0.provider.lowercased() == vendor) }
+            .max(by: { $0.observedAtMs < $1.observedAtMs })?
+            .state
     }
 
     public func isSessionWaiting(_ session: LiveSession) -> Bool {

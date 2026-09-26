@@ -81,10 +81,12 @@ public enum PiSessionObserver {
         let observedAtMs: Int64
         /// Product label for a Pi-compatible host. Session IDs stay `pi:` so OMP merges with its transcript.
         let host: String
+        /// What the client is waiting for while `state == .waitingForApproval`.
+        let message: String?
 
         init(version: Int, sessionID: String, sessionFile: String?, workspace: String, title: String,
              model: String?, providerID: String?, turnID: String, state: SessionTurn.State,
-             startedAtMs: Int64, observedAtMs: Int64, host: String = "Pi") {
+             startedAtMs: Int64, observedAtMs: Int64, host: String = "Pi", message: String? = nil) {
             self.version = version
             self.sessionID = sessionID
             self.sessionFile = sessionFile
@@ -97,13 +99,14 @@ public enum PiSessionObserver {
             self.startedAtMs = startedAtMs
             self.observedAtMs = observedAtMs
             self.host = host == "OMP" ? "OMP" : "Pi"
+            self.message = message.flatMap { $0.isEmpty ? nil : String($0.prefix(2048)) }
         }
 
         var source: OpenAgentSource { host == "OMP" ? .omp : .pi }
 
         var turn: SessionTurn {
             .init(provider: host, sessionID: sessionID, turnID: turnID, state: state,
-                  startedAtMs: startedAtMs, observedAtMs: observedAtMs)
+                  startedAtMs: startedAtMs, observedAtMs: observedAtMs, message: message)
         }
 
         var session: OpenAgentSession {
@@ -129,7 +132,7 @@ public enum PiSessionObserver {
         return Observation(version: value.version, sessionID: value.sessionID, sessionFile: value.sessionFile,
                            workspace: value.workspace, title: value.title, model: value.model, providerID: value.providerID,
                            turnID: value.turnID, state: value.state, startedAtMs: value.startedAtMs,
-                           observedAtMs: value.observedAtMs, host: host)
+                           observedAtMs: value.observedAtMs, host: host, message: value.message)
     }
 
     private struct Wire: Decodable {
@@ -145,130 +148,209 @@ public enum PiSessionObserver {
         let startedAtMs: Int64
         let observedAtMs: Int64
         let host: String?
+        let message: String?
     }
 
     // No Pi imports are required: this works with Pi's built-in extension loader.
     // Only lifecycle metadata leaves the process. Tokens remain owned by Pi's transcript.
     static let script = #"""
-    // Agent HUD Pi session observer
-    import { mkdirSync, writeFileSync, renameSync, readdirSync, statSync, unlinkSync } from "node:fs";
-    import { homedir } from "node:os";
-    import { dirname, join } from "node:path";
-    import { createHash, randomUUID } from "node:crypto";
-    import { fileURLToPath } from "node:url";
+// Agent HUD Pi session observer
+import { mkdirSync, writeFileSync, renameSync, readdirSync, statSync, unlinkSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+import { createHash, randomUUID } from "node:crypto";
+import { fileURLToPath } from "node:url";
 
-    export default function (pi) {
-      // Prefer PI_CODING_AGENT_DIR; else the agent home that owns this extension file
-      // (OMP installs as agent-hud-session.ts under ~/.omp/agent and often leaves PI_CODING unset).
-      function agentHome() {
-        if (process.env.PI_CODING_AGENT_DIR) return process.env.PI_CODING_AGENT_DIR;
-        try {
-          const here = fileURLToPath(import.meta.url).split("?")[0];
-          const extensions = dirname(here);
-          if (extensions.endsWith("/extensions") || extensions.endsWith("\\extensions")) {
-            return dirname(extensions);
-          }
-        } catch { /* fall through */ }
-        return join(homedir(), ".pi", "agent");
+export default function (pi) {
+  // Prefer PI_CODING_AGENT_DIR; else the agent home that owns this extension file
+  // (OMP installs as agent-hud-session.ts under ~/.omp/agent and often leaves PI_CODING unset).
+  function agentHome() {
+    if (process.env.PI_CODING_AGENT_DIR) return process.env.PI_CODING_AGENT_DIR;
+    try {
+      const here = fileURLToPath(import.meta.url).split("?")[0];
+      const extensions = dirname(here);
+      if (extensions.endsWith("/extensions") || extensions.endsWith("\\extensions")) {
+        return dirname(extensions);
       }
-      function hostLabel(home) {
-        const norm = String(home || "").replace(/\\/g, "/");
-        return /(^|\/)\.omp\/agent$/.test(norm) ? "OMP" : "Pi";
-      }
-      const home = agentHome();
-      const host = hostLabel(home);
-      const directory = join(home, "agent-hud", "turns");
-      // OMP 18.x emits agent_end but not agent_settled (confirmed in omp logs). Debounce
-      // agent_end like Herdr's idle path so retries/compaction can still cancel it.
-      const settleDebounceMs = 750;
-      let active;
-      let heartbeat;
-      let settleTimer;
-      let lastStopReason;
+    } catch { /* fall through */ }
+    return join(homedir(), ".pi", "agent");
+  }
+  function hostLabel(home) {
+    const norm = String(home || "").replace(/\\/g, "/");
+    return /(^|\/)\.omp\/agent$/.test(norm) ? "OMP" : "Pi";
+  }
+  const home = agentHome();
+  const host = hostLabel(home);
+  const directory = join(home, "agent-hud", "turns");
+  // OMP 18.x emits agent_end but not agent_settled (confirmed in omp logs). Debounce
+  // agent_end like Herdr's idle path so retries/compaction can still cancel it.
+  const settleDebounceMs = 750;
+  let active;
+  let heartbeat;
+  let settleTimer;
+  let lastStopReason;
+  // ask / tool approval: keep the turn live as waitingForApproval until the wait clears.
+  let waiting = 0;
+  let waitLabel;
+  let finishAfterWait = false;
 
-      function publish(ctx, state = "running") {
-        if (!active) return;
-        // sessionID keeps the pi: namespace so OMP turns merge with the same transcript.
-        const sessionID = "pi:" + ctx.sessionManager.getSessionId();
-        const record = {
-          version: 1, sessionID, sessionFile: ctx.sessionManager.getSessionFile(),
-          workspace: ctx.cwd, title: ctx.sessionManager.getSessionName() || host, host,
-          model: ctx.model?.id, providerID: ctx.model?.provider,
-          turnID: active.id, state, startedAtMs: active.startedAtMs, observedAtMs: Date.now(),
-        };
-        try {
-          mkdirSync(directory, { recursive: true, mode: 0o700 });
-          const name = createHash("sha256").update(sessionID + "\0" + active.id).digest("hex");
-          const file = join(directory, name + ".json");
-          const temporary = file + "." + process.pid + ".tmp";
-          writeFileSync(temporary, JSON.stringify(record), { mode: 0o600 });
-          renameSync(temporary, file);
-        } catch { /* Observability must never interrupt Pi's agent loop. */ }
-      }
+  function remember(text) {
+    if (typeof text === "string" && text.length > 0 && text.length <= 2048) waitLabel = text;
+  }
 
-      function clearSettle() {
-        if (settleTimer) clearTimeout(settleTimer);
-        settleTimer = undefined;
-      }
+  // Cursor-via-OMP often puts intent on the event and leaves args null.
+  function askLabel(event) {
+    const args = event?.args;
+    const questions = Array.isArray(args?.questions) ? args.questions : [];
+    remember(questions.find((question) => typeof question?.question === "string")?.question);
+    remember(args?.intent);
+    remember(event?.intent);
+  }
 
-      function finish(ctx, state) {
-        clearSettle();
-        publish(ctx, state);
-        clearInterval(heartbeat);
-        heartbeat = undefined;
-        active = undefined;
-      }
+  function currentState() {
+    return waiting > 0 ? "waitingForApproval" : "running";
+  }
 
-      function terminalState() {
-        const failed = lastStopReason === "error" || lastStopReason === "aborted" || lastStopReason === "length";
-        return failed ? "ended" : "completed";
-      }
+  // Cursor (and some OMP paths) can fire ask after agent_end with no active turn.
+  // Open a turn so waitingForApproval is published instead of dropped on the floor.
+  function ensureActive(ctx) {
+    if (active) return;
+    active = { id: randomUUID(), startedAtMs: Date.now() };
+    heartbeat = setInterval(() => publish(ctx), 15000);
+    heartbeat.unref();
+  }
 
-      function scheduleFinish(ctx) {
-        clearSettle();
-        if (!active) return;
-        settleTimer = setTimeout(() => {
-          settleTimer = undefined;
-          if (!active) return;
-          finish(ctx, terminalState());
-        }, settleDebounceMs);
-        settleTimer.unref?.();
-      }
+  function publish(ctx, state = currentState()) {
+    if (!active) return;
+    // sessionID keeps the pi: namespace so OMP turns merge with the same transcript.
+    const sessionID = "pi:" + ctx.sessionManager.getSessionId();
+    const record = {
+      version: 1, sessionID, sessionFile: ctx.sessionManager.getSessionFile(),
+      workspace: ctx.cwd, title: ctx.sessionManager.getSessionName() || host, host,
+      model: ctx.model?.id, providerID: ctx.model?.provider,
+      turnID: active.id, state, startedAtMs: active.startedAtMs, observedAtMs: Date.now(),
+    };
+    if (waiting > 0 && waitLabel) record.message = waitLabel;
+    try {
+      mkdirSync(directory, { recursive: true, mode: 0o700 });
+      const name = createHash("sha256").update(sessionID + "\0" + active.id).digest("hex");
+      const file = join(directory, name + ".json");
+      const temporary = file + "." + process.pid + ".tmp";
+      writeFileSync(temporary, JSON.stringify(record), { mode: 0o600 });
+      renameSync(temporary, file);
+    } catch { /* Observability must never interrupt Pi's agent loop. */ }
+  }
 
-      pi.on("session_start", () => {
-        try {
-          for (const name of readdirSync(directory)) {
-            if (/^[a-f0-9]{64}\.json$/.test(name) && statSync(join(directory, name)).mtimeMs < Date.now() - 7 * 86400000) {
-              unlinkSync(join(directory, name));
-            }
-          }
-        } catch { /* The inbox is created on the first agent run. */ }
-      });
-      pi.on("agent_start", (_event, ctx) => {
-        // Retries, auto-compaction and queued follow-ups belong to one unsettled run.
-        clearSettle();
-        if (!active) {
-          active = { id: randomUUID(), startedAtMs: Date.now() };
-          heartbeat = setInterval(() => publish(ctx), 15000);
-          heartbeat.unref();
-        }
-        lastStopReason = undefined;
-        publish(ctx);
-      });
-      pi.on("message_end", (event, ctx) => {
-        if (event.message.role === "assistant") lastStopReason = event.message.stopReason;
-        publish(ctx);
-      });
-      pi.on("tool_execution_start", (_event, ctx) => publish(ctx));
-      pi.on("tool_execution_end", (_event, ctx) => publish(ctx));
-      // OMP finishes turns with agent_end (Herdr already keys off this). agent_settled is
-      // kept for Pi hosts that still emit it; only explicit failures skip the island reminder.
-      pi.on("agent_end", (event, ctx) => {
-        if (typeof event?.stopReason === "string") lastStopReason = event.stopReason;
-        scheduleFinish(ctx);
-      });
-      pi.on("agent_settled", (_event, ctx) => finish(ctx, terminalState()));
-      pi.on("session_shutdown", (_event, ctx) => finish(ctx, "ended"));
+  function clearSettle() {
+    if (settleTimer) clearTimeout(settleTimer);
+    settleTimer = undefined;
+  }
+
+  function finish(ctx, state) {
+    clearSettle();
+    finishAfterWait = false;
+    waiting = 0;
+    waitLabel = undefined;
+    publish(ctx, state);
+    clearInterval(heartbeat);
+    heartbeat = undefined;
+    active = undefined;
+  }
+
+  function terminalState() {
+    const failed = lastStopReason === "error" || lastStopReason === "aborted" || lastStopReason === "length";
+    return failed ? "ended" : "completed";
+  }
+
+  function scheduleFinish(ctx) {
+    clearSettle();
+    if (!active) return;
+    if (waiting > 0) {
+      // Still blocked on the user: hold the turn and finish once the wait clears.
+      finishAfterWait = true;
+      publish(ctx);
+      return;
     }
-    """#
+    settleTimer = setTimeout(() => {
+      settleTimer = undefined;
+      if (!active) return;
+      if (waiting > 0) { finishAfterWait = true; publish(ctx); return; }
+      finish(ctx, terminalState());
+    }, settleDebounceMs);
+    settleTimer.unref?.();
+  }
+
+  function releaseWait(ctx) {
+    waiting = Math.max(0, waiting - 1);
+    if (!waiting) waitLabel = undefined;
+    publish(ctx);
+    if (!waiting && finishAfterWait) {
+      finishAfterWait = false;
+      scheduleFinish(ctx);
+    }
+  }
+
+  pi.on("session_start", () => {
+    waiting = 0;
+    waitLabel = undefined;
+    finishAfterWait = false;
+    try {
+      for (const name of readdirSync(directory)) {
+        if (/^[a-f0-9]{64}\.json$/.test(name) && statSync(join(directory, name)).mtimeMs < Date.now() - 7 * 86400000) {
+          unlinkSync(join(directory, name));
+        }
+      }
+    } catch { /* The inbox is created on the first agent run. */ }
+  });
+  pi.on("agent_start", (_event, ctx) => {
+    // Retries, auto-compaction and queued follow-ups belong to one unsettled run.
+    clearSettle();
+    finishAfterWait = false;
+    if (!active) {
+      active = { id: randomUUID(), startedAtMs: Date.now() };
+      heartbeat = setInterval(() => publish(ctx), 15000);
+      heartbeat.unref();
+    }
+    lastStopReason = undefined;
+    publish(ctx);
+  });
+  pi.on("message_end", (event, ctx) => {
+    if (event.message.role === "assistant") lastStopReason = event.message.stopReason;
+    publish(ctx);
+  });
+  pi.on("tool_approval_requested", (event, ctx) => {
+    ensureActive(ctx);
+    waiting += 1;
+    remember(event?.reason || `${event?.toolName || "Tool"} approval`);
+    // Hold past a prior agent_end until the user answers.
+    finishAfterWait = true;
+    publish(ctx);
+  });
+  pi.on("tool_approval_resolved", (_event, ctx) => releaseWait(ctx));
+  pi.on("tool_execution_start", (event, ctx) => {
+    if (event?.toolName === "ask") {
+      ensureActive(ctx);
+      waiting += 1;
+      askLabel(event);
+      finishAfterWait = true;
+    }
+    publish(ctx);
+  });
+  pi.on("tool_execution_end", (event, ctx) => {
+    if (event?.toolName === "ask") releaseWait(ctx);
+    else publish(ctx);
+  });
+  // OMP finishes turns with agent_end (Herdr already keys off this). agent_settled is
+  // kept for Pi hosts that still emit it; only explicit failures skip the island reminder.
+  pi.on("agent_end", (event, ctx) => {
+    if (typeof event?.stopReason === "string") lastStopReason = event.stopReason;
+    scheduleFinish(ctx);
+  });
+  pi.on("agent_settled", (_event, ctx) => {
+    if (waiting > 0) { finishAfterWait = true; publish(ctx); return; }
+    finish(ctx, terminalState());
+  });
+  pi.on("session_shutdown", (_event, ctx) => finish(ctx, "ended"));
+}
+"""#
 }

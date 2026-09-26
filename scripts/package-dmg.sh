@@ -5,8 +5,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP_NAME="Agent HUD Open"
 APP_DIR="$ROOT/build/$APP_NAME.app"
-DMG="$ROOT/build/Agent-HUD-Open.dmg"
 STAGE="$ROOT/build/dmg-stage"
+OUTPUT_DIR="${OUTPUT_DIR:-$HOME/Downloads}"
 IDENTITY="${CODESIGN_IDENTITY:-}"
 KEYCHAIN_PROFILE="${KEYCHAIN_PROFILE:-}"
 SKIP_NOTARY="${SKIP_NOTARY:-0}"
@@ -22,13 +22,21 @@ fi
 
 "$ROOT/scripts/build-app.sh" release
 
+VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_DIR/Contents/Info.plist")"
+if [[ -z "$VERSION" ]]; then
+  echo "CFBundleShortVersionString missing from $APP_DIR" >&2
+  exit 1
+fi
+mkdir -p "$OUTPUT_DIR"
+DMG="$OUTPUT_DIR/Agent-HUD-Open-${VERSION}.dmg"
+
 # Re-sign with Hardened Runtime + timestamp when notarizing.
 codesign --force --deep --options runtime --timestamp \
   --sign "$IDENTITY" \
   --identifier app.agenthud.open \
   "$APP_DIR"
 codesign --verify --deep --strict "$APP_DIR"
-echo "Signed: $APP_DIR" >&2
+echo "Signed: $APP_DIR ($VERSION)" >&2
 
 rm -rf "$STAGE" "$DMG"
 mkdir -p "$STAGE"

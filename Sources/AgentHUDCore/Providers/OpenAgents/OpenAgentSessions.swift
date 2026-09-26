@@ -34,6 +34,8 @@ struct OpenAgentPaths: Sendable {
     var turnDirectories: [URL] {
         agentHomes.map { $0.appendingPathComponent("agent-hud/turns") }
     }
+    /// OMP (and Pi, when its attention observer is present) keep pending `ask` / approval requests here.
+    var attentionDirectories: [URL] { OpenAgentAttention.directories(in: self) }
     /// Distinct agent homes the HUD should read. Includes the configured Pi dir and `~/.omp/agent` when different.
     var agentHomes: [URL] {
         var seen = Set<String>(), result: [URL] = []
@@ -263,10 +265,16 @@ enum OpenAgentParser {
         let metadata = hasSession ? "s.title, s.directory" : "NULL, NULL"
         let join = hasSession ? "LEFT JOIN \(session) s ON s.id = m.session_id" : ""
         let filter = message == "session_message" ? "m.type = 'assistant'" : "json_extract(m.data, '$.role') = 'assistant'"
-        try db.rows("SELECT m.id, m.session_id, m.data, \(metadata) FROM \(message) m \(join) WHERE \(filter) AND json_extract(m.data, '$.time.created') >= CAST(? AS REAL) ORDER BY m.id DESC", strings: [String(since.timeIntervalSince1970 * 1000)]) { row in
-            guard let id = ReadOnlySQLite.text(row, 0), let sid = ReadOnlySQLite.text(row, 1), let raw = ReadOnlySQLite.text(row, 2) else { throw ProviderFailure.format }
+        let query = """
+            SELECT m.id, m.session_id, m.data, \(metadata) FROM \(message) m \(join) \
+            WHERE \(filter) AND json_extract(m.data, '$.time.created') >= CAST(? AS REAL) ORDER BY m.id DESC
+            """
+        try db.rows(query, strings: [String(since.timeIntervalSince1970 * 1000)]) { row in
+            guard let id = ReadOnlySQLite.text(row, 0), let sid = ReadOnlySQLite.text(row, 1),
+                  let raw = ReadOnlySQLite.text(row, 2) else { throw ProviderFailure.format }
             if let item = try openCodeMessage(ProviderJSON.read(Data(raw.utf8)), id: id, sessionID: sid, path: url.path,
-                title: ReadOnlySQLite.text(row, 3), workspace: ReadOnlySQLite.text(row, 4), assistant: message == "session_message") {
+                title: ReadOnlySQLite.text(row, 3), workspace: ReadOnlySQLite.text(row, 4),
+                assistant: message == "session_message") {
                 sessions.append(item)
             }
         }

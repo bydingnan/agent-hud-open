@@ -102,9 +102,12 @@ final class PiSessionObserverTests: XCTestCase, @unchecked Sendable {
         XCTAssertEqual(runningUsage.reduce(0) { $0 + $1.total }, 0)
 
         let transcript = paths.pi.appendingPathComponent("sessions/workspace/session.jsonl")
+        let stamp = now.addingTimeInterval(-10).ISO8601Format()
+        let usage = #"{"input":10,"output":5,"cacheRead":20,"cacheWrite":2}"#
+        let message = #"{"role":"assistant","model":"model","provider":"provider","usage":\#(usage),"stopReason":"stop"}"#
         try write(Data("""
         {"type":"session","id":"session","cwd":"/workspace","timestamp":"\(now.addingTimeInterval(-600).ISO8601Format())"}
-        {"type":"message","id":"response","timestamp":"\(now.addingTimeInterval(-10).ISO8601Format())","message":{"role":"assistant","model":"model","provider":"provider","usage":{"input":10,"output":5,"cacheRead":20,"cacheWrite":2},"stopReason":"stop"}}
+        {"type":"message","id":"response","timestamp":"\(stamp)","message":\(message)}
         """.utf8), to: transcript)
         try write(JSONEncoder().encode(observation(.completed)), to: observerFile)
         let completed = try await report(await store.index(since: now.addingTimeInterval(-86400)), ledger: completedLedger)
@@ -213,7 +216,29 @@ final class PiSessionObserverTests: XCTestCase, @unchecked Sendable {
         assert.equal(ompRows().at(-1).host, 'OMP');
         emit('agent_end'); settle();
         assert.equal(ompRows().at(-1).host, 'OMP');
-        assert.equal(ompRows().at(-1).state, 'completed');
+        assert.equal(ompRows().filter(r => r.state === 'completed').at(-1).host, 'OMP');
+        // Cursor-via-OMP can ask with no active turn; open one so waiting is published.
+        emit('tool_execution_start', { toolName: 'ask', intent: 'Choose a target', args: null });
+        const orphan = ompRows().filter(r => r.state === 'waitingForApproval');
+        assert.equal(orphan.length, 1);
+        assert.equal(orphan[0].message, 'Choose a target');
+        emit('tool_execution_end', { toolName: 'ask' });
+        // ask keeps the turn waiting even if agent_end arrives first; answering then finishes.
+        emit('agent_start');
+        emit('tool_execution_start', { toolName: 'ask', args: { intent: 'Pick a path', questions: [{ question: 'Ship it?' }] } });
+        const waiting = ompRows().filter(r => r.state === 'waitingForApproval');
+        assert.equal(waiting.length, 1);
+        assert.equal(waiting[0].message, 'Pick a path');
+        emit('agent_end');
+        // No new settle debounce while ask is open (a prior timer reference may still linger in the mock).
+        assert.equal(ompRows().filter(r => r.state === 'waitingForApproval').length, 1);
+        const settleBeforeAnswer = settle;
+        emit('tool_execution_end', { toolName: 'ask' });
+        assert.equal(typeof settle, 'function');
+        assert.notEqual(settle, settleBeforeAnswer);
+        settle();
+        assert.equal(ompRows().filter(r => r.state === 'waitingForApproval').length, 0);
+        assert.ok(ompRows().some(r => r.state === 'completed'));
         // An unwritable inbox cannot break an agent run.
         process.env.PI_CODING_AGENT_DIR = join(process.argv[2], 'blocked');
         writeFileSync(process.env.PI_CODING_AGENT_DIR, 'file instead of directory');
@@ -223,5 +248,128 @@ final class PiSessionObserverTests: XCTestCase, @unchecked Sendable {
         """#.utf8), to: test)
         let output = try await ProviderCommand.run("/usr/bin/env", ["node", test.path, home.path])
         XCTAssertTrue(output.contains("Pi native lifecycle checks passed"), output)
+    }
+
+    func testOmpAttentionInboxMarksAskAsWaitingAndKeepsSessionLive() async throws {
+        let home = try temporaryHome()
+        let paths = OpenAgentPaths(home: home, environment: [:])
+        let now = now
+        let attention = paths.omp.appendingPathComponent("agent-hud/attention/request.json")
+        let payload: [String: Any] = [
+            "sessionID": "session",
+            "message": "Which approach?",
+            "atMs": Int(now.timeIntervalSince1970 * 1000),
+        ]
+        try write(JSONSerialization.data(withJSONObject: payload), to: attention)
+        try write(JSONEncoder().encode(observation(.running)), to: paths.omp.appendingPathComponent("agent-hud/turns/turn.json"))
+        // Heartbeat newer than the ask must not clear a still-open attention file.
+        let later = observation(.running)
+        let heartbeat = PiSessionObserver.Observation(
+            version: later.version, sessionID: later.sessionID, sessionFile: later.sessionFile, workspace: later.workspace,
+            title: later.title, model: later.model, providerID: later.providerID, turnID: later.turnID, state: .running,
+            startedAtMs: later.startedAtMs, observedAtMs: later.observedAtMs + 30_000, host: "OMP")
+        try write(JSONEncoder().encode(heartbeat), to: paths.omp.appendingPathComponent("agent-hud/turns/turn.json"))
+        let requests = OpenAgentAttention.read(directories: paths.attentionDirectories, now: now.addingTimeInterval(30))
+        XCTAssertEqual(requests["pi:session"]?.message, "Which approach?")
+        let provider = OpenAgentUsageProvider(
+            credentials: { [] },
+            sessions: { _ in await OpenAgentLocalStore(paths: paths).index(since: now.addingTimeInterval(-86400)) },
+            attention: { OpenAgentAttention.read(directories: paths.attentionDirectories, now: now.addingTimeInterval(30)) },
+            fetchQuota: { _, _ in throw ProviderFailure.format },
+            history: QuotaHistoryStore(), clock: { now.addingTimeInterval(30) })
+        let report = try await provider.fetchUsage(agents: [], historyHours: 168)
+        XCTAssertEqual(report.turns.map(\.state), [.waitingForApproval])
+        XCTAssertEqual(report.turns.first?.message, "Which approach?")
+        XCTAssertTrue(try XCTUnwrap(report.sessions.first).isLive)
+    }
+
+    func testOmpAttentionReopensCompletedTurnWhileAskIsOpen() async throws {
+        let home = try temporaryHome()
+        let paths = OpenAgentPaths(home: home, environment: [:])
+        let now = now
+        let attention = paths.omp.appendingPathComponent("agent-hud/attention/request.json")
+        let payload: [String: Any] = [
+            "sessionID": "session",
+            "message": "Pick one",
+            "atMs": Int(now.timeIntervalSince1970 * 1000),
+        ]
+        try write(JSONSerialization.data(withJSONObject: payload), to: attention)
+        // Session observer finished on agent_end while ask is still open - attention file remains.
+        try write(JSONEncoder().encode(observation(.completed)), to: paths.omp.appendingPathComponent("agent-hud/turns/turn.json"))
+        let provider = OpenAgentUsageProvider(
+            credentials: { [] },
+            sessions: { _ in await OpenAgentLocalStore(paths: paths).index(since: now.addingTimeInterval(-86400)) },
+            attention: { OpenAgentAttention.read(directories: paths.attentionDirectories, now: now) },
+            fetchQuota: { _, _ in throw ProviderFailure.format },
+            history: QuotaHistoryStore(), clock: { now })
+        let report = try await provider.fetchUsage(agents: [], historyHours: 168)
+        XCTAssertEqual(report.turns.map(\.state), [.waitingForApproval])
+        XCTAssertEqual(report.turns.first?.message, "Pick one")
+        XCTAssertTrue(report.completions.isEmpty)
+        XCTAssertTrue(try XCTUnwrap(report.sessions.first).isLive)
+    }
+
+    func testClearingOmpAttentionReleasesAStaleWaitingTurn() async throws {
+        let home = try temporaryHome()
+        let paths = OpenAgentPaths(home: home, environment: [:])
+        let now = now
+        try write(Data("// Agent HUD Omp attention observer\nexport default function () {}\n".utf8),
+                  to: paths.omp.appendingPathComponent("extensions/agent-hud.ts"))
+        XCTAssertTrue(OpenAgentAttention.isInboxAuthoritative(in: paths))
+        // Turn snapshot left waiting after the inbox file was deleted (answered / cancelled).
+        let waiting = PiSessionObserver.Observation(
+            version: 1, sessionID: "pi:session", sessionFile: nil, workspace: "/workspace", title: "OMP task",
+            model: "model", providerID: "provider", turnID: "turn", state: .waitingForApproval,
+            startedAtMs: Int64(now.addingTimeInterval(-300).timeIntervalSince1970 * 1000),
+            // Older than the quiet-run expiry: release must bump observedAt or the session goes idle.
+            observedAtMs: Int64(now.addingTimeInterval(-180).timeIntervalSince1970 * 1000), host: "OMP",
+            message: "Still on screen?")
+        try write(JSONEncoder().encode(waiting), to: paths.omp.appendingPathComponent("agent-hud/turns/turn.json"))
+        let provider = OpenAgentUsageProvider(
+            credentials: { [] },
+            sessions: { _ in await OpenAgentLocalStore(paths: paths).index(since: now.addingTimeInterval(-86400)) },
+            attention: { OpenAgentAttention.read(directories: paths.attentionDirectories, now: now) },
+            attentionInboxAuthoritative: { OpenAgentAttention.isInboxAuthoritative(in: paths) },
+            fetchQuota: { _, _ in throw ProviderFailure.format },
+            history: QuotaHistoryStore(), clock: { now })
+        let report = try await provider.fetchUsage(agents: [], historyHours: 168)
+        XCTAssertEqual(report.turns.map(\.state), [.running], "a cleared inbox must not leave Needs you on screen")
+        XCTAssertNil(report.turns.first?.message)
+        XCTAssertTrue(try XCTUnwrap(report.sessions.first).isLive,
+                      "releasing a wait that sat open must keep the session live so marks and glow leave idle")
+        // Pi waits without an OMP attention observer stay waiting — the turn file is the only signal.
+        let piWaiting = SessionTurn(provider: "Pi", sessionID: "pi:other", turnID: "t",
+                                    state: .waitingForApproval, startedAtMs: 1, observedAtMs: 2, message: "Pi ask")
+        XCTAssertEqual(OpenAgentAttention.awaiting([piWaiting], requests: [:], inboxAuthoritative: true).map(\.state),
+                       [.waitingForApproval])
+    }
+
+    /// A later completed snapshot must not hide a still-heartbeating earlier turn when deciding liveness.
+    func testNewestInFlightObservationKeepsTheSessionLive() async throws {
+        let home = try temporaryHome()
+        let paths = OpenAgentPaths(home: home, environment: [:])
+        let now = now
+        let running = PiSessionObserver.Observation(
+            version: 1, sessionID: "pi:session", sessionFile: nil, workspace: "/workspace", title: "OMP task",
+            model: "model", providerID: "provider", turnID: "run", state: .running,
+            startedAtMs: Int64(now.addingTimeInterval(-120).timeIntervalSince1970 * 1000),
+            observedAtMs: Int64(now.timeIntervalSince1970 * 1000), host: "OMP")
+        let finished = PiSessionObserver.Observation(
+            version: 1, sessionID: "pi:session", sessionFile: nil, workspace: "/workspace", title: "OMP task",
+            model: "model", providerID: "provider", turnID: "done", state: .completed,
+            startedAtMs: Int64(now.addingTimeInterval(-30).timeIntervalSince1970 * 1000),
+            observedAtMs: Int64(now.addingTimeInterval(-30).timeIntervalSince1970 * 1000), host: "OMP")
+        try write(JSONEncoder().encode(running), to: paths.omp.appendingPathComponent("agent-hud/turns/run.json"))
+        try write(JSONEncoder().encode(finished), to: paths.omp.appendingPathComponent("agent-hud/turns/done.json"))
+        let provider = OpenAgentUsageProvider(
+            credentials: { [] },
+            sessions: { _ in await OpenAgentLocalStore(paths: paths).index(since: now.addingTimeInterval(-86400)) },
+            attention: { [:] },
+            fetchQuota: { _, _ in throw ProviderFailure.format },
+            history: QuotaHistoryStore(), clock: { now })
+        let report = try await provider.fetchUsage(agents: [], historyHours: 168)
+        XCTAssertTrue(try XCTUnwrap(report.sessions.first).isLive,
+                      "an older heartbeating turn still counts after a newer completed snapshot")
+        XCTAssertEqual(report.sessions.first?.endedAt, nil)
     }
 }

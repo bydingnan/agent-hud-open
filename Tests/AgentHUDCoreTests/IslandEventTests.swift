@@ -137,6 +137,34 @@ final class IslandEventTests: XCTestCase {
         XCTAssertEqual(update(.ended, observed: 10, at: 131).interruptions, [])
     }
 
+
+    func testAttentionNeedReportsTransitionIntoWaitingOnceAndConsumesSuppressedWaits() {
+        var tracker = IslandEventTracker(startedAt: start)
+        let agents = [AgentDescriptor(id: "omp", vendor: "OMP", model: "cursor", source: "", enabled: true)]
+        let session = LiveSession(id: "pi:s", agentId: "omp", task: "Ship the fork", terminal: nil,
+                                  startedAt: start, pctOfWindow: nil, tokensIn: 0, tokensOut: 0)
+        func update(_ state: SessionTurn.State, message: String? = nil, at now: Double,
+                    settings: Settings = Settings()) -> IslandEventTracker.Update {
+            let turn = SessionTurn(provider: "OMP", sessionID: "pi:s", turnID: "t", state: state,
+                                   startedAtMs: 1_788_850_000_000, observedAtMs: 1_788_850_000_000 + Int64(now * 1000),
+                                   message: message)
+            return tracker.update(report: report(sessions: [session], turns: [turn], at: start.addingTimeInterval(now)),
+                                  agents: agents, now: start.addingTimeInterval(now), settings: settings)
+        }
+        XCTAssertEqual(update(.running, at: 1).attentionNeeds, [], "the first look establishes a baseline")
+        let needs = update(.waitingForApproval, message: "Pick a path", at: 2).attentionNeeds
+        XCTAssertEqual(needs.map(\.vendor), ["OMP"])
+        XCTAssertEqual(needs.map(\.message), ["Pick a path"])
+        XCTAssertEqual(needs.map(\.task), ["Ship the fork"])
+        XCTAssertEqual(update(.waitingForApproval, message: "Pick a path", at: 3).attentionNeeds, [], "one wait is one event")
+        update(.running, at: 4)
+        XCTAssertEqual(update(.waitingForApproval, at: 5).attentionNeeds.count, 1, "a later ask is its own event")
+        let suppressed = Settings().with { $0.setLiveStatus(for: "OMP", enabled: false) }
+        update(.running, at: 6, settings: suppressed)
+        XCTAssertEqual(update(.waitingForApproval, at: 7, settings: suppressed).attentionNeeds, [])
+        XCTAssertEqual(update(.waitingForApproval, at: 8).attentionNeeds, [], "a suppressed wait is consumed, never replayed")
+    }
+
     func testInterruptionCoversApprovalBlocksNotCompletionsAndConsumesSuppressedStops() {
         var tracker = IslandEventTracker(startedAt: start)
         let agents = [AgentDescriptor(id: "codex", vendor: "Codex", model: "5h", source: "", enabled: true)]

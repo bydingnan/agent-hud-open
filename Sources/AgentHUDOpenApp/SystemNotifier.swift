@@ -28,6 +28,10 @@ final class SystemNotifier: NSObject, UNUserNotificationCenterDelegate, @uncheck
             post(title: L10n.text("\(interruption.vendor) 本轮已中断", "\(interruption.vendor) turn interrupted"),
                  body: interruption.task, id: interruption.id)
         }
+        for attention in update.attentionNeeds {
+            post(title: L10n.text("\(attention.vendor) 需要你确认", "\(attention.vendor) needs your input"),
+                 body: attention.message ?? attention.task, id: attention.id)
+        }
     }
 
     private func post(title: String, body: String, id: String) {

@@ -12,6 +12,9 @@ public final class DesktopApplication {
     private var islandEvents = IslandEventTracker()
     /// The requests already on the island, so a change to the waiting list says which ones arrived and which left.
     private var shownRequests: [String] = []
+    /// Asks / attention waits already on the island, keyed like `IslandAlert.attention` so a wait that cleared in
+    /// the client is taken off without being answered here.
+    private var shownAttentions: [SessionAttentionNeed] = []
     private var notch: IslandController?
     private var statusItem: StatusItemController?
     private var keyMonitor: Any?
@@ -42,6 +45,23 @@ public final class DesktopApplication {
 
     public func start() {
         applyAppearance()
+        installIslandAndMenu()
+        installObservers()
+        // Seeded after the island is listening, so the demo's requests arrive the way a client's would.
+        if options.demo { PermissionRequests.shared.seedDemo() } else { PermissionRequests.shared.start() }
+        store.start()
+        if options.openPanel { notch?.forceOpen() }
+        // First-launch source list is unused for day-to-day; only --show-onboarding opens it.
+        if options.showOnboarding {
+            showOnboarding()
+        } else if !settings.hasCompletedOnboarding {
+            settings.markOnboardingComplete()
+        }
+        if options.showSettings { showSettings() }
+        if options.showStats { showStats() }
+    }
+
+    private func installIslandAndMenu() {
         let notch = IslandController(store: store, settings: settings)
         notch.onOpenStats = { [weak self] in self?.showStats() }
         notch.onOpenSettings = { [weak self] in self?.showSettings() }
@@ -54,13 +74,20 @@ public final class DesktopApplication {
             quit: { NSApp.terminate(nil) }
         )
         self.statusItem = statusItem
-        HostedWindowActivation.restorePolicy = { [weak self] closing in self?.applyDockVisibility(excluding: closing) }
+        HostedWindowActivation.restorePolicy = { [weak self] closing in
+            self?.applyDockVisibility(excluding: closing)
+        }
         HostedWindowActivation.setDockVisible = { [weak self] visible in self?.setDockVisible(visible) }
         AppMainMenu.install(openSettings: { [weak self] in self?.showSettings() })
-        HotKeyCenter.shared.register(id: 1, keyCode: HotKeyCenter.keyH, modifiers: HotKeyCenter.commandOption) { [weak self] in
+        HotKeyCenter.shared.register(
+            id: 1, keyCode: HotKeyCenter.keyH, modifiers: HotKeyCenter.commandOption
+        ) { [weak self] in
             self?.toggleGlow()
         }
         installForegroundShortcuts()
+    }
+
+    private func installObservers() {
         observeChanges({ [weak self] in
             self?.settings.settings.appearance
         }, onChange: { [weak self] in self?.applyAppearance() })
@@ -96,18 +123,6 @@ public final class DesktopApplication {
         // The channel is open whenever the app is: a client that asks while it is closed keeps its own prompt.
         observeChanges({ PermissionRequests.shared.pending.map(\.id) },
                        onChange: { [weak self] in self?.syncPermissionRequests() })
-        // Seeded after the island is listening, so the demo's requests arrive the way a client's would.
-        if options.demo { PermissionRequests.shared.seedDemo() } else { PermissionRequests.shared.start() }
-        store.start()
-        if options.openPanel { notch.forceOpen() }
-        // First-launch source list is unused for day-to-day; only --show-onboarding opens it.
-        if options.showOnboarding {
-            showOnboarding()
-        } else if !settings.hasCompletedOnboarding {
-            settings.markOnboardingComplete()
-        }
-        if options.showSettings { showSettings() }
-        if options.showStats { showStats() }
     }
 
     public func stop() {
@@ -153,7 +168,27 @@ public final class DesktopApplication {
         for alert in update.quotaAlerts { notch?.present(alert) }
         for grant in update.resetCreditGrants { notch?.present(.resetCredits(grant)) }
         for completion in update.completions { notch?.present(.completion(completion)) }
+        for attention in update.attentionNeeds {
+            notch?.present(.attention(attention))
+            if !shownAttentions.contains(where: { $0.id == attention.id }) {
+                shownAttentions.append(attention)
+            }
+        }
+        syncAttentionAlerts(report: report)
         onIslandEvents?(update, report, now)
+    }
+
+    /// An ask holds the island until the client stops waiting. The tracker only names the moment a wait opens, so
+    /// each refresh compares the ones still on screen to the turns that are still waiting and withdraws the rest.
+    private func syncAttentionAlerts(report: UsageReport) {
+        let waitingSessions = Set(report.turns.filter { $0.state == .waitingForApproval }.map(\.sessionID))
+        shownAttentions.removeAll { need in
+            guard waitingSessions.contains(need.sessionID) else {
+                notch?.withdraw(requestID: need.id)
+                return true
+            }
+            return false
+        }
     }
 
     private func applyAppearance() {

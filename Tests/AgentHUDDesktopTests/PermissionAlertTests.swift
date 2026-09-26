@@ -6,8 +6,11 @@ import XCTest
 @MainActor
 final class PermissionAlertTests: XCTestCase {
     private func request(_ id: String) -> PermissionRequest {
-        PermissionRequest(id: id, source: .claude, sessionID: "s", toolName: "Bash",
-                          summary: "Remove the build output", detail: "rm -rf .build", cwd: "/Users/me/agent-hud", at: Date())
+        PermissionRequest(
+            id: id, source: .claude, sessionID: "s", toolName: "Bash",
+            summary: "Remove the build output", detail: "rm -rf .build",
+            cwd: "/Users/me/agent-hud", at: Date()
+        )
     }
 
     private func completion() -> IslandAlert {
@@ -76,6 +79,27 @@ final class PermissionAlertTests: XCTestCase {
         XCTAssertTrue(queue.show(completion(), inUsagePanel: false))
         try await Task.sleep(for: IslandAlertQueue.visibleDuration + .milliseconds(200))
         XCTAssertEqual(expired, 1)
+    }
+
+    func testAnAskHoldsTheIslandLikeAPermissionRequest() async throws {
+        let queue = IslandAlertQueue()
+        var expired = 0
+        queue.onExpire = { expired += 1 }
+        let ask = IslandAlert.attention(SessionAttentionNeed(
+            sessionID: "s", vendor: "OMP", turnID: "t", task: "Pick a path",
+            message: "Which folder?", at: Date()))
+
+        XCTAssertTrue(ask.isPersistent, "an ask is a question, not a toast")
+        XCTAssertTrue(queue.show(ask, inUsagePanel: false))
+        XCTAssertFalse(queue.show(completion(), inUsagePanel: false), "news never takes an ask's place")
+
+        try await Task.sleep(for: IslandAlertQueue.visibleDuration + .milliseconds(200))
+        XCTAssertEqual(expired, 0, "an ask stays until the client stops waiting")
+        XCTAssertEqual(queue.current?.alert.id, ask.id)
+
+        let cleared = queue.remove(id: ask.id)
+        XCTAssertTrue(cleared.removed)
+        XCTAssertNil(cleared.next)
     }
 }
 
