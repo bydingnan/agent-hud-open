@@ -68,7 +68,7 @@ actor OpenAgentUsageProvider: UsageProvider, LedgerRecording {
             identify: { try await OpenAgentQuotaClient().identify($0) },
             identityCacheURL: persistHistory ? AppSupport.directory.appendingPathComponent("open-agent-identities.json") : nil,
             apiServices: { AgentAPIServiceDiscovery.discover() },
-            watchedDirectories: [paths.openCode] + paths.turnDirectories + paths.attentionDirectories
+            watchedDirectories: [paths.openCode, paths.openCodeTurns] + paths.turnDirectories + paths.attentionDirectories
                 + paths.roots(for: .kimi) + paths.roots(for: .pi), ledger: ledger)
     }
 
@@ -152,13 +152,15 @@ actor OpenAgentUsageProvider: UsageProvider, LedgerRecording {
     func fetchUsage(agents: [AgentDescriptor], historyHours: Int) async throws -> UsageReport {
         let now = clock(), since = clock().addingTimeInterval(-Double(max(168, historyHours)) * 3600)
         var local = await sessions(since)
-        // Pi / OMP observers keep active runs fresh. Apply attention first so an open ask is not expired as a quiet run,
+        // Native observers keep active runs fresh. Apply Pi / OMP attention first so an open ask is not expired as a quiet run,
         // then end heartbeats that are still only "running". Waiting on the user is not quiet work.
         let requests = attention()
         let inboxAuthoritative = attentionInboxAuthoritative()
-        for index in local.sessions.indices where local.sessions[index].client == .pi || local.sessions[index].client == .omp {
-            local.sessions[index].turns = OpenAgentAttention.awaiting(
-                local.sessions[index].turns, requests: requests, inboxAuthoritative: inboxAuthoritative, now: now)
+        for index in local.sessions.indices where [.opencode, .pi, .omp].contains(local.sessions[index].client) {
+            if local.sessions[index].client == .pi || local.sessions[index].client == .omp {
+                local.sessions[index].turns = OpenAgentAttention.awaiting(
+                    local.sessions[index].turns, requests: requests, inboxAuthoritative: inboxAuthoritative, now: now)
+            }
             local.sessions[index].turns = local.sessions[index].turns.map { turn in
                 guard turn.state == .running, now.timeIntervalSince1970 - Double(turn.observedAtMs) / 1000 >= 120 else { return turn }
                 return SessionTurn(provider: turn.provider, sessionID: turn.sessionID, turnID: turn.turnID,

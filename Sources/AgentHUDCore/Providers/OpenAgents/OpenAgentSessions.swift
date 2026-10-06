@@ -25,6 +25,7 @@ struct OpenAgentPaths: Sendable {
     let home: URL
     let environment: [String: String]
     var openCode: URL { URL(fileURLWithPath: environment["XDG_DATA_HOME"] ?? home.appendingPathComponent(".local/share").path).appendingPathComponent("opencode") }
+    var openCodeTurns: URL { openCode.appendingPathComponent("agent-hud/turns") }
     /// Configured Pi / OMP-compatible agent home. OMP sets `PI_CODING_AGENT_DIR` to `~/.omp/agent` in its own process;
     /// the HUD process usually does not, so `omp` is also watched below.
     var pi: URL { URL(fileURLWithPath: environment["PI_CODING_AGENT_DIR"] ?? home.appendingPathComponent(".pi/agent").path) }

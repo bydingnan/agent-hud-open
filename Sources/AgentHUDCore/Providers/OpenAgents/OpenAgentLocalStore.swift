@@ -35,6 +35,10 @@ actor OpenAgentLocalStore {
                 guard let id = value["id"].stringValue, let sid = value["sessionID"].stringValue else { throw ProviderFailure.format }
                 return try OpenAgentParser.openCodeMessage(value, id: id, sessionID: sid, path: url.path).map { [$0] } ?? []
             },
+            // OpenCode persists usage but not execution lifecycle. Its Agent HUD plugin writes metadata-only turn snapshots.
+            listing(.opencode, [paths.openCodeTurns], accepts: { $0.pathExtension == "json" }) { data, url in
+                [try OpenCodeSessionObserver.read(data, path: url.path).session]
+            },
             listing(.kimi, paths.roots(for: .kimi), accepts: { $0.lastPathComponent == "wire.jsonl" }) { data, url in
                 try OpenAgentParser.kimi(data, path: url.path)
             },

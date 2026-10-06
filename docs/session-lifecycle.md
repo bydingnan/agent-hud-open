@@ -22,7 +22,7 @@ Which clients expose running and terminal turns, which of them say they are wait
 | Cursor | Through local lifecycle hooks (`beforeSubmitPrompt` / tool / `stop`) written under Application Support | Through the `stop` hook and lifecycle inbox | Account usage plus local lifecycle turns. |
 | CodeBuddy | No | Through the `Stop` hook | Local records supply usage only. |
 | Hermes Agent, ZCode, WorkBuddy | No | No | Local records hold usage counters only. |
-| OpenCode | No | No | A persisted message end is not an agent end. |
+| OpenCode | Yes, with the V2 lifecycle plugin | Yes, with the V2 lifecycle plugin | Prompt and execution events write metadata-only turn snapshots under `~/.local/share/opencode/agent-hud/turns`; permission requests report `waitingForApproval`. Persisted message completion alone is never treated as an agent end. |
 | GLM | n/a | n/a | Billing service; execution state belongs to the client using it. |
 
 ## Rules
